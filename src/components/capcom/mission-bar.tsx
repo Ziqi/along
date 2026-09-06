@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
-import { endClass, openRecap } from "@/components/capcom/use-engine";
+import { endClass, openRecap, goHomeSafe } from "@/components/capcom/use-engine";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -20,7 +20,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
   const view = useCapcom((s) => s.view);
-  const goHome = useCapcom((s) => s.goHome);
+  const goHome = goHomeSafe;
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const live = listening || mic === "live";
   const arming = listening && mic === "arming";
@@ -99,6 +99,20 @@ export function MissionBar({ onArm, onSafe }: Props) {
         {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         {theme === "night" ? "白天" : "夜间"}
       </Button>
+      <SignedOut>
+        <a
+          href="/login"
+          className="flex h-10 min-h-10 items-center px-3 text-sm text-muted hover:text-fg max-md:w-full"
+          onClick={() => setMore(false)}
+        >
+          登录保存纪要
+        </a>
+      </SignedOut>
+      <SignedIn>
+        <div className="flex items-center px-2 py-1 md:hidden">
+          <UserButton />
+        </div>
+      </SignedIn>
     </>
   );
 
@@ -140,8 +154,8 @@ export function MissionBar({ onArm, onSafe }: Props) {
               </span>
             </SignedIn>
             <SignedOut>
-              <a href="/login" className="hidden text-xs text-muted hover:text-fg sm:inline">
-                登录保存
+              <a href="/login" className="text-xs text-muted hover:text-fg">
+                登录
               </a>
             </SignedOut>
           </>

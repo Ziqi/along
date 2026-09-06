@@ -9,6 +9,7 @@ import type {
   CoachCard,
   Jot,
   MicState,
+  RecapCoach,
   RecapOutline,
   RecapStudy,
   TopicEssay,
@@ -16,9 +17,9 @@ import type {
   TxTurn,
   View,
 } from "@/lib/types";
-import { isRemoved, markRemoved, readLocalSessions, writeLocalSessions } from "@/lib/persist";
+import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions, removedIds, writeLocalSessions } from "@/lib/persist";
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
-import { canAutoTitle, stampTitle } from "@/lib/utils";
+import { canAutoTitle, stampTitle, topicKey } from "@/lib/utils";
 
 let nid = 0;
 const idOf = (p: string) => {
@@ -31,6 +32,17 @@ const FILLER =
 const TAIL =
   /\b(a|an|the|and|but|or|to|of|for|with|in|on|at|if|that|this|so|like|just)\.?$/i;
 const CONT = /^(and|but|so|because|which|that|like|then|or|also)\b/i;
+
+function isSpeech(en: string) {
+  const t = en.replace(/\s+/g, " ").trim();
+  if (t.length < 2) return false;
+  const letters = t.match(/[a-zA-Z\u4e00-\u9fff]/g)?.length ?? 0;
+  if (letters < 3) return false;
+  if (/^[?？!！.。,，\-…\s]+$/.test(t)) return false;
+  if (/^(uh+|um+|ah+|hmm+|mm+|oh+|huh+)$/i.test(t)) return false;
+  if (/^\[(inaudible|blank.?audio|music|silence|noise)\]$/i.test(t)) return false;
+  return true;
+}
 
 function shouldMerge(prev: string, next: string) {
   if (!prev || !next) return false;
@@ -72,7 +84,9 @@ function persistSessions(sessions: ClassSession[]) {
   const merged = mergeSessions(disk, sessions).filter((s) => !isRemoved(s.id));
   writeLocalSessions(merged);
   window.setTimeout(() => {
-    void import("@/lib/recap-cloud").then((m) => m.pushSessionsSafe(merged));
+    void import("@/lib/recap-cloud").then((m) =>
+      m.pushSessionsSafe(merged, removedIds()),
+    );
   }, 400);
 }
 
@@ -182,7 +196,10 @@ function normRecap(raw: unknown): ClassRecap | null {
     )
       .map(normPair)
       .filter(Boolean) as { en: string; zh: string }[],
-    draft: r.draft !== false && !String(r.lede ?? "").trim(),
+    coachPack: Array.isArray((r as { coachPack?: unknown }).coachPack)
+      ? ((r as { coachPack: RecapCoach[] }).coachPack)
+      : [],
+    draft: r.draft === true,
     latencyMs: typeof r.latencyMs === "number" ? r.latencyMs : 0,
     at: typeof r.at === "number" ? r.at : 0,
   };
@@ -200,11 +217,15 @@ function normalizeSessions(raw: unknown): ClassSession[] {
         ...s,
         notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
         recap: normRecap(s.recap),
+        coaches: Array.isArray(s.coaches) ? s.coaches : [],
+        essays: s.essays && typeof s.essays === "object" ? s.essays : {},
         transcript: Array.isArray(s.transcript)
           ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
           : [],
         sourceId: s.sourceId ?? null,
         sourceTitle: s.sourceTitle ?? null,
+        starred: Boolean(s.starred),
+        starredAt: typeof s.starredAt === "number" ? s.starredAt : null,
         updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
         startedAt: typeof s.startedAt === "number" ? s.startedAt : Date.now(),
         endedAt: typeof s.endedAt === "number" ? s.endedAt : s.endedAt ?? null,
@@ -241,13 +262,16 @@ function recapScore(r: ClassRecap | null) {
 function mergeRecap(a: ClassRecap | null, b: ClassRecap | null) {
   if (!a) return b;
   if (!b) return a;
-  if (recapScore(b) !== recapScore(a)) return recapScore(b) > recapScore(a) ? b : a;
-  return (b.at ?? 0) >= (a.at ?? 0) ? b : a;
+  if ((b.at ?? 0) !== (a.at ?? 0)) return (b.at ?? 0) > (a.at ?? 0) ? b : a;
+  return recapScore(b) >= recapScore(a) ? b : a;
 }
 
 function mergeNotes(a: Jot[], b: Jot[]) {
   const map = new Map<string, Jot>();
-  for (const j of [...a, ...b]) map.set(j.id, j);
+  for (const j of [...a, ...b]) {
+    if (isRemovedJot(j.id)) continue;
+    map.set(j.id, j);
+  }
   return [...map.values()].sort((x, y) => x.at - y.at).slice(-40);
 }
 
@@ -256,8 +280,7 @@ function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
   const older = newer === b ? a : b;
   return {
     ...newer,
-    title:
-      newer.title.length >= older.title.length ? newer.title : older.title,
+    title: newer.title,
     endedAt:
       a.endedAt && b.endedAt
         ? Math.max(a.endedAt, b.endedAt)
@@ -268,11 +291,24 @@ function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
         ? a.transcript
         : b.transcript,
     notes: mergeNotes(a.notes ?? [], b.notes ?? []),
+    coaches: (a.coaches?.length ?? 0) >= (b.coaches?.length ?? 0) ? a.coaches ?? [] : b.coaches ?? [],
+    essays: Object.keys(b.essays ?? {}).length >= Object.keys(a.essays ?? {}).length ? b.essays ?? {} : a.essays ?? {},
     updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
     startedAt: Math.min(a.startedAt, b.startedAt),
     sourceId: newer.sourceId ?? older.sourceId,
     sourceTitle: newer.sourceTitle ?? older.sourceTitle,
+    starred: newer.starred,
+    starredAt: newer.starred ? (newer.starredAt ?? older.starredAt) : null,
   };
+}
+
+function sortSessions(list: ClassSession[]) {
+  return [...list].sort((x, y) => {
+    const star = Number(Boolean(y.starred)) - Number(Boolean(x.starred));
+    if (star) return star;
+    if (x.starred && y.starred) return (y.starredAt ?? 0) - (x.starredAt ?? 0);
+    return (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt);
+  });
 }
 
 function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
@@ -281,9 +317,7 @@ function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
     const prev = map.get(s.id);
     map.set(s.id, prev ? mergeOne(prev, s) : s);
   }
-  return [...map.values()]
-    .sort((x, y) => (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt))
-    .slice(0, 40);
+  return sortSessions([...map.values()]).slice(0, 40);
 }
 
 type AppState = {
@@ -302,6 +336,7 @@ type AppState = {
   essays: Record<string, TopicEssay>;
   essayPending: boolean;
   essayTarget: string | null;
+  essayError: string | null;
   jots: Jot[];
   sessions: ClassSession[];
   sessionId: string | null;
@@ -334,8 +369,9 @@ type AppState = {
   setCoach: (card: CoachCard | null) => void;
   setCoachPending: (on: boolean) => void;
   setCoachError: (msg: string | null) => void;
-  setEssay: (essay: TopicEssay | null, coachId?: string) => void;
+  setEssay: (essay: TopicEssay | null, coachId?: string, keepPending?: boolean) => void;
   setEssayPending: (on: boolean, coachId?: string | null) => void;
+  setEssayError: (msg: string | null) => void;
   addJot: (draft: {
     en?: string;
     zh?: string;
@@ -345,6 +381,7 @@ type AppState = {
   removeJot: (id: string) => void;
   renameSession: (id: string, title: string) => void;
   removeSession: (id: string) => void;
+  starSession: (id: string) => void;
   forkSession: (fromId: string) => string | null;
   goHome: () => void;
   updateRecap: (id: string, patch: Partial<ClassRecap>) => void;
@@ -403,6 +440,7 @@ export const useCapcom = create<AppState>((set, get) => {
     essays: {},
     essayPending: false,
     essayTarget: null,
+    essayError: null,
     jots: [],
     sessions: [],
     sessionId: null,
@@ -426,7 +464,7 @@ export const useCapcom = create<AppState>((set, get) => {
     seq: 0,
     pushFinal: (en) => {
       const text = en.replace(/\s+/g, " ").trim();
-      if (!text) return "";
+      if (!text || !isSpeech(text)) return "";
       const last = get().captions.at(-1);
       if (last && last.en === text && Date.now() - last.at < 2200) return last.id;
       if (
@@ -504,19 +542,10 @@ export const useCapcom = create<AppState>((set, get) => {
         set({ coach: null, coaches: [], coachError: null, coachPending: false });
         return;
       }
-      const list = get().coaches;
-      const last = list.at(-1);
-      const sameTopic =
-        last &&
-        last.topic.trim().toLowerCase() === card.topic.trim().toLowerCase() &&
-        last.move === card.move;
-      const nextCard = { ...card, id: sameTopic && last ? last.id : card.id };
-      const coaches = sameTopic
-        ? [...list.slice(0, -1), nextCard]
-        : [...list, nextCard].slice(-20);
+      const coaches = [...get().coaches, card].slice(-20);
       set({
         coaches,
-        coach: nextCard,
+        coach: card,
         coachError: null,
         coachPending: false,
       });
@@ -524,14 +553,33 @@ export const useCapcom = create<AppState>((set, get) => {
     setCoachPending: (on) =>
       set({ coachPending: on, coachError: on ? null : get().coachError }),
     setCoachError: (msg) => set({ coachError: msg, coachPending: false }),
-    setEssay: (essay, coachId) => {
-      const id = coachId ?? get().coach?.id;
+    setEssay: (essay, coachId, keepPending) => {
+      const card =
+        (coachId ? get().coaches.find((c) => c.id === coachId) : null) ?? get().coach;
+      const key = topicKey(card?.topic ?? "");
       const essays = { ...get().essays };
-      if (essay && id) essays[id] = essay;
-      set({ essay, essays, essayPending: false, essayTarget: null });
+      if (essay) {
+        if (key) essays[key] = essay;
+        if (card?.id) essays[card.id] = essay;
+        else if (coachId) essays[coachId] = essay;
+      }
+      set({
+        essay,
+        essays,
+        essayPending: keepPending ? true : get().essayPending,
+        essayTarget: keepPending
+          ? (coachId ?? card?.id ?? get().essayTarget)
+          : get().essayTarget,
+        essayError: null,
+      });
     },
     setEssayPending: (on, coachId) =>
-      set({ essayPending: on, essayTarget: on ? (coachId ?? get().coach?.id ?? null) : null }),
+      set({
+        essayPending: on,
+        essayTarget: on ? (coachId ?? get().coach?.id ?? null) : get().essayTarget,
+        essayError: on ? null : get().essayError,
+      }),
+    setEssayError: (msg) => set({ essayError: msg }),
     addJot: (draft) => {
       const en = (draft.en ?? "").replace(/\s+/g, " ").trim();
       const zh = (draft.zh ?? "").replace(/\s+/g, " ").trim();
@@ -580,9 +628,10 @@ export const useCapcom = create<AppState>((set, get) => {
       set({ sessions, jots: get().jots.map(next) });
     },
     removeJot: (id) => {
+      markRemovedJot(id);
       const sessions = get().sessions.map((s) =>
         s.notes.some((j) => j.id === id)
-          ? { ...s, notes: s.notes.filter((j) => j.id !== id) }
+          ? { ...s, notes: s.notes.filter((j) => j.id !== id), updatedAt: Date.now() }
           : s,
       );
       persistSessions(sessions);
@@ -599,9 +648,26 @@ export const useCapcom = create<AppState>((set, get) => {
         return {
           ...s,
           title: name,
-          recap: s.recap ? { ...s.recap, title: name } : s.recap,
+          recap: s.recap ? { ...s.recap, title: name, at: Date.now() } : s.recap,
+          updatedAt: Date.now(),
         };
       });
+      persistSessions(sessions);
+      set({ sessions });
+    },
+    starSession: (id) => {
+      const sessions = sortSessions(
+        get().sessions.map((s) => {
+          if (s.id !== id) return s;
+          const starred = !s.starred;
+          return {
+            ...s,
+            starred,
+            starredAt: starred ? Date.now() : null,
+            updatedAt: Date.now(),
+          };
+        }),
+      );
       persistSessions(sessions);
       set({ sessions });
     },
@@ -616,22 +682,49 @@ export const useCapcom = create<AppState>((set, get) => {
         notes: src.notes.map((j) => ({ ...j, id: idOf("jot") })),
         recap: null,
         transcript: src.transcript.map((t) => ({ ...t })),
+        coaches: src.coaches ?? [],
+        essays: src.essays ?? {},
         sourceId: src.id,
         sourceTitle: src.title,
+        starred: false,
+        starredAt: null,
         updatedAt: Date.now(),
       };
-      const sessions = [next, ...get().sessions].slice(0, 40);
+      const sessions = sortSessions([next, ...get().sessions]).slice(0, 40);
       persistSessions(sessions);
       set({ sessions, sessionId: next.id });
       return next.id;
     },
-    goHome: () =>
+    goHome: () => {
+      const open = get().sessions.some((s) => s.id === get().liveId && !s.endedAt);
+      if (open) {
+        set({ view: "live", bay: null, askOpen: false, jotOpen: false });
+        return;
+      }
       set({
         view: "live",
         bay: null,
         askOpen: false,
         jotOpen: false,
-      }),
+        captions: [],
+        interim: "",
+        coach: null,
+        coaches: [],
+        coachError: null,
+        coachPending: false,
+        essay: null,
+        essays: {},
+        essayPending: false,
+        essayTarget: null,
+        jots: [],
+        liveId: null,
+        seq: 0,
+        startedAt: null,
+        lastLatency: null,
+        recapPending: false,
+        recapError: null,
+      });
+    },
     removeSession: (id) => {
       markRemoved(id);
       const sessions = get().sessions.filter((s) => s.id !== id);
@@ -649,8 +742,8 @@ export const useCapcom = create<AppState>((set, get) => {
     updateRecap: (id, patch) => {
       const sessions = get().sessions.map((s) => {
         if (s.id !== id || !s.recap) return s;
-        const recap = { ...s.recap, ...patch };
-        return { ...s, recap, title: recap.title || s.title };
+        const recap = { ...s.recap, ...patch, at: Date.now() };
+        return { ...s, recap, title: recap.title || s.title, updatedAt: Date.now() };
       });
       persistSessions(sessions);
       set({ sessions });
@@ -671,14 +764,18 @@ export const useCapcom = create<AppState>((set, get) => {
         notes: [],
         recap: null,
         transcript: [],
+        coaches: [],
+        essays: {},
         sourceId: null,
         sourceTitle: null,
+        starred: false,
+        starredAt: null,
         updatedAt: now,
       };
       const closed = get().sessions.map((s) =>
         !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
       );
-      const sessions = [next, ...closed].slice(0, 40);
+      const sessions = sortSessions([next, ...closed]).slice(0, 40);
       persistSessions(sessions);
       set({
         sessions,
@@ -736,6 +833,7 @@ export const useCapcom = create<AppState>((set, get) => {
           skills: s.recap?.skills ?? [],
           outline: draft.outline.length ? draft.outline : (s.recap?.outline ?? []),
           takeaways: s.recap?.takeaways ?? [],
+          coachPack: s.recap?.coachPack ?? [],
           draft: true,
           latencyMs: draft.ms,
           at: Date.now(),
@@ -760,16 +858,47 @@ export const useCapcom = create<AppState>((set, get) => {
       const transcript = get()
         .captions.filter((c) => c.en && !c.error)
         .map((c) => ({ en: c.en, zh: c.zh }));
-      const sessions = get().sessions.map((s) =>
-        s.id === sid
+      const coachTopics = get()
+        .coaches.map((c) => ({ en: c.topic.trim(), zh: c.topicZh || "" }))
+        .filter((t) => t.en);
+      const sessions = get().sessions.map((s) => {
+        if (s.id !== sid) return s;
+        const recap = s.recap
           ? {
-              ...s,
-              notes: get().jots,
-              transcript: transcript.length ? transcript : s.transcript ?? [],
-              updatedAt: Date.now(),
+              ...s.recap,
+              topics: s.recap.topics.length ? s.recap.topics : coachTopics,
             }
-          : s,
-      );
+          : coachTopics.length
+            ? {
+                title: s.title,
+                lede: "",
+                ledeZh: "",
+                sections: [],
+                topics: coachTopics,
+                patterns: [],
+                lines: [],
+                words: [],
+                collos: [],
+                grammar: [],
+                skills: [],
+                outline: [],
+                takeaways: [],
+                coachPack: [],
+                draft: true,
+                latencyMs: 0,
+                at: Date.now(),
+              }
+            : null;
+        return {
+          ...s,
+          notes: get().jots,
+          transcript: transcript.length ? transcript : s.transcript ?? [],
+          coaches: get().coaches.length ? get().coaches : s.coaches ?? [],
+          essays: Object.keys(get().essays).length ? get().essays : s.essays ?? {},
+          recap,
+          updatedAt: Date.now(),
+        };
+      });
       persistSessions(sessions);
       set({ sessions, liveId: sid });
     },
@@ -796,7 +925,7 @@ export const useCapcom = create<AppState>((set, get) => {
           sessions[0]?.id ??
           null;
         set({
-          sessions,
+          sessions: sessions.filter((s) => !isRemoved(s.id)),
           liveId: open?.id ?? (keepTape ? cur.liveId : null),
           sessionId: keepSession,
           jots: cur.jots.length ? cur.jots : (open?.notes ?? []),
@@ -821,10 +950,6 @@ export const useCapcom = create<AppState>((set, get) => {
         apply(withSample(loadSessions()));
       } catch {
         apply(withSample([]));
-      }
-      const showSample = !isRemoved(SAMPLE_ID);
-      if (showSample && get().sessions.some((s) => s.id === SAMPLE_ID) && get().view === "live" && !get().listening) {
-        set({ view: "recap", sessionId: SAMPLE_ID });
       }
       window.setTimeout(() => {
         if (persistReady) return;

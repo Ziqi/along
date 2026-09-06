@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
+import { assembleEssay, heuristicEssay } from "@/lib/essay-kit";
+import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, missingZh } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/utils";
-import { applyZh, assembleRecap, GOLD_CONTENT, GOLD_STUDY, heuristicRecap, missingZh } from "@/lib/recap-kit";
 
 const FLASH = "grok-4.20-non-reasoning";
 const FLASH_FALLBACK = "grok-4.3";
@@ -106,7 +107,7 @@ async function chat46recap(params: {
     { role: "user", content: params.user },
   ];
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 55000);
+  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 24000);
   try {
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
@@ -119,7 +120,7 @@ async function chat46recap(params: {
         model: "grok-4.6",
         temperature: 0.25,
         max_tokens: params.maxTokens,
-        reasoning_effort: "medium",
+        reasoning_effort: "low",
         messages,
       }),
     });
@@ -131,9 +132,82 @@ async function chat46recap(params: {
   return chatFlash({
     system: params.system,
     user: params.user,
-    maxTokens: Math.min(params.maxTokens, 2800),
+    maxTokens: Math.min(params.maxTokens, 2200),
     temperature: 0.2,
+    timeoutMs: 12000,
   });
+}
+
+async function extractResponsesText(body: unknown) {
+  if (!body || typeof body !== "object") return "";
+  const row = body as {
+    output_text?: unknown;
+    output?: unknown;
+  };
+  if (typeof row.output_text === "string" && row.output_text.trim()) {
+    return row.output_text.trim();
+  }
+  if (!Array.isArray(row.output)) return "";
+  const bits: string[] = [];
+  for (const item of row.output) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as { type?: string; content?: unknown };
+    if (rec.type !== "message") continue;
+    if (typeof rec.content === "string") bits.push(rec.content);
+    else if (Array.isArray(rec.content)) {
+      for (const p of rec.content) {
+        if (typeof p === "string") bits.push(p);
+        else if (p && typeof p === "object") {
+          const part = p as { text?: unknown; type?: string };
+          if (typeof part.text === "string") bits.push(part.text);
+        }
+      }
+    }
+  }
+  return bits.join("\n").trim();
+}
+
+/** Real DeepSearch: web_search when available, then grok-4.6. */
+async function chatDeepSearch(params: {
+  system: string;
+  user: string;
+  maxTokens: number;
+  timeoutMs?: number;
+}): Promise<{ ok: true; text: string; ms: number } | ChatErr> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) return { ok: false, error: "AI 暂不可用" };
+  const started = Date.now();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 10000);
+  try {
+    const res = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: ac.signal,
+      body: JSON.stringify({
+        model: "grok-4.6",
+        tools: [{ type: "web_search" }],
+        instructions: params.system,
+        input: params.user,
+        max_output_tokens: Math.min(params.maxTokens, 1400),
+      }),
+    });
+    if (res.ok) {
+      const body = await res.json();
+      const text = await extractResponsesText(body);
+      if (text) {
+        clearTimeout(timer);
+        return { ok: true, text, ms: Date.now() - started };
+      }
+    }
+  } catch {
+    /* timed out or failed — caller already has flash */
+  }
+  clearTimeout(timer);
+  return { ok: false, error: "search-timeout" };
 }
 
 async function chat46low(params: {
@@ -203,7 +277,7 @@ const TRANS_SYS =
   'Translate classroom English into 简体中文. Return ONLY JSON: {"zh":"..."}. zh MUST include Chinese characters. Spoken, complete. NEVER copy the English. No pinyin.';
 
 const COACH_SYS =
-  'English-class coach. Intermediate Chinese student. Return ONLY JSON: {"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. Infer the ongoing theme from recent_class. topic≤6 English words. topicZh=中文. briefZh=2 short Chinese sentences: what this topic/question IS, plus why it matters in class. briefEn=the same gist in spoken English, 1-2 sentences (a gloss, not a reply). move=answer if last_heard is a question; else join. options: ALWAYS 3 spoken turns they can say NOW. If answer: labels 答/答/答 — agree, contrast, example. If join: 接话, 追问, 例子. extras: ALWAYS 2 spoken extensions, NOT replies to the last line: 1 延展 = take the talk to a related angle (cause, tradeoff, comparison). 2 追深 = one sharper fact, number, or personal case. en=12-22 words classroom English. zh≤24 Chinese chars. keys=2-4 content words. NEVER repeat last_heard. No markdown.';
+  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY if last_heard is still the same beat and is NOT a question. If last_heard is a question or a new angle, same=false and name a specific topic for THIS beat (≤6 English words; may be a sub-topic of prev). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer: 答/答/答 — agree, contrast, example. join: 接话, 追问, 例子. extras: 延展, 追深. en=12-22 words. zh≤24 chars 简体. keys=2-4 words. NEVER repeat last_heard. No markdown.';
 
 export const liveTranslate = createServerFn({ method: "POST" })
   .validator((input: { lines: { id: string; en: string }[] }) => ({
@@ -248,7 +322,14 @@ export const liveTranslate = createServerFn({ method: "POST" })
 
 export const liveCoach = createServerFn({ method: "POST" })
   .validator(
-    (input: { last: string; recent: string[]; intent: string }) => ({
+    (input: {
+      last: string;
+      recent: string[];
+      intent: string;
+      prevTopic?: string;
+      prevTopicZh?: string;
+      notes?: string[];
+    }) => ({
       last: String(input?.last ?? "")
         .trim()
         .slice(0, 400),
@@ -258,11 +339,21 @@ export const liveCoach = createServerFn({ method: "POST" })
       intent: String(input?.intent ?? "")
         .trim()
         .slice(0, 400),
+      prevTopic: String(input?.prevTopic ?? "")
+        .trim()
+        .slice(0, 80),
+      prevTopicZh: String(input?.prevTopicZh ?? "")
+        .trim()
+        .slice(0, 40),
+      notes: Array.isArray(input?.notes)
+        ? input.notes.map((s) => String(s).slice(0, 120)).filter(Boolean).slice(-8)
+        : [],
     }),
   )
   .handler(async ({ data }): Promise<
     | {
         ok: true;
+        same: boolean;
         topic: string;
         topicZh: string;
         briefZh: string;
@@ -281,6 +372,9 @@ export const liveCoach = createServerFn({ method: "POST" })
         last_heard: data.last || null,
         recent_class: data.recent,
         student_intent: data.intent || null,
+        prev_topic: data.prevTopic || null,
+        prev_topic_zh: data.prevTopicZh || null,
+        student_notes: data.notes.length ? data.notes : null,
       }),
       maxTokens: 700,
       timeoutMs: 8000,
@@ -288,10 +382,17 @@ export const liveCoach = createServerFn({ method: "POST" })
     if (!result.ok) return result;
     const parsed = extractJsonObject(result.text);
     const move = pick(parsed, "move") === "join" ? "join" : "answer";
+    const same =
+      move !== "answer" &&
+      (parsed?.same === true ||
+        parsed?.same === "true" ||
+        (Boolean(data.prevTopic) &&
+          pick(parsed, "topic").toLowerCase() === data.prevTopic.toLowerCase()));
     return {
       ok: true,
-      topic: pick(parsed, "topic"),
-      topicZh: pick(parsed, "topicZh"),
+      same,
+      topic: same && data.prevTopic ? data.prevTopic : pick(parsed, "topic"),
+      topicZh: same && data.prevTopicZh ? data.prevTopicZh : pick(parsed, "topicZh"),
       briefZh: pick(parsed, "briefZh"),
       briefEn: pick(parsed, "briefEn"),
       move,
@@ -332,14 +433,21 @@ export const expandTopic = createServerFn({ method: "POST" })
     | {
         ok: true;
         title: string;
+        contextEn: string;
+        contextZh: string;
         viewZh: string;
         viewEn: string;
+        angles: { en: string; zh: string }[];
+        facts: { en: string; zh: string }[];
         qZh: string;
         qEn: string;
         aZh: string;
         aEn: string;
         say: string;
+        frames: { en: string; zh: string }[];
         terms: { en: string; zh: string }[];
+        sources: { en: string; zh: string }[];
+        draft: boolean;
         ms: number;
       }
     | ChatErr
@@ -347,33 +455,44 @@ export const expandTopic = createServerFn({ method: "POST" })
     if (!data.topic && !data.lastHeard && !data.options.length) {
       return { ok: false, error: "empty" };
     }
-    const result = await chat46low({
-      system:
-        'DeepSearch briefing for English class. Intermediate Chinese student. Return ONLY JSON: {"title":"...","viewZh":"...","viewEn":"...","qZh":"...","qEn":"...","aZh":"...","aEn":"...","say":"...","terms":[{"en":"...","zh":"..."}]}. title=English topic ≤6 words. viewZh=one clear Chinese stance, 2-3 sentences with a reason. viewEn=the same stance in spoken classroom English, 2-3 sentences. qEn=a discussable question they can raise. qZh=Chinese of that question. aZh=a deeper Chinese answer, 3-5 sentences, with an example or tradeoff. aEn=spoken English of that answer. say=one English follow-up. terms=3 glosses. Always fill viewEn, aEn, qEn. Opinions, not a recap. No markdown.',
-      user: JSON.stringify({
-        topic: data.topic || null,
-        move: data.move || null,
-        live_options: data.options,
-        last_heard: data.lastHeard || null,
-        recent_class: data.recent,
-      }),
-      maxTokens: 780,
+    const draft = heuristicEssay({
+      topic: data.topic,
+      lastHeard: data.lastHeard,
+      recent: data.recent,
+      options: data.options,
     });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    return {
-      ok: true,
-      title: pick(parsed, "title") || data.topic,
-      viewZh: pick(parsed, "viewZh"),
-      viewEn: pick(parsed, "viewEn"),
-      qZh: pick(parsed, "qZh"),
-      qEn: pick(parsed, "qEn"),
-      aZh: pick(parsed, "aZh"),
-      aEn: pick(parsed, "aEn"),
-      say: pick(parsed, "say"),
-      terms: parseTerms(parsed?.terms),
-      ms: result.ms,
-    };
+    const sys =
+      'You are DeepSearch for an English class in mainland China, NOT the live coach. The coach already gave 3 short lines to say NOW — listed in live_options. NEVER repeat or paraphrase those lines. ALL Chinese MUST be 简体中文. Return ONLY JSON: {"title":"...","contextEn":"...","contextZh":"...","viewEn":"...","viewZh":"...","facts":[{"en":"...","zh":"..."}],"angles":[{"en":"...","zh":"..."}],"qEn":"...","qZh":"...","aEn":"...","aZh":"...","say":"...","frames":[{"en":"...","zh":"..."}],"terms":[{"en":"...","zh":"..."}],"sources":[{"en":"...","zh":"..."}]}. Search = 3 facts with names/numbers/years. Deep = viewEn 40-70 words AND aEn 70-110 words (40-second talk). Fill En + 简体. No markdown.';
+    const user = JSON.stringify({
+      topic: data.topic || null,
+      move: data.move || null,
+      live_options: data.options,
+      last_heard: data.lastHeard || null,
+      recent_class: data.recent,
+    });
+    const flashP = chatFlash({
+      system: sys,
+      user,
+      maxTokens: 1400,
+      temperature: 0.25,
+      timeoutMs: 8000,
+    });
+    const webP = chatDeepSearch({
+      system: sys,
+      user,
+      maxTokens: 1400,
+      timeoutMs: 10000,
+    });
+    const [flash, web] = await Promise.all([flashP, webP]);
+    const fromWeb = web.ok ? extractJsonObject(web.text) : null;
+    const fromFlash = flash.ok ? extractJsonObject(flash.text) : null;
+    const webHas =
+      fromWeb &&
+      (Array.isArray(fromWeb.facts) && (fromWeb.facts as unknown[]).length >= 1 ||
+        String(fromWeb.aEn ?? "").length > 60);
+    const parsed = webHas ? { ...fromFlash, ...fromWeb } : fromFlash;
+    const body = assembleEssay(draft, parsed, Math.max(flash.ok ? flash.ms : 0, web.ok ? web.ms : 0));
+    return { ok: true as const, ...body, draft: Boolean(body.draft), ms: body.latencyMs };
   });
 
 export const askTopic = createServerFn({ method: "POST" })
@@ -409,7 +528,7 @@ export const askTopic = createServerFn({ method: "POST" })
     if (!data.q) return { ok: false, error: "empty" };
     const result = await chat46low({
       system:
-        'Classroom thinking partner. Intermediate Chinese student in an English class. Answer the question they actually asked — a definition, a how-to-say, a comparison, a stance — do NOT force a generic 4-sentence discussion template. Return ONLY JSON: {"zh":"...","en":"..."}. zh=Chinese that answers the question first (what it is / the point / a reason), then one way to use it in class. 3-8 short sentences. en=spoken classroom English on THE SAME POINT, 3-8 sentences they can say; not a clone of zh. If they wrote 我想说…, en is that line plus a follow-up. class_so_far and topic are context only — never ignore the question. No markdown.',
+        'Classroom thinking partner. Intermediate student in mainland China, English class. ALL zh MUST be 简体中文, never 繁體. Answer the question they actually asked — a definition, a how-to-say, a comparison, a stance — do NOT force a generic 4-sentence discussion template. Return ONLY JSON: {"zh":"...","en":"..."}. zh=简体中文 that answers the question first (what it is / the point / a reason), then one way to use it in class. 3-8 short sentences. en=spoken classroom English on THE SAME POINT, 3-8 sentences they can say; not a clone of zh. If they wrote 我想说…, en is that line plus a follow-up. class_so_far and topic are context only — never ignore the question. No markdown.',
       user: JSON.stringify({
         question: data.q,
         thread: data.history,
@@ -529,7 +648,7 @@ function parseCoachOptions(
   return out;
 }
 
-function parseTerms(v: unknown): { en: string; zh: string }[] {
+function parseTerms(v: unknown, n = 4): { en: string; zh: string }[] {
   if (!Array.isArray(v)) return [];
   const out: { en: string; zh: string }[] = [];
   for (const it of v) {
@@ -545,7 +664,7 @@ function parseTerms(v: unknown): { en: string; zh: string }[] {
       if (en) out.push({ en, zh });
     }
   }
-  return out.slice(0, 4);
+  return out.slice(0, n);
 }
 
 function parseSections(v: unknown): {
@@ -695,6 +814,7 @@ export const recapClass = createServerFn({ method: "POST" })
       lines: { en: string; zh: string }[];
       topics: string[];
       notes: string[];
+      coach?: { topic: string; brief: string; say: string[] }[];
     }) => ({
       lines: Array.isArray(input?.lines)
         ? input.lines
@@ -715,50 +835,125 @@ export const recapClass = createServerFn({ method: "POST" })
       notes: Array.isArray(input?.notes)
         ? input.notes.map((s) => String(s).slice(0, 180)).slice(0, 12)
         : [],
+      coach: Array.isArray(input?.coach)
+        ? input.coach.slice(0, 10).map((c) => ({
+            topic: String(c?.topic ?? "").slice(0, 80),
+            brief: String(c?.brief ?? "").slice(0, 240),
+            say: Array.isArray(c?.say) ? c.say.map((s) => String(s).slice(0, 140)).slice(0, 3) : [],
+          }))
+        : [],
     }),
   )
   .handler(async ({ data }): Promise<RecapOk | ChatErr> => {
     if (data.lines.length < 2) return { ok: false, error: "实录太短" };
+    const tape = compactTape(data.lines).slice(0, 36);
     const payload = {
-      transcript: data.lines,
+      transcript: tape,
       coach_topics: data.topics,
+      coach_cards: data.coach,
       student_notes: data.notes,
     };
-    const base = heuristicRecap({
-      transcript: data.lines,
-      topics: data.topics,
-      notes: data.notes,
-    });
-    const contentP = chatFlash({
-      system:
-        "Assembler slot: CONTENT of an English class. English primary, Chinese in *Zh. Return ONLY JSON: {\"title\":\"...\",\"lede\":\"...\",\"ledeZh\":\"...\",\"outline\":[{\"heading\":\"...\",\"bullets\":[\"...\"]}],\"sections\":[{\"heading\":\"...\",\"headingZh\":\"...\",\"body\":\"...\",\"bodyZh\":\"...\",\"points\":[{\"en\":\"...\",\"zh\":\"...\"}]}],\"takeaways\":[{\"en\":\"...\",\"zh\":\"...\"}],\"topics\":[{\"en\":\"...\",\"zh\":\"...\"}]}. " +
-        GOLD_CONTENT +
-        " No markdown.",
+    const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
+    const contentSys =
+      "CONTENT slot. English-class recap for a mainland student. English primary, 简体中文 in *Zh. " +
+      GOLD_CONTENT +
+      ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"..."}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. No markdown.';
+    const flashContent = chatFlash({
+      system: contentSys,
       user: JSON.stringify(payload),
-      maxTokens: 1600,
+      maxTokens: 1800,
       temperature: 0.2,
-      timeoutMs: 14000,
+      timeoutMs: 12000,
     });
-    const studyP = chatFlash({
+    const flashStudy = chatFlash({
       system:
-        "Assembler slot: ENGLISH STUDY. Return ONLY JSON: {\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\":\"...\",\"zh\":\"...\",\"use\":\"...\",\"useZh\":\"...\",\"example\":\"...\",\"exampleZh\":\"...\"}. " +
+        "STUDY slot. 简体中文 glosses. Return ONLY JSON: {\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
         GOLD_STUDY +
         " No markdown.",
-      user: JSON.stringify(payload),
-      maxTokens: 1600,
+      user: JSON.stringify({
+        topics: data.topics,
+        notes: data.notes,
+        sample: tape.slice(0, 16),
+      }),
+      maxTokens: 1200,
       temperature: 0.2,
-      timeoutMs: 14000,
+      timeoutMs: 10000,
     });
-    const [content, study] = await Promise.all([contentP, studyP]);
-    const c = content.ok ? extractJsonObject(content.text) ?? {} : {};
-    const s = study.ok ? extractJsonObject(study.text) ?? {} : {};
-    let recap = assembleRecap(base, { ...c, ...s });
-    recap.latencyMs = Math.max(content.ok ? content.ms : 0, study.ok ? study.ms : 0);
+    const grokContent = (async () => {
+      const apiKey = process.env.XAI_API_KEY;
+      if (!apiKey) return { ok: false as const, error: "no-key" };
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 12000);
+      const started = Date.now();
+      try {
+        const res = await fetch("https://api.x.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          signal: ac.signal,
+          body: JSON.stringify({
+            model: "grok-4.6",
+            temperature: 0.2,
+            max_tokens: 1800,
+            reasoning_effort: "low",
+            messages: [
+              { role: "system", content: contentSys },
+              { role: "user", content: JSON.stringify(payload) },
+            ],
+          }),
+        });
+        clearTimeout(timer);
+        if (!res.ok) return { ok: false as const, error: "bad" };
+        return readChat(res, started);
+      } catch {
+        clearTimeout(timer);
+        return { ok: false as const, error: "timeout" };
+      }
+    })();
+    const [content, study, grok] = await Promise.all([flashContent, flashStudy, grokContent]);
+    const fromFlash = content.ok ? extractJsonObject(content.text) ?? {} : {};
+    const fromGrok = grok.ok ? extractJsonObject(grok.text) ?? {} : {};
+    const grokBetter =
+      Array.isArray(fromGrok.sections) &&
+      (fromGrok.sections as unknown[]).length >=
+        (Array.isArray(fromFlash.sections) ? (fromFlash.sections as unknown[]).length : 0) &&
+      String(fromGrok.lede ?? "").length > 40;
+    let parsed: Record<string, unknown> = {
+      ...(grokBetter ? fromGrok : { ...fromFlash, ...fromGrok }),
+      ...(study.ok ? extractJsonObject(study.text) ?? {} : {}),
+    };
+    let recap = assembleRecap(base, parsed);
+    recap.latencyMs = Math.max(
+      content.ok ? content.ms : 0,
+      study.ok ? study.ms : 0,
+      grok.ok ? grok.ms : 0,
+    );
+    if (!recap.lede && !recap.sections.length) {
+      const slim = await chatFlash({
+        system:
+          "Write the recap UNDER these headings. Never return headings alone. ONLY JSON with title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh}], takeaways[{en,zh}]. body has a paragraph plus 1. 2. 3. Zh is 简体中文 of the same body. Rewrite STT.",
+        user: JSON.stringify(payload),
+        maxTokens: 1600,
+        temperature: 0.2,
+        timeoutMs: 10000,
+      });
+      if (slim.ok) {
+        parsed = { ...parsed, ...(extractJsonObject(slim.text) ?? {}) };
+        recap = assembleRecap(base, parsed);
+        recap.latencyMs += slim.ms;
+      }
+    }
+    if (!recap.sections.length) {
+      return { ok: false, error: "纪要没写出来，再点一次整理。" };
+    }
+    recap.draft = false;
     const miss = missingZh(recap);
     if (miss.length) {
       const gloss = await chatFlash({
         system:
-          'Translate each English string to spoken 简体中文. Return ONLY JSON {"items":[{"en":"...","zh":"..."}]}. zh short. No extras.',
+          'Translate each English string to spoken 简体中文. Return ONLY JSON {"items":[{"en":"...","zh":"..."}]}. zh is a translation of THAT en. No extras.',
         user: JSON.stringify({ items: miss }),
         maxTokens: 900,
         timeoutMs: 8000,
@@ -842,7 +1037,7 @@ export const liveOutline = createServerFn({ method: "POST" })
     }
     const result = await chatFlash({
       system:
-        'Living class outline. English PRIMARY. Return ONLY JSON: {"title":"...","outline":[{"heading":"...","bullets":["..."]}],"topics":[{"en":"...","zh":"..."}]}. title=3-6 English words. outline=2-4 English headings, each with 1-3 English bullets covering what has been said so far. topics=en + short Chinese gloss. Fold student notes in. Not a final essay. No Chinese in title/headings/bullets.',
+        'Living class outline. English PRIMARY. Return ONLY JSON: {"title":"...","outline":[{"heading":"...","bullets":["..."]}],"topics":[{"en":"...","zh":"..."}]}. title=3-6 English words naming the subject. outline=2-4 SHORT headings (≤6 words), each with 1-2 rewritten bullets (≤18 words). Never paste speech fragments. Never repeat a bullet. topics=en + Chinese gloss. No Chinese in title/headings/bullets.',
       user: JSON.stringify({
         transcript: data.lines,
         coach_topics: data.topics,

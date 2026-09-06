@@ -12,17 +12,85 @@ import {
   liveOutline,
   quickTranslate,
 } from "@/lib/capcom-ai";
-import { heuristicRecap } from "@/lib/recap-kit";
+import { heuristicEssay } from "@/lib/essay-kit";
+import { emptyRecap, fillFromCoach, packCoach } from "@/lib/recap-kit";
 
 let coachGen = 0;
-let essayGen = 0;
 let askGen = 0;
+let recapGen = 0;
+const essayGens = new Map<string, number>();
+const essayInflight = new Set<string>();
+const essayQueue: string[] = [];
+const ESSAY_CAP = 2;
 let controller: SpeechController | SttController | null = null;
 let transTimer: number | null = null;
 let coachTimer: number | null = null;
 let liveRecapTimer: number | null = null;
 let liveRecapGen = 0;
 const transBatch: { id: string; en: string }[] = [];
+
+const STOP = new Set(
+  "the a an and or but if so to of in on at for from with as is are was were be it this that you we they i he she my our not just about".split(
+    " ",
+  ),
+);
+
+function contentTokens(lines: string[]) {
+  const bag: string[] = [];
+  for (const line of lines) {
+    for (const w of line.toLowerCase().match(/[a-z][a-z']{2,}/g) ?? []) {
+      if (!STOP.has(w)) bag.push(w);
+    }
+  }
+  return bag;
+}
+
+function lexicalShift(recent: string[]) {
+  const last = contentTokens(recent.slice(-4));
+  const prev = contentTokens(recent.slice(-12, -4));
+  if (last.length < 6 || prev.length < 6) return false;
+  const a = new Set(last);
+  const b = new Set(prev);
+  let hit = 0;
+  for (const w of a) if (b.has(w)) hit += 1;
+  return hit / Math.min(a.size, b.size) < 0.3;
+}
+
+export function abortLive() {
+  coachGen += 1;
+  liveRecapGen += 1;
+  recapGen += 1;
+  for (const id of essayGens.keys()) essayGens.set(id, (essayGens.get(id) ?? 0) + 1);
+  essayInflight.clear();
+  essayQueue.length = 0;
+  if (coachTimer != null) {
+    window.clearTimeout(coachTimer);
+    coachTimer = null;
+  }
+  if (transTimer != null) {
+    window.clearTimeout(transTimer);
+    transTimer = null;
+  }
+  if (liveRecapTimer != null) {
+    window.clearTimeout(liveRecapTimer);
+    liveRecapTimer = null;
+  }
+  transBatch.length = 0;
+  transTries.clear();
+  transBusy = 0;
+  recapGen += 1;
+  const s = useCapcom.getState();
+  s.setCoachPending(false);
+  s.setEssayPending(false);
+  s.setRecapPending(false);
+}
+
+export function goHomeSafe() {
+  const s = useCapcom.getState();
+  const open = s.sessions.some((x) => x.id === s.liveId && !x.endedAt);
+  if (!open) abortLive();
+  s.goHome();
+}
 
 export function ingest(en: string, src: "mic" | "hand" = "mic") {
   const store = useCapcom.getState();
@@ -58,22 +126,27 @@ function hasZh(s: string) {
 }
 
 async function flushTranslate() {
-  if (transBusy >= 2) return;
+  if (transBusy >= 3) return;
   const line = transBatch.shift();
   if (!line) return;
   transBusy += 1;
-  const result = await liveTranslate({ data: { lines: [line] } });
-  transBusy -= 1;
-  const s = useCapcom.getState();
-  const zh = result.ok ? (result.items[0]?.zh ?? "") : "";
-  if (hasZh(zh)) {
-    transTries.delete(line.id);
-    s.setZh(line.id, { zh, ms: result.ok ? result.ms : 0, en: line.en });
-  } else {
-    const n = (transTries.get(line.id) ?? 0) + 1;
-    transTries.set(line.id, n);
-    if (n < 4) transBatch.push(line);
-    else s.markError(line.id, "未译");
+  try {
+    const result = await liveTranslate({ data: { lines: [line] } });
+    const s = useCapcom.getState();
+    const zh = result.ok ? (result.items[0]?.zh ?? "") : "";
+    if (hasZh(zh)) {
+      transTries.delete(line.id);
+      s.setZh(line.id, { zh, ms: result.ok ? result.ms : 0, en: line.en });
+    } else {
+      const n = (transTries.get(line.id) ?? 0) + 1;
+      transTries.set(line.id, n);
+      if (n < 4) transBatch.push(line);
+      else s.markError(line.id, "未译");
+    }
+  } catch {
+    transBatch.push(line);
+  } finally {
+    transBusy = Math.max(0, transBusy - 1);
   }
   if (transBatch.length) void flushTranslate();
 }
@@ -82,12 +155,13 @@ export function retryPendingZh() {
   const s = useCapcom.getState();
   for (const c of s.captions) {
     if (!c.en) continue;
+    if (!/[a-zA-Z\u4e00-\u9fff]{3,}/.test(c.en)) continue;
     if (hasZh(c.zh) && !c.pending) continue;
     if ((transTries.get(c.id) ?? 0) >= 4) continue;
     if (!transBatch.some((b) => b.id === c.id)) transBatch.push({ id: c.id, en: c.en });
   }
-  if (!transBatch.length || transBusy >= 2) {
-    if (transBatch.length && transBusy < 2) void flushTranslate();
+  if (!transBatch.length || transBusy >= 3) {
+    if (transBatch.length && transBusy < 3) void flushTranslate();
     return;
   }
   void flushTranslate();
@@ -108,44 +182,67 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
       );
     if (words.length < 6 && !isQ) return;
     const prev = store.coach;
+    const shift = lexicalShift(store.captions.slice(-12).map((c) => c.en));
     if (prev) {
       if (prev.prompt === last && Date.now() - prev.at < 12000) return;
-      if (!isQ && Date.now() - prev.at < 14000) return;
+      if (!isQ && !shift && Date.now() - prev.at < 8000) return;
     }
   }
   const gen = ++coachGen;
   store.setCoachPending(true);
-  const result = await liveCoach({
-    data: {
-      last,
-      recent: store.captions.slice(-24).map((c) => c.en),
-      intent,
-    },
-  });
-  if (gen !== coachGen) return;
-  if (!result.ok) {
-    useCapcom.getState().setCoachError(result.error);
-    return;
+  try {
+    const result = await liveCoach({
+      data: {
+        last,
+        recent: store.captions.slice(-24).map((c) => c.en),
+        intent,
+        prevTopic: store.coach?.topic ?? "",
+        prevTopicZh: store.coach?.topicZh ?? "",
+        notes: store.jots.map((j) => j.en || j.zh).filter(Boolean),
+      },
+    });
+    if (gen !== coachGen) return;
+    if (!useCapcom.getState().liveId) {
+      useCapcom.getState().setCoachPending(false);
+      return;
+    }
+    if (!result.ok) {
+      useCapcom.getState().setCoachError(result.error);
+      return;
+    }
+    if (!result.options.length) {
+      useCapcom.getState().setCoachError("教练没给出三条，再听一句。");
+      return;
+    }
+    const prev = useCapcom.getState().coach;
+    if (
+      source === "auto" &&
+      result.same &&
+      prev &&
+      result.move !== "answer" &&
+      Date.now() - prev.at < 22000
+    ) {
+      useCapcom.getState().setCoachPending(false);
+      return;
+    }
+    if (source === "intent") useCapcom.getState().setIntent("");
+    useCapcom.getState().setCoach({
+      id: `c-${Date.now().toString(36)}`,
+      topic: result.topic,
+      topicZh: result.topicZh,
+      briefZh: result.briefZh,
+      briefEn: result.briefEn,
+      move: result.move,
+      options: result.options,
+      extras: result.extras ?? [],
+      source,
+      prompt: intent || last,
+      latencyMs: result.ms,
+      at: Date.now(),
+    });
+  } catch {
+    if (gen === coachGen) useCapcom.getState().setCoachError("教练暂时没写出来。");
   }
-  if (!result.options.length) {
-    useCapcom.getState().setCoachError("教练没给出三条，再听一句。");
-    return;
-  }
-  if (source === "intent") useCapcom.getState().setIntent("");
-  useCapcom.getState().setCoach({
-    id: `c-${Date.now().toString(36)}`,
-    topic: result.topic,
-    topicZh: result.topicZh,
-    briefZh: result.briefZh,
-    briefEn: result.briefEn,
-    move: result.move,
-    options: result.options,
-    extras: result.extras ?? [],
-    source,
-    prompt: intent || last,
-    latencyMs: result.ms,
-    at: Date.now(),
-  });
 }
 
 export function requestCoach(spoken?: string) {
@@ -169,42 +266,91 @@ export async function requestEssay(coachId?: string) {
   const store = useCapcom.getState();
   const card =
     (coachId ? store.coaches.find((c) => c.id === coachId) : null) ?? store.coach;
-  const gen = ++essayGen;
-  store.setEssayPending(true, card?.id ?? null);
+  const id = card?.id ?? "latest";
+  if (!card && !store.captions.length) {
+    store.setEssayError("先听一句，再 DeepSearch。");
+    return;
+  }
+  if (essayInflight.has(id)) return;
+  if (essayInflight.size >= ESSAY_CAP) {
+    if (!essayQueue.includes(id)) essayQueue.push(id);
+    store.setEssayPending(true, id);
+    return;
+  }
+  essayInflight.add(id);
+  const gen = (essayGens.get(id) ?? 0) + 1;
+  essayGens.set(id, gen);
+  store.setEssayPending(true, id);
   const caps = store.captions;
+  const bits = {
+    lastHeard: caps.at(-1)?.en ?? card?.prompt ?? "",
+    recent: caps.slice(-12).map((c) => c.en),
+    topic: card?.topic ?? "",
+    move: card?.move ?? "",
+    options: (card?.options ?? []).map((o) => o.en),
+    extras: (card?.extras ?? []).map((o) => o.en),
+  };
+  store.setEssay(
+    heuristicEssay({
+      topic: bits.topic,
+      lastHeard: bits.lastHeard,
+      recent: bits.recent,
+      options: bits.options,
+      extras: bits.extras,
+    }),
+    card?.id,
+    true,
+  );
   try {
     const result = await expandTopic({
       data: {
-        lastHeard: caps.at(-1)?.en ?? "",
-        recent: caps.slice(-12).map((c) => c.en),
-        topic: card?.topic ?? "",
-        move: card?.move ?? "",
-        options: (card?.options ?? []).map((o) => o.en),
+        lastHeard: bits.lastHeard,
+        recent: bits.recent,
+        topic: bits.topic,
+        move: bits.move,
+        options: bits.options,
       },
     });
-    if (gen !== essayGen) return;
+    if (essayGens.get(id) !== gen) return;
     if (!result.ok) {
-      useCapcom.getState().setEssayPending(false);
+      useCapcom.getState().setEssayError(result.error);
       return;
     }
     useCapcom.getState().setEssay(
       {
         title: result.title,
+        contextEn: result.contextEn,
+        contextZh: result.contextZh,
         viewZh: result.viewZh,
         viewEn: result.viewEn,
+        angles: result.angles,
+        facts: result.facts,
         qZh: result.qZh,
         qEn: result.qEn,
         aZh: result.aZh,
         aEn: result.aEn,
         say: result.say,
+        frames: result.frames,
         terms: result.terms,
+        sources: result.sources ?? [],
         latencyMs: result.ms,
         at: Date.now(),
+        draft: result.draft,
       },
       card?.id,
     );
   } catch {
-    if (gen === essayGen) useCapcom.getState().setEssayPending(false);
+    if (essayGens.get(id) === gen) useCapcom.getState().setEssayError("检索超时，再点一次。");
+  } finally {
+    if (essayGens.get(id) === gen) {
+      essayInflight.delete(id);
+      useCapcom.getState().setEssayPending(
+        essayInflight.size > 0,
+        essayInflight.size ? [...essayInflight][0] : null,
+      );
+    }
+    const next = essayQueue.shift();
+    if (next) void requestEssay(next);
   }
 }
 
@@ -293,9 +439,11 @@ function toRecap(
     grammar?: RecapStudyLike[];
     skills?: { en: string; zh: string }[];
     takeaways?: { en: string; zh: string }[];
+    coachPack?: import("@/lib/types").RecapCoach[];
     ms: number;
   },
   prevOutline: { heading: string; bullets: string[] }[] = [],
+  coachPack: import("@/lib/types").RecapCoach[] = [],
 ) {
   const study = (rows: RecapStudyLike[] | undefined) =>
     (rows ?? []).map((r) => ({
@@ -325,6 +473,7 @@ function toRecap(
     grammar: study(result.grammar),
     skills: result.skills ?? [],
     takeaways: result.takeaways ?? [],
+    coachPack: result.coachPack?.length ? result.coachPack : coachPack,
     draft: false,
     latencyMs: result.ms,
     at: Date.now(),
@@ -345,7 +494,7 @@ function scheduleLiveRecap() {
   liveRecapTimer = window.setTimeout(() => {
     liveRecapTimer = null;
     void flushLiveRecap();
-  }, 7000);
+  }, 12000);
 }
 
 async function flushLiveRecap() {
@@ -373,9 +522,16 @@ async function flushLiveRecap() {
   });
   if (gen !== liveRecapGen) return;
   if (!result.ok) return;
+  const outline = result.outline
+    .map((o) => ({
+      heading: o.heading.trim(),
+      bullets: [...new Set(o.bullets.map((b) => b.trim()).filter((b) => b.length > 8 && b.length < 90))].slice(0, 3),
+    }))
+    .filter((o) => o.heading && o.heading.split(/\s+/).length <= 8);
+  if (!outline.length && !result.title) return;
   useCapcom.getState().setLiveDraft(sid, {
     title: result.title,
-    outline: result.outline,
+    outline,
     topics: result.topics,
     ms: result.ms,
   });
@@ -393,7 +549,7 @@ export function openRecap() {
   retryPendingZh();
 }
 
-export async function requestRecap(targetId?: string) {
+export async function requestRecap(targetId?: string, hintTopics?: string[]) {
   const store = useCapcom.getState();
   if (!targetId) store.stashLive();
   const live = useCapcom.getState();
@@ -414,38 +570,69 @@ export async function requestRecap(targetId?: string) {
     live.setView("recap");
     return;
   }
+  const topics = hintTopics?.length
+    ? hintTopics
+    : isLive
+      ? live.coaches.map((c) => c.topic).filter(Boolean)
+      : [
+          ...(session?.coaches ?? []).map((c) => c.topic),
+          ...(session?.recap?.topics ?? []).map((t) => t.en),
+        ].filter((t, i, a) => t && a.indexOf(t) === i);
+  const notes = (session?.notes ?? (isLive ? live.jots : [])).map((j) => j.zh || j.en);
+  const coaches = isLive ? live.coaches : (session?.coaches ?? []);
+  const essays = isLive ? live.essays : (session?.essays ?? {});
+  const pack = packCoach(coaches, essays);
+  const gen = ++recapGen;
   live.setRecapPending(true);
   live.setView("recap");
   live.setSession(sid);
-  const topics = isLive
-    ? live.coaches.map((c) => c.topic).filter(Boolean)
-    : (session?.recap?.topics ?? []).map((t) => t.en);
-  const notes = (session?.notes ?? (isLive ? live.jots : [])).map((j) => j.zh || j.en);
-  live.setRecap(
-    {
-      ...heuristicRecap({
-        transcript: lines,
-        topics,
-        notes,
-        title: session?.title,
-      }),
-      draft: true,
-    },
-    sid,
-  );
+  const skeleton = emptyRecap(session?.title || "整理中", topics);
+  if (session?.recap?.outline?.length) skeleton.outline = session.recap.outline;
+  skeleton.coachPack = pack;
+  live.setRecap(skeleton, sid);
   useCapcom.getState().setRecapPending(true);
-  const result = await recapClass({
-    data: {
-      lines,
-      topics,
-      notes,
-    },
-  });
-  if (!result.ok) {
-    useCapcom.getState().setRecapError(result.error);
-    return;
+  let lastErr = "纪要没写完，正在重写。";
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (gen !== recapGen) return;
+      try {
+        const result = await recapClass({
+          data: {
+            lines,
+            topics,
+            notes,
+            coach: pack.map((c) => ({
+              topic: c.topic,
+              brief: c.briefEn,
+              say: c.options.map((o) => o.en),
+            })),
+          },
+        });
+        if (gen !== recapGen) return;
+        if (result.ok && result.sections.length) {
+          useCapcom.getState().setRecap(
+            fillFromCoach(
+              toRecap(result, session?.recap?.outline ?? skeleton.outline, pack),
+              pack,
+            ),
+            sid,
+          );
+          return;
+        }
+        lastErr = result.ok ? "正文太薄，正在重写。" : result.error;
+      } catch {
+        lastErr = "纪要没写完，正在重写。";
+      }
+    }
+    if (gen !== recapGen) return;
+    if (pack.length) {
+      useCapcom.getState().setRecap(fillFromCoach(skeleton, pack), sid);
+      return;
+    }
+    useCapcom.getState().setRecapError(lastErr);
+  } finally {
+    if (gen === recapGen) useCapcom.getState().setRecapPending(false);
   }
-  useCapcom.getState().setRecap(toRecap(result, session?.recap?.outline ?? []), sid);
 }
 
 export async function forkAndRecap(fromId: string) {
@@ -455,8 +642,10 @@ export async function forkAndRecap(fromId: string) {
 }
 
 export async function endClass() {
-  safe();
   const store = useCapcom.getState();
+  const topics = store.coaches.map((c) => c.topic).filter(Boolean);
+  abortLive();
+  safe();
   const sid = store.liveId ?? store.sessionId;
   store.stashLive();
   store.clear({ keepBay: true });
@@ -465,7 +654,7 @@ export async function endClass() {
   const session = useCapcom.getState().sessions.find((s) => s.id === sid);
   const ready = (session?.transcript.length ?? 0) >= 2;
   const polished = Boolean(session?.recap && !session.recap.draft && session.recap.lede);
-  if (sid && ready && !polished) await requestRecap(sid);
+  if (sid && ready && !polished) await requestRecap(sid, topics);
 }
 
 function wireChrome() {
@@ -534,6 +723,10 @@ export function arm() {
   prev?.stop();
 
   const startStt = (stream?: MediaStream) => {
+    if (!useCapcom.getState().listening) {
+      stream?.getTracks().forEach((t) => t.stop());
+      return;
+    }
     controller = new SttController(
       {
         onPartial: (t) => useCapcom.getState().setInterim(t),
@@ -599,6 +792,7 @@ export function useCapcomEngine() {
 
 export function safe() {
   const s = useCapcom.getState();
+  s.stashLive();
   s.setListening(false);
   s.setMic("idle");
   s.setInterim("");

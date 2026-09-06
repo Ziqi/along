@@ -12,6 +12,10 @@ export function sampleSession(): ClassSession {
     updatedAt: Date.now(),
     sourceId: null,
     sourceTitle: null,
+    starred: false,
+    starredAt: null,
+    coaches: [],
+    essays: {},
     notes: [
       {
         id: "jot-sample-1",
@@ -352,6 +356,7 @@ export function sampleSession(): ClassSession {
         { en: "Ask: does tracking change how you spend?", zh: "追问：记账有没有改变你花钱的方式？" },
         { en: "Give one example from this week, then the tradeoff.", zh: "举这周一个例子，再说取舍。" },
       ],
+      coachPack: [],
       draft: false,
       latencyMs: 0,
       at: Date.now(),

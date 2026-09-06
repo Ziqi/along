@@ -35,7 +35,7 @@ export function stampTitle(startedAt: number, topic?: string | null) {
     .replace(/[·•|]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 32);
+    .slice(0, 52);
   return name ? `${name} · ${stamp}` : stamp;
 }
 
@@ -47,11 +47,33 @@ export function canAutoTitle(current: string, startedAt: number) {
 
 export function extractJsonObject(text: string): Record<string, unknown> | null {
   const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  if (start < 0) return null;
+  const raw = text.slice(start);
+  const end = raw.lastIndexOf("}");
+  if (end > 0) {
+    try {
+      return JSON.parse(raw.slice(0, end + 1)) as Record<string, unknown>;
+    } catch {
+      /* repair below */
+    }
+  }
+  let s = raw.trim().replace(/,\s*$/, "");
+  const oddQuotes = ((s.replace(/\\"/g, "").match(/"/g) ?? []).length) % 2 === 1;
+  if (oddQuotes) s += '"';
+  const openSq = (s.match(/\[/g) ?? []).length - (s.match(/]/g) ?? []).length;
+  const openBr = (s.match(/{/g) ?? []).length - (s.match(/}/g) ?? []).length;
+  s += "]".repeat(Math.max(0, openSq)) + "}".repeat(Math.max(0, openBr));
   try {
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+    return JSON.parse(s) as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+export function topicKey(t: string) {
+  return t
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ")
+    .trim();
 }

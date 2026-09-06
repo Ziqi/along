@@ -5,6 +5,15 @@ import { useCapcom } from "@/lib/store";
 import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
 import { requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
+import { topicKey } from "@/lib/utils";
+
+function essayOf(
+  card: { id: string; topic: string },
+  essays: Record<string, TopicEssay>,
+) {
+  const k = topicKey(card.topic);
+  return (k ? essays[k] : undefined) ?? essays[card.id];
+}
 
 export function UplinkPanel() {
   const coaches = useCapcom((s) => s.coaches);
@@ -13,17 +22,23 @@ export function UplinkPanel() {
   const essays = useCapcom((s) => s.essays);
   const essayPending = useCapcom((s) => s.essayPending);
   const essayTarget = useCapcom((s) => s.essayTarget);
+  const essayError = useCapcom((s) => s.essayError);
   const captions = useCapcom((s) => s.captions);
   const autoCoach = useCapcom((s) => s.autoCoach);
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const latest = coaches.at(-1) ?? null;
   const scroller = useRef<HTMLDivElement>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [coaches.length, essayPending]);
+  }, [coaches.length]);
+
+  useEffect(() => {
+    if (latest) setActiveId(latest.id);
+  }, [latest?.id]);
 
   const headerStatus = pending
     ? "写…"
@@ -78,24 +93,32 @@ export function UplinkPanel() {
           </p>
         </div>
       </header>
-      {coaches.length > 1 ? (
-        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
-          {coaches.map((card, i) => (
-            <button
-              key={card.id}
-              type="button"
-              className="shrink-0 px-2 py-1 text-[10px] text-muted hover:text-fg"
-              onClick={() => {
-                document.getElementById(`coach-${card.id}`)?.scrollIntoView({
-                  block: "start",
-                  behavior: "smooth",
-                });
-              }}
-            >
-              {card.topic || `主题 ${i + 1}`}
-              {essays[card.id] ? " ·" : ""}
-            </button>
-          ))}
+      {coaches.length ? (
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 py-1">
+          {coaches.map((card, i) => {
+            const deep = Boolean(essayOf(card, essays));
+            const on = card.id === (activeId ?? latest?.id);
+            return (
+              <button
+                key={card.id}
+                type="button"
+                className={
+                  "flex shrink-0 items-center gap-1 px-2 py-1 text-xs " +
+                  (on ? "text-fg" : "text-muted hover:text-fg")
+                }
+                onClick={() => {
+                  setActiveId(card.id);
+                  document.getElementById(`coach-${card.id}`)?.scrollIntoView({
+                    block: "start",
+                    behavior: "smooth",
+                  });
+                }}
+              >
+                <span className="max-w-[9rem] truncate">{card.topic || `主题 ${i + 1}`}</span>
+                {deep ? <span className="text-[10px] text-dim">深</span> : null}
+              </button>
+            );
+          })}
         </div>
       ) : null}
 
@@ -112,29 +135,48 @@ export function UplinkPanel() {
         ) : error && !latest ? (
           <p className="text-sm text-abort">{error}</p>
         ) : (
-          <ol className="flex flex-col gap-6">
-            {coaches.map((card, i) => (
-              <li
-                id={`coach-${card.id}`}
-                key={card.id}
-                className={i < coaches.length - 1 ? "border-b border-line pb-6" : ""}
-              >
-                <CoachBlock
-                  card={card}
-                  essay={essays[card.id]}
-                  deepPending={essayPending && essayTarget === card.id}
-                  busy={essayPending}
-                  onDeep={() => void requestEssay(card.id)}
-                  onJot={(text) => {
-                    const hit = [...card.options, ...(card.extras ?? [])].find(
-                      (o) => o.en === text,
-                    );
-                    void captureNote(text, "coach", { en: text, zh: hit?.zh });
-                  }}
-                  onJotDeep={(text) => void captureNote(text, "deep", { en: text })}
-                />
-              </li>
-            ))}
+          <ol className="flex flex-col gap-4">
+            {coaches.map((card) => {
+              const essay = essayOf(card, essays);
+              const deepPending = Boolean(essay?.draft) || (essayPending && essayTarget === card.id);
+              const deepErr = essayError && (essayTarget === card.id || !essayTarget);
+              const ready = Boolean(essay && !essay.draft);
+              return (
+                <li id={`coach-${card.id}`} key={card.id} className="border border-line">
+                  <div className="px-3 py-4 md:px-4">
+                    <CoachBlock
+                      card={card}
+                      deepPending={deepPending}
+                      busy={deepPending}
+                      onDeep={() => void requestEssay(card.id)}
+                      onJot={(text) => {
+                        const hit = [...card.options, ...(card.extras ?? [])].find(
+                          (o) => o.en === text,
+                        );
+                        void captureNote(text, "coach", { en: text, zh: hit?.zh });
+                      }}
+                    />
+                  </div>
+                  {ready || deepPending || deepErr || essay?.draft ? (
+                    <div className="border-t border-line bg-elevated px-3 py-4 md:px-4">
+                      {deepPending || essay?.draft ? (
+                        <p className="text-sm text-muted">
+                          正在检索：事实、案例、一段能讲四十秒的话。不是把上面 1.2.3 再写长。
+                        </p>
+                      ) : null}
+                      {ready && essay ? (
+                        <EssayBlock
+                          essay={essay}
+                          onJot={(text) => void captureNote(text, "deep", { en: text })}
+                        />
+                      ) : deepErr && !ready ? (
+                        <p className="mt-2 text-sm text-abort">{essayError}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
             {pending ? (
               <li className="text-[10px] tracking-[0.18em] text-dim">写…</li>
             ) : null}
@@ -147,20 +189,16 @@ export function UplinkPanel() {
 
 function CoachBlock({
   card,
-  essay,
   deepPending,
   busy,
   onDeep,
   onJot,
-  onJotDeep,
 }: {
   card: CoachCard;
-  essay?: TopicEssay;
   deepPending: boolean;
   busy: boolean;
   onDeep: () => void;
   onJot: (text: string) => void;
-  onJotDeep: (text: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -218,7 +256,6 @@ function CoachBlock({
           ))}
         </div>
       ) : null}
-      {essay ? <EssayBlock essay={essay} onJot={onJotDeep} /> : null}
     </div>
   );
 }
@@ -231,10 +268,23 @@ function EssayBlock({
   onJot: (text: string) => void;
 }) {
   return (
-    <article className="flex flex-col gap-3 border-t border-line pt-3">
-      <p className="text-[10px] text-dim">DeepSearch · {essay.latencyMs} 毫秒</p>
+    <article className="flex flex-col gap-4">
+      <p className="text-[10px] text-dim">DeepSearch · 事实 + 四十秒发言 · {essay.latencyMs} 毫秒</p>
       {essay.title ? (
         <h3 className="text-base font-medium tracking-tight">{essay.title}</h3>
+      ) : null}
+      {essay.contextEn ? (
+        <div>
+          <p className="text-[10px] text-dim">背景</p>
+          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-fg text-pretty">
+            {essay.contextEn}
+          </p>
+          {essay.contextZh ? (
+            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted text-pretty">
+              {essay.contextZh}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {essay.viewEn ? (
         <LineBlock kicker="观点" text={essay.viewEn} onJot={() => onJot(essay.viewEn)} />
@@ -243,6 +293,12 @@ function EssayBlock({
         <p className="whitespace-pre-line text-sm leading-relaxed text-muted text-pretty">
           {essay.viewZh}
         </p>
+      ) : null}
+      {essay.angles?.length ? (
+        <PairStack kicker="另一面" items={essay.angles} />
+      ) : null}
+      {essay.facts?.length ? (
+        <PairStack kicker="事实" items={essay.facts} />
       ) : null}
       {essay.qEn ? (
         <LineBlock kicker="可以这样问" text={essay.qEn} onJot={() => onJot(essay.qEn)} />
@@ -258,6 +314,9 @@ function EssayBlock({
           {essay.aZh}
         </p>
       ) : null}
+      {essay.frames?.length ? (
+        <PairStack kicker="句式" items={essay.frames} />
+      ) : null}
       {essay.say ? (
         <LineBlock kicker="再跟一句" text={essay.say} onJot={() => onJot(essay.say)} />
       ) : null}
@@ -271,7 +330,39 @@ function EssayBlock({
           ))}
         </ul>
       ) : null}
+      {essay.sources?.length ? (
+        <ul className="space-y-1">
+          {essay.sources.map((s) => (
+            <li key={s.en} className="text-xs text-dim">
+              {s.en}
+              {s.zh ? ` · ${s.zh}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </article>
+  );
+}
+
+function PairStack({
+  kicker,
+  items,
+}: {
+  kicker: string;
+  items: { en: string; zh: string }[];
+}) {
+  return (
+    <div>
+      <p className="text-[10px] text-dim">{kicker}</p>
+      <ol className="mt-1 list-decimal space-y-2 pl-5">
+        {items.map((it) => (
+          <li key={it.en} className="pl-1">
+            <p className="text-sm leading-relaxed text-fg">{it.en}</p>
+            {it.zh ? <p className="text-sm leading-relaxed text-muted">{it.zh}</p> : null}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

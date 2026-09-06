@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
-import { requestRecap, forkAndRecap, captureNote } from "@/components/capcom/use-engine";
+import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/components/capcom/use-engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
-import type { ClassSession, RecapPair, RecapStudy } from "@/lib/types";
+import type { ClassSession, RecapCoach, RecapPair, RecapStudy } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
+import { SignedOut } from "@/lib/auth/gates";
 
 export function RecapPage() {
   const sessions = useCapcom((s) => s.sessions);
@@ -14,6 +15,7 @@ export function RecapPage() {
   const setView = useCapcom((s) => s.setView);
   const renameSession = useCapcom((s) => s.renameSession);
   const removeSession = useCapcom((s) => s.removeSession);
+  const starSession = useCapcom((s) => s.starSession);
   const pending = useCapcom((s) => s.recapPending);
   const error = useCapcom((s) => s.recapError);
   const captions = useCapcom((s) => s.captions);
@@ -35,10 +37,21 @@ export function RecapPage() {
   const topics = recap?.topics ?? [];
   const outline = recap?.outline ?? [];
   const takeaways = recap?.takeaways ?? [];
+  const coachPack = recap?.coachPack ?? [];
   const living = Boolean(session && !session.endedAt);
   const inClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const canRun = (session?.transcript?.length ?? 0) >= 2 || captions.length >= 2;
   const stats = useMemo(() => tally(sessions), [sessions]);
+  const listed = useMemo(
+    () =>
+      [...sessions].sort((x, y) => {
+        const star = Number(Boolean(y.starred)) - Number(Boolean(x.starred));
+        if (star) return star;
+        if (x.starred && y.starred) return (y.starredAt ?? 0) - (x.starredAt ?? 0);
+        return (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt);
+      }),
+    [sessions],
+  );
   const marks = useMemo(() => {
     const raw = [...words, ...collos, ...patterns, ...grammar, ...lines].map((x) => x.en);
     return [...new Set(raw.filter((t) => t && t.length >= 3))].sort((a, b) => b.length - a.length).slice(0, 48);
@@ -49,7 +62,7 @@ export function RecapPage() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setView("live");
+      if (e.key === "Escape") goHomeSafe();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -73,31 +86,31 @@ export function RecapPage() {
             : "hidden md:flex")
         }
       >
-        <div className="flex h-8 items-center justify-between border-b border-line px-3">
-          <p className="font-mono text-[10px] tracking-[0.2em] text-dim">纪要</p>
+        <div className="flex h-10 items-center justify-between border-b border-line px-3">
+          <p className="text-sm font-medium text-fg">纪要</p>
           <Button
             type="button"
             variant="quiet"
             size="sm"
             className="h-7 min-h-7 px-2"
-            onClick={() => setView("live")}
+            onClick={() => goHomeSafe()}
           >
             {inClass ? "回课堂" : "首页"}
           </Button>
         </div>
         <div className="border-b border-line px-3 py-3">
-          <p className="text-xs leading-relaxed text-muted">
+          <p className="text-sm leading-relaxed text-muted">
             {stats.classes} 堂 · {stats.topics} 主题 · {stats.patterns} 句式 · {stats.words} 词
           </p>
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto py-1">
           {sessions.length ? (
             <ul>
-              {sessions.map((s) => (
+              {listed.map((s) => (
                 <li key={s.id} className="border-b border-line/60">
                   <div
                     className={
-                      "flex items-start gap-1 px-2 py-2 " +
+                      "flex items-start gap-1 px-2 py-2.5 " +
                       (s.id === session?.id ? "bg-elevated" : "")
                     }
                   >
@@ -110,17 +123,33 @@ export function RecapPage() {
                       }}
                       className="min-w-0 flex-1 px-1 py-0.5 text-left"
                     >
-                      <span className="block truncate text-sm text-fg">{s.title}</span>
-                      <span className="mt-0.5 block font-mono text-[10px] text-dim">
+                      <span className="block truncate text-base font-medium leading-snug text-fg">
+                        {s.title}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-dim">
                         {formatDayTime(s.startedAt)}
                         {s.id === liveId && !s.endedAt ? " · live" : ""}
                       </span>
                       {s.sourceTitle ? (
-                        <span className="mt-0.5 block truncate text-[10px] text-dim">
-                          from {s.sourceTitle}
+                        <span className="mt-0.5 block truncate text-xs text-dim">
+                          由 {s.sourceTitle} 再出
                         </span>
                       ) : null}
                     </button>
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="icon"
+                      aria-label={s.starred ? "取消置顶" : "置顶"}
+                      className="size-7 min-h-7 min-w-7"
+                      onClick={() => starSession(s.id)}
+                    >
+                      <Pin
+                        className={
+                          "size-3.5 " + (s.starred ? "fill-fg text-fg" : "text-dim")
+                        }
+                      />
+                    </Button>
                     <Button
                       type="button"
                       variant="quiet"
@@ -170,22 +199,34 @@ export function RecapPage() {
                       variant="quiet"
                       size="sm"
                       className="h-7 min-h-7 px-2"
-                      onClick={() => setView("live")}
+                      onClick={() => goHomeSafe()}
                     >
                       {inClass ? "回课堂" : "首页"}
                     </Button>
                   </div>
                 </div>
-                <input
+                <textarea
                   key={`${session.id}-${session.title}`}
                   defaultValue={session.title}
+                  rows={2}
                   onBlur={(e) => renameSession(session.id, e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    }
                   }}
-                  className="bg-transparent text-3xl font-medium tracking-tight text-fg text-balance focus:outline-none"
+                  className="w-full resize-none bg-transparent text-3xl font-medium leading-tight tracking-tight text-fg text-balance focus:outline-none"
                   aria-label="纪要标题"
                 />
+                <SignedOut>
+                  <p className="text-sm leading-relaxed text-muted">
+                    这台设备上的纪要只存在本机。
+                    <a href="/login" className="ml-1 text-fg underline decoration-fg/30 underline-offset-4">
+                      登录后手机和电脑同步
+                    </a>
+                  </p>
+                </SignedOut>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
@@ -269,38 +310,21 @@ export function RecapPage() {
                 <DrillDeck sessions={sessions} currentId={session.id} />
               ) : (
                 <>
-                  {error && !recap ? <p className="text-sm text-abort">{error}</p> : null}
+                  {error ? (
+                    <p className="border border-line bg-elevated px-4 py-3 text-sm text-abort">
+                      {error} 点上面「整理本堂」。
+                    </p>
+                  ) : null}
                   {pending ? <RecapProgress /> : null}
+                  {!pending && recap?.draft && !recap.lede && !sections.length ? (
+                    <p className="text-base leading-relaxed text-muted">
+                      目录已经在。正文正在写，失败会自动再写一次。教练和 DeepSearch 会直接装进来。
+                    </p>
+                  ) : null}
 
                   {outline.length || recap?.lede || sections.length || takeaways.length ? (
                     <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
                       PART 1 · CONTENT · 本堂内容
-                    </p>
-                  ) : null}
-
-                  {outline.length ? (
-                    <section className="flex flex-col gap-4">
-                      <h2 className="text-xl font-medium tracking-tight">Contents · 本堂目录</h2>
-                      <ol className="list-decimal space-y-3 pl-5">
-                        {outline.map((o) => (
-                          <li key={o.heading} className="pl-1">
-                            <p className="text-base font-medium">{o.heading}</p>
-                            {o.bullets.length ? (
-                              <ul className="mt-1 list-disc space-y-1 pl-5">
-                                {o.bullets.map((b) => (
-                                  <li key={b} className="text-sm leading-relaxed text-fg text-pretty">
-                                    <MarkText text={b} terms={marks} />
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-                  ) : living && !recap && !pending ? (
-                    <p className="text-base leading-relaxed text-muted">
-                      After a few lines, the outline lands here. You can jot a point now.
                     </p>
                   ) : null}
 
@@ -418,6 +442,32 @@ export function RecapPage() {
                     </section>
                   ))}
 
+                  {outline.length && !sections.length ? (
+                    <section className="flex flex-col gap-4">
+                      <h2 className="text-xl font-medium tracking-tight">Contents · 本堂目录</h2>
+                      <ol className="list-decimal space-y-3 pl-5">
+                        {outline.map((o) => (
+                          <li key={o.heading} className="pl-1">
+                            <p className="text-base font-medium">{o.heading}</p>
+                            {o.bullets.length ? (
+                              <ul className="mt-1 list-disc space-y-1 pl-5">
+                                {o.bullets.map((b) => (
+                                  <li key={b} className="text-sm leading-relaxed text-fg text-pretty">
+                                    <MarkText text={b} terms={marks} />
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  ) : living && !recap && !pending ? (
+                    <p className="text-base leading-relaxed text-muted">
+                      After a few lines, the outline lands here. You can jot a point now.
+                    </p>
+                  ) : null}
+
                   {topics.length || sections.length ? (
                     <section className="flex flex-col gap-4">
                       <h2 className="text-xl font-medium tracking-tight">Map · 内容分布</h2>
@@ -515,6 +565,23 @@ export function RecapPage() {
                     </section>
                   ) : null}
 
+                  {coachPack.length ? (
+                    <section className="flex flex-col gap-8 border-t border-line pt-8">
+                      <div>
+                        <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
+                          PART 3 · COACH · 教练与 DeepSearch
+                        </p>
+                        <h2 className="mt-2 text-xl font-medium tracking-tight">Coach · 课中教练</h2>
+                        <p className="mt-1 text-sm text-muted">
+                          课上已经出过的接话、三个答、两个延展。点过 DeepSearch 的主题，检索稿跟在卡片下面。
+                        </p>
+                      </div>
+                      {coachPack.map((card, i) => (
+                        <CoachPackCard key={`${card.topic}-${i}`} card={card} n={i + 1} terms={marks} />
+                      ))}
+                    </section>
+                  ) : null}
+
                   <NotesEditor session={session} />
 
                   <LiveTape
@@ -556,6 +623,98 @@ function EditText({
         (className ?? "")
       }
     />
+  );
+}
+
+function CoachPackCard({
+  card,
+  n,
+  terms,
+}: {
+  card: RecapCoach;
+  n: number;
+  terms?: string[];
+}) {
+  return (
+    <article className="flex flex-col gap-3 border border-line bg-elevated px-4 py-4">
+      <header className="flex flex-col gap-1">
+        <p className="font-mono text-[10px] tracking-[0.18em] text-dim">
+          {String(n).padStart(2, "0")} · {card.move === "answer" ? "答" : "接"}
+        </p>
+        <h3 className="text-lg font-medium tracking-tight">{card.topic}</h3>
+        {card.topicZh ? <p className="text-sm text-muted">{card.topicZh}</p> : null}
+      </header>
+      {card.briefEn ? (
+        <p className="text-base leading-relaxed text-fg text-pretty">
+          <MarkText text={card.briefEn} terms={terms} />
+        </p>
+      ) : null}
+      {card.briefZh ? <p className="text-sm leading-relaxed text-muted">{card.briefZh}</p> : null}
+      {card.options.length ? (
+        <ol className="list-decimal space-y-2 pl-5">
+          {card.options.map((o) => (
+            <li key={o.en} className="pl-1">
+              <p className="text-sm text-dim">{o.label}</p>
+              <p className="text-base leading-relaxed">
+                <MarkText text={o.en} terms={terms} />
+              </p>
+              {o.zh ? <p className="text-sm text-muted">{o.zh}</p> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {card.extras.length ? (
+        <div className="flex flex-col gap-2 border-t border-line pt-3">
+          <p className="text-sm text-dim">延展</p>
+          {card.extras.map((o) => (
+            <div key={o.en}>
+              <p className="text-base leading-relaxed">
+                <MarkText text={o.en} terms={terms} />
+              </p>
+              {o.zh ? <p className="text-sm text-muted">{o.zh}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {card.deep ? (
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <p className="font-mono text-[10px] tracking-[0.18em] text-dim">DeepSearch</p>
+          <h4 className="text-base font-medium">{card.deep.title}</h4>
+          {card.deep.viewEn ? (
+            <p className="text-base leading-relaxed text-pretty">
+              <MarkText text={card.deep.viewEn} terms={terms} />
+            </p>
+          ) : null}
+          {card.deep.viewZh ? <p className="text-sm leading-relaxed text-muted">{card.deep.viewZh}</p> : null}
+          {card.deep.facts.length ? (
+            <ol className="list-decimal space-y-1 pl-5">
+              {card.deep.facts.map((f) => (
+                <li key={f.en} className="text-sm leading-relaxed">
+                  {f.en}
+                  {f.zh ? <span className="block text-muted">{f.zh}</span> : null}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {card.deep.aEn ? (
+            <p className="text-base leading-relaxed text-pretty">
+              <MarkText text={card.deep.aEn} terms={terms} />
+            </p>
+          ) : null}
+          {card.deep.aZh ? <p className="text-sm leading-relaxed text-muted">{card.deep.aZh}</p> : null}
+          {card.deep.terms.length ? (
+            <ul className="flex flex-col gap-1">
+              {card.deep.terms.map((t) => (
+                <li key={t.en} className="text-sm">
+                  <span className="font-medium">{t.en}</span>
+                  {t.zh ? <span className="text-muted"> · {t.zh}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -623,14 +782,16 @@ function RecapProgress() {
     const t0 = Date.now();
     const id = window.setInterval(() => {
       const s = (Date.now() - t0) / 1000;
-      const p = Math.min(94, 100 * (1 - Math.exp(-s / 16)));
+      const p = Math.min(94, 100 * (1 - Math.exp(-s / 10)));
       setPct(p);
       setLabel(
-        s < 4
+        s < 3
           ? "装配本堂骨架…"
-          : s < 12
-            ? "写入内容分层和中文释义…"
-            : "补全单词、句式、语法表…",
+          : s < 10
+            ? "4.6 在写正文和中文…"
+            : s < 18
+              ? "词表和句式在填…"
+              : "还在写，不会卡死，最多再等一会儿。",
       );
     }, 200);
     return () => window.clearInterval(id);
@@ -644,7 +805,7 @@ function RecapProgress() {
       <div className="h-1.5 w-full bg-line">
         <div className="h-1.5 bg-fg transition-[width] duration-200" style={{ width: `${pct}%` }} />
       </div>
-      <p className="text-xs text-muted">骨架已在。装配器在填内容与中文，写完这条会关掉。</p>
+      <p className="text-xs text-muted">目录先出来。正文由模型写入，装配器只拼结构，写不完会停并让你再点。</p>
     </div>
   );
 }
@@ -940,6 +1101,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-[10px] text-dim">{formatDayTime(j.at)}</p>
                 <textarea
+                  key={`${j.id}-en-${j.en}`}
                   defaultValue={j.en}
                   rows={2}
                   onBlur={(e) => patchJot(j.id, { en: e.target.value, pending: false })}
@@ -947,6 +1109,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
                   placeholder="English"
                 />
                 <textarea
+                  key={`${j.id}-zh-${j.zh}`}
                   defaultValue={j.zh}
                   rows={2}
                   onBlur={(e) => patchJot(j.id, { zh: e.target.value, pending: false })}

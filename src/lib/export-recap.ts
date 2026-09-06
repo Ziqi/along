@@ -76,6 +76,27 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
   dumpStudy("Patterns", recap?.patterns ?? []);
   dumpStudy("Grammar", recap?.grammar ?? []);
   dumpStudy("Key sentences", recap?.lines ?? []);
+  if ((recap?.coachPack ?? []).length) {
+    lines.push("## Coach");
+    lines.push("");
+    for (const c of recap!.coachPack) {
+      lines.push(`### ${c.topic}${c.topicZh ? ` · ${c.topicZh}` : ""}`);
+      if (c.briefEn) lines.push(c.briefEn);
+      if (c.briefZh) lines.push(c.briefZh);
+      c.options.forEach((o, i) => {
+        lines.push(`${i + 1}. ${o.en}${o.zh ? ` — ${o.zh}` : ""}`);
+      });
+      if (c.deep) {
+        lines.push("");
+        lines.push(`#### DeepSearch · ${c.deep.title}`);
+        if (c.deep.viewEn) lines.push(c.deep.viewEn);
+        if (c.deep.viewZh) lines.push(c.deep.viewZh);
+        for (const f of c.deep.facts) lines.push(`- ${f.en}${f.zh ? ` — ${f.zh}` : ""}`);
+        if (c.deep.aEn) lines.push(c.deep.aEn);
+      }
+      lines.push("");
+    }
+  }
   if ((recap?.skills ?? []).length) {
     lines.push("## Speaking moves");
     lines.push("");
@@ -202,6 +223,25 @@ ${study("Key sentences", recap?.lines ?? [])}
 ${
   (recap?.skills ?? []).length
     ? `<h2>Speaking moves</h2><ol>${recap!.skills.map((t) => `<li><p>${esc(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
+    : ""
+}
+${
+  (recap?.coachPack ?? []).length
+    ? `<h2>Coach</h2>${recap!.coachPack
+        .map((c) => {
+          const opts = c.options
+            .map((o, i) => `<li><p>${esc(o.en)}</p>${o.zh ? `<p class="zh">${esc(o.zh)}</p>` : ""}</li>`)
+            .join("");
+          const deep = c.deep
+            ? `<h3>DeepSearch · ${esc(c.deep.title)}</h3>${c.deep.viewEn ? `<p>${esc(c.deep.viewEn)}</p>` : ""}${c.deep.viewZh ? `<p class="zh">${esc(c.deep.viewZh)}</p>` : ""}${
+                c.deep.facts.length
+                  ? `<ol>${c.deep.facts.map((f) => `<li>${esc(f.en)}${f.zh ? ` — ${esc(f.zh)}` : ""}</li>`).join("")}</ol>`
+                  : ""
+              }${c.deep.aEn ? `<p>${esc(c.deep.aEn)}</p>` : ""}${c.deep.aZh ? `<p class="zh">${esc(c.deep.aZh)}</p>` : ""}`
+            : "";
+          return `<h3>${esc(c.topic)}</h3>${c.topicZh ? `<p class="zh">${esc(c.topicZh)}</p>` : ""}${c.briefEn ? `<p>${esc(c.briefEn)}</p>` : ""}${c.briefZh ? `<p class="zh">${esc(c.briefZh)}</p>` : ""}<ol>${opts}</ol>${deep}`;
+        })
+        .join("")}`
     : ""
 }
 ${notes}

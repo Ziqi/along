@@ -2,13 +2,43 @@ import type { ClassSession } from "@/lib/types";
 
 const KEY = "along.sessions";
 const PING = "along.ping";
+const REMOVED_KEY = "along.removed";
+const REMOVED_JOTS_KEY = "along.removed-jots";
 const DB = "along";
 const STORE = "kv";
 
 const removed = new Set<string>();
+const removedJots = new Set<string>();
+
+function loadSet(key: string, into: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return;
+    const list = JSON.parse(raw);
+    if (Array.isArray(list)) for (const id of list) if (id) into.add(String(id));
+  } catch {
+    /* ignore */
+  }
+}
+
+function saveSet(key: string, set: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...set].slice(-120)));
+  } catch {
+    /* ignore */
+  }
+}
+
+if (typeof window !== "undefined") {
+  loadSet(REMOVED_KEY, removed);
+  loadSet(REMOVED_JOTS_KEY, removedJots);
+}
 
 export function markRemoved(id: string) {
   removed.add(id);
+  saveSet(REMOVED_KEY, removed);
 }
 
 export function isRemoved(id: string) {
@@ -16,7 +46,16 @@ export function isRemoved(id: string) {
 }
 
 export function removedIds() {
-  return removed;
+  return [...removed];
+}
+
+export function markRemovedJot(id: string) {
+  removedJots.add(id);
+  saveSet(REMOVED_JOTS_KEY, removedJots);
+}
+
+export function isRemovedJot(id: string) {
+  return removedJots.has(id);
 }
 
 function openDb(): Promise<IDBDatabase | null> {

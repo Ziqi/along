@@ -46,16 +46,23 @@ export type EssayTerm = {
 
 export type TopicEssay = {
   title: string;
+  contextEn: string;
+  contextZh: string;
   viewZh: string;
   viewEn: string;
+  angles: EssayTerm[];
+  facts: EssayTerm[];
   qZh: string;
   qEn: string;
   aZh: string;
   aEn: string;
   say: string;
+  frames: EssayTerm[];
   terms: EssayTerm[];
+  sources: EssayTerm[];
   latencyMs: number;
   at: number;
+  draft?: boolean;
 };
 
 export type AskTurn = {
@@ -106,6 +113,31 @@ export type RecapSection = {
   bodyZh: string;
 };
 
+export type RecapDeep = {
+  title: string;
+  contextEn: string;
+  contextZh: string;
+  viewEn: string;
+  viewZh: string;
+  facts: RecapPair[];
+  angles: RecapPair[];
+  aEn: string;
+  aZh: string;
+  terms: RecapPair[];
+  frames: RecapPair[];
+};
+
+export type RecapCoach = {
+  topic: string;
+  topicZh: string;
+  briefEn: string;
+  briefZh: string;
+  move: "answer" | "join";
+  options: CoachOption[];
+  extras: CoachOption[];
+  deep: RecapDeep | null;
+};
+
 export type RecapOutline = {
   heading: string;
   bullets: string[];
@@ -125,6 +157,7 @@ export type ClassRecap = {
   skills: RecapPair[];
   outline: RecapOutline[];
   takeaways: RecapPair[];
+  coachPack: RecapCoach[];
   draft: boolean;
   latencyMs: number;
   at: number;
@@ -139,8 +172,12 @@ export type ClassSession = {
   notes: Jot[];
   recap: ClassRecap | null;
   transcript: { en: string; zh: string }[];
+  coaches: CoachCard[];
+  essays: Record<string, TopicEssay>;
   sourceId: string | null;
   sourceTitle: string | null;
+  starred: boolean;
+  starredAt: number | null;
 };
 
 export type Bay = null;
