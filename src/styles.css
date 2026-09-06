@@ -1,0 +1,216 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #050505;
+  --color-surface: #0c0c0c;
+  --color-elevated: #141414;
+  --color-fg: #eceae4;
+  --color-muted: #b7b3aa;
+  --color-dim: #8a867c;
+  --color-line: #2c2a26;
+  --color-go: #6fbf73;
+  --color-hold: #c4a35a;
+  --color-abort: #c45c4a;
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.35rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-micro: 80ms;
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html[data-theme="day"] {
+    --color-bg: #efeae0;
+    --color-surface: #f7f3ea;
+    --color-elevated: #fffdf8;
+    --color-fg: #1c1b17;
+    --color-muted: #5c5850;
+    --color-dim: #8a857a;
+    --color-line: #d8d0c3;
+    --color-go: #2f8a42;
+    --color-hold: #a67a28;
+    --color-abort: #b54438;
+  }
+  html,
+  body,
+  #app {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    min-height: 100%;
+  }
+  body {
+    font-family: var(--font-sans);
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+.hud-corners {
+  position: relative;
+}
+.hud-corners::before,
+.hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0.45;
+}
+.hud-corners::before {
+  top: 0;
+  left: 0;
+  border-top: 1px solid var(--color-fg);
+  border-left: 1px solid var(--color-fg);
+}
+.hud-corners::after {
+  top: 0;
+  right: 0;
+  border-top: 1px solid var(--color-fg);
+  border-right: 1px solid var(--color-fg);
+}
+.hud-corners > .hud-corners-br,
+.hud-corners > .hud-corners-bl {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0.45;
+}
+.hud-corners > .hud-corners-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom: 1px solid var(--color-fg);
+  border-left: 1px solid var(--color-fg);
+}
+.hud-corners > .hud-corners-br {
+  bottom: 0;
+  right: 0;
+  border-bottom: 1px solid var(--color-fg);
+  border-right: 1px solid var(--color-fg);
+}
+
+.meter {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 14px;
+}
+.meter span {
+  width: 2px;
+  background: var(--color-fg);
+  opacity: 0.28;
+  transform-origin: bottom;
+}
+.meter[data-live="true"] span {
+  animation: meter 900ms ease-in-out infinite;
+  opacity: 0.85;
+}
+.meter span:nth-child(1) {
+  height: 40%;
+  animation-delay: 0ms;
+}
+.meter span:nth-child(2) {
+  height: 70%;
+  animation-delay: 120ms;
+}
+.meter span:nth-child(3) {
+  height: 100%;
+  animation-delay: 80ms;
+}
+.meter span:nth-child(4) {
+  height: 55%;
+  animation-delay: 200ms;
+}
+.meter span:nth-child(5) {
+  height: 85%;
+  animation-delay: 40ms;
+}
+
+@keyframes meter {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.go-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-muted);
+}
+.go-dot[data-live="true"] {
+  background: var(--color-go);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.go-dot[data-hold="true"] {
+  background: var(--color-hold);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.stream-caret::after {
+  content: "";
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--color-fg);
+  vertical-align: -0.12em;
+  animation: caret 1s steps(1) infinite;
+}
+
+.key {
+  font-style: normal;
+  color: var(--color-fg);
+  box-shadow: inset 0 -0.38em 0 color-mix(in srgb, var(--color-hold) 42%, transparent);
+}
+
+@keyframes caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter[data-live="true"] span,
+  .go-dot[data-live="true"],
+  .stream-caret::after {
+    animation: none;
+  }
+}
