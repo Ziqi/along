@@ -38,6 +38,49 @@ function formatBody(paras: string[], points: string[]) {
   return [...p, n.length ? n.join("\n") : ""].filter(Boolean).join("\n\n");
 }
 
+/** Force the sample-class shape: one paragraph, then 1. 2. 3. 4. */
+export function polishBody(text: string) {
+  const raw = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!raw.length) return "";
+  const paras: string[] = [];
+  const points: string[] = [];
+  for (const line of raw) {
+    const num = line.replace(/^\d+[\.)]\s+/, "");
+    if (/^\d+[\.)]\s+/.test(line)) points.push(num);
+    else if (/^[-•]\s+/.test(line)) points.push(line.replace(/^[-•]\s+/, ""));
+    else paras.push(line);
+  }
+  if (!points.length && paras.length > 1) {
+    const extra = paras.splice(1);
+    for (const p of extra) {
+      for (const s of sentences(p)) points.push(s);
+    }
+  }
+  while (points.length > 4) points.pop();
+  while (points.length < 3 && paras.length > 1) {
+    const extra = sentences(paras.pop() ?? "");
+    points.push(...extra);
+  }
+  return formatBody(paras.slice(0, 2), points.slice(0, 4));
+}
+
+export const GOLD_CONTENT = `Match this density. Do NOT copy the topic.
+lede EN + ledeZh. 4 sections. Each body = 1 short paragraph, blank line, then 1. 2. 3. 4. Mark *key terms*. Every heading/body has Chinese.
+Example section:
+heading: "App versus spreadsheet"
+headingZh: "应用还是表格"
+body: "The contrast of the hour: an *app* versus a *spreadsheet*.\\n\\n1. An app is faster to log a coffee.\\n2. A spreadsheet gives more *control*.\\n3. The line to steal: *I'd rather use an app than a spreadsheet*.\\n4. You can flip it."
+bodyZh: matching Chinese 1. 2. 3. 4.
+takeaways: 4 bilingual points. topics: 4 bilingual.`;
+
+export const GOLD_STUDY = `Match this row shape. Fill ALL six fields. Ground in transcript.
+{"en":"I'd rather X than Y","zh":"我宁愿 X 也不 Y","use":"preference","useZh":"说更想要的选择","example":"I'd rather *use an app* than a spreadsheet.","exampleZh":"我宁愿用 App，也不用表格。"}
+{"en":"set a budget","zh":"做预算","use":"verb + noun","useZh":"动宾搭配","example":"I *set a budget* for eating out.","exampleZh":"我给下馆子做了预算。"}
+words=8. collos=6. patterns=5. grammar=4. lines=5. skills=3 bilingual.`;
+
 function uniqPairs(rows: RecapPair[], n: number) {
   const seen = new Set<string>();
   const out: RecapPair[] = [];
@@ -324,7 +367,11 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
     lede,
     ledeZh,
     outline: outline.length ? outline : base.outline,
-    sections: sections.length ? sections : base.sections,
+    sections: (sections.length ? sections : base.sections).map((s) => ({
+      ...s,
+      body: polishBody(s.body),
+      bodyZh: s.bodyZh ? polishBody(s.bodyZh) : "",
+    })),
     topics: pairs("topics", 8, base.topics),
     takeaways: pairs("takeaways", 8, base.takeaways),
     words: take("words", 12, base.words),

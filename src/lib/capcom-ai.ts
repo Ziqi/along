@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { extractJsonObject } from "@/lib/utils";
-import { applyZh, assembleRecap, heuristicRecap, missingZh } from "@/lib/recap-kit";
+import { applyZh, assembleRecap, GOLD_CONTENT, GOLD_STUDY, heuristicRecap, missingZh } from "@/lib/recap-kit";
 
 const FLASH = "grok-4.20-non-reasoning";
 const FLASH_FALLBACK = "grok-4.3";
@@ -731,19 +731,23 @@ export const recapClass = createServerFn({ method: "POST" })
     });
     const contentP = chatFlash({
       system:
-        'Assembler slot: CONTENT of an English class. English primary, Chinese in *Zh. Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"...","points":[{"en":"...","zh":"..."}]}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. 4 sections. Each body = 1 short paragraph then 1. 2. 3. 4. Always fill *Zh. No markdown.',
+        "Assembler slot: CONTENT of an English class. English primary, Chinese in *Zh. Return ONLY JSON: {\"title\":\"...\",\"lede\":\"...\",\"ledeZh\":\"...\",\"outline\":[{\"heading\":\"...\",\"bullets\":[\"...\"]}],\"sections\":[{\"heading\":\"...\",\"headingZh\":\"...\",\"body\":\"...\",\"bodyZh\":\"...\",\"points\":[{\"en\":\"...\",\"zh\":\"...\"}]}],\"takeaways\":[{\"en\":\"...\",\"zh\":\"...\"}],\"topics\":[{\"en\":\"...\",\"zh\":\"...\"}]}. " +
+        GOLD_CONTENT +
+        " No markdown.",
       user: JSON.stringify(payload),
-      maxTokens: 1100,
+      maxTokens: 1600,
       temperature: 0.2,
-      timeoutMs: 12000,
+      timeoutMs: 14000,
     });
     const studyP = chatFlash({
       system:
-        'Assembler slot: ENGLISH STUDY. Return ONLY JSON: {"words":[...],"collos":[...],"patterns":[...],"grammar":[...],"lines":[...],"skills":[{"en":"...","zh":"..."}]}. Each study row {"en":"...","zh":"...","use":"...","useZh":"...","example":"...","exampleZh":"..."}. words=8. collos=6. patterns=5. grammar=4. lines=5. Always fill zh/useZh/exampleZh. Ground in transcript. No markdown.',
+        "Assembler slot: ENGLISH STUDY. Return ONLY JSON: {\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\":\"...\",\"zh\":\"...\",\"use\":\"...\",\"useZh\":\"...\",\"example\":\"...\",\"exampleZh\":\"...\"}. " +
+        GOLD_STUDY +
+        " No markdown.",
       user: JSON.stringify(payload),
-      maxTokens: 1100,
+      maxTokens: 1600,
       temperature: 0.2,
-      timeoutMs: 12000,
+      timeoutMs: 14000,
     });
     const [content, study] = await Promise.all([contentP, studyP]);
     const c = content.ok ? extractJsonObject(content.text) ?? {} : {};
