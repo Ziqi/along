@@ -7,6 +7,11 @@ type Box = { x: number; y: number; w: number; h: number };
 function clamp(box: Box): Box {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  const mobile = vw < 720;
+  if (mobile) {
+    const pad = 8;
+    return { x: pad, y: pad, w: Math.max(280, vw - pad * 2), h: Math.max(280, vh - pad * 2) };
+  }
   const w = Math.min(Math.max(box.w, 320), Math.max(320, vw - 16));
   const h = Math.min(Math.max(box.h, 360), Math.max(360, vh - 16));
   return {

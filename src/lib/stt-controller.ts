@@ -19,6 +19,26 @@ export function micSupported() {
   );
 }
 
+export function micErrorCode(err: unknown): "denied" | "stt" {
+  const name =
+    err && typeof err === "object" && "name" in err
+      ? String((err as { name?: string }).name)
+      : "";
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (
+    name === "NotAllowedError" ||
+    name === "PermissionDeniedError" ||
+    /not allowed|permission/i.test(msg)
+  ) {
+    return "denied";
+  }
+  return "stt";
+}
+
+export function requestMic(): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({ audio: true });
+}
+
 function pcm16From(float32: Float32Array, inRate: number) {
   const outRate = 16000;
   const ratio = inRate / outRate;
@@ -30,6 +50,10 @@ function pcm16From(float32: Float32Array, inRate: number) {
     pcm[i] = c < 0 ? c * 0x8000 : c * 0x7fff;
   }
   return pcm;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export class SttController {
@@ -47,20 +71,21 @@ export class SttController {
     this.mint = mint;
   }
 
-  async start() {
+  async start(stream?: MediaStream) {
     this.wanted = true;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-    } catch {
+      this.stream =
+        stream ??
+        (await Promise.race([
+          requestMic(),
+          sleep(12000).then(() => {
+            throw new Error("mic-timeout");
+          }),
+        ]));
+    } catch (err) {
       this.wanted = false;
-      this.handlers.onError("denied");
+      const code = err instanceof Error && err.message === "mic-timeout" ? "stt" : micErrorCode(err);
+      this.handlers.onError(code);
       this.handlers.onState(false);
       return;
     }
@@ -71,7 +96,7 @@ export class SttController {
     try {
       await this.connect();
     } catch {
-      this.handlers.onError("stt");
+      if (this.wanted) this.handlers.onError("stt");
       this.tearDown();
     }
   }
@@ -84,15 +109,31 @@ export class SttController {
   }
 
   private async connect() {
-    const token = await this.mint();
+    const token = await Promise.race([
+      this.mint(),
+      sleep(8000).then(() => {
+        throw new Error("mint-timeout");
+      }),
+    ]);
     if (!this.wanted) return;
     const qs =
-      "sample_rate=16000&encoding=pcm&interim_results=true&language=en&smart_turn=0.65&smart_turn_timeout=2500&endpointing=450";
+      "sample_rate=16000&encoding=pcm&interim_results=true&language=en&smart_turn=0.78&smart_turn_timeout=2800&endpointing=700";
     const ws = new WebSocket(`wss://api.x.ai/v1/stt?${qs}`, [
       `xai-client-secret.${token}`,
     ]);
     this.ws = ws;
     ws.binaryType = "arraybuffer";
+    const opened = new Promise<void>((resolve, reject) => {
+      const t = window.setTimeout(() => reject(new Error("ws-timeout")), 8000);
+      ws.onopen = () => {
+        window.clearTimeout(t);
+        resolve();
+      };
+      ws.addEventListener("error", () => {
+        window.clearTimeout(t);
+        reject(new Error("ws-error"));
+      });
+    });
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return;
       let msg: SttEvent;
@@ -111,6 +152,7 @@ export class SttController {
         return;
       }
       if (msg.type !== "transcript.partial") return;
+      if (!this.wanted) return;
       const text = (msg.text ?? "").replace(/\s+/g, " ").trim();
       if (!text) return;
       if (msg.is_final) {
@@ -126,25 +168,39 @@ export class SttController {
     ws.onclose = () => {
       this.ready = false;
       if (!this.wanted) return;
+      if (typeof document !== "undefined" && document.hidden) return;
       window.setTimeout(() => {
-        if (this.wanted) void this.connect().catch(() => this.handlers.onError("stt"));
-      }, 400);
+        if (this.wanted && !document.hidden) {
+          void this.connect().catch(() => this.handlers.onError("stt"));
+        }
+      }, 800);
     };
+    await opened;
+    if (!this.wanted) return;
     await this.armMic();
+    window.setTimeout(() => {
+      if (this.wanted && !this.ready) this.handlers.onError("stt");
+    }, 6000);
   }
 
   private async armMic() {
     if (this.ctx || !this.stream) return;
-    const ctx = new AudioContext();
+    const AC =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) throw new Error("no-audio");
+    const ctx = new AC();
     this.ctx = ctx;
     if (ctx.state === "suspended") await ctx.resume();
     const src = ctx.createMediaStreamSource(this.stream);
-    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const proc = ctx.createScriptProcessor(2048, 1, 1);
     this.proc = proc;
     proc.onaudioprocess = (ev) => {
       if (!this.wanted || !this.ready || this.ws?.readyState !== WebSocket.OPEN) return;
       const pcm = pcm16From(ev.inputBuffer.getChannelData(0), ctx.sampleRate);
-      this.ws.send(pcm.buffer);
+      const copy = new Int16Array(pcm.length);
+      copy.set(pcm);
+      this.ws.send(copy.buffer);
     };
     const mute = ctx.createGain();
     mute.gain.value = 0;

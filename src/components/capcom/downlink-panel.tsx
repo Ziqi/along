@@ -71,10 +71,18 @@ export function DownlinkPanel({ onInject }: Props) {
                   <p
                     className={
                       "mt-1 text-sm leading-snug text-pretty " +
-                      (c.pending ? "text-dim" : c.error ? "text-abort" : "text-muted")
+                      (c.pending || !/[\u4e00-\u9fff]/.test(c.zh)
+                        ? "text-dim"
+                        : c.error
+                          ? "text-abort"
+                          : "text-muted")
                     }
                   >
-                    {c.pending ? "译…" : c.error ? c.error : c.zh}
+                    {/[\u4e00-\u9fff]/.test(c.zh)
+                      ? c.zh
+                      : c.error
+                        ? "未译"
+                        : "译…"}
                   </p>
                 </div>
               </li>
@@ -117,7 +125,7 @@ function Preflight() {
   return (
     <div className="flex flex-col gap-3 py-1">
       <p className="text-sm leading-relaxed text-muted text-pretty">
-        点「开始听」开麦上课。暂停不会结课。结课才整理纪要，下一堂再点「开始听」。
+        点「开始听」开一堂新课。暂停不会结课。结课立刻进纪要，下一堂再点「开始听」。
       </p>
       <p className="text-sm leading-relaxed text-muted text-pretty">
         「纪要」课上就能进：实时提纲、刚才听到的、自己记的要点。教练点「记」也进纪要。

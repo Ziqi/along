@@ -10,18 +10,42 @@ import type {
   Jot,
   MicState,
   RecapOutline,
+  RecapStudy,
   TopicEssay,
   TxPad,
   TxTurn,
   View,
 } from "@/lib/types";
-import { readLocalSessions, writeLocalSessions } from "@/lib/persist";
+import { isRemoved, markRemoved, readLocalSessions, writeLocalSessions } from "@/lib/persist";
+import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
+import { canAutoTitle, stampTitle } from "@/lib/utils";
 
 let nid = 0;
 const idOf = (p: string) => {
   nid += 1;
-  return `${p}-${nid}`;
+  return `${p}-${Date.now().toString(36)}-${nid.toString(36)}`;
 };
+
+const FILLER =
+  /^(yeah|yes|yep|yup|right|exactly|okay|ok|so|and|well|um|uh|like|oh)\.?$/i;
+const TAIL =
+  /\b(a|an|the|and|but|or|to|of|for|with|in|on|at|if|that|this|so|like|just)\.?$/i;
+const CONT = /^(and|but|so|because|which|that|like|then|or|also)\b/i;
+
+function shouldMerge(prev: string, next: string) {
+  if (!prev || !next) return false;
+  if (prev.includes(next) || next.startsWith(prev)) return false;
+  const combined = prev.length + next.length;
+  if (combined > 220) return false;
+  const prevDone = /[.!?]$/.test(prev) && prev.length > 48;
+  const nextNew = /[.!?]$/.test(next) && next.length > 48;
+  if (prevDone && nextNew) return false;
+  if (FILLER.test(prev.trim())) return true;
+  if (TAIL.test(prev.trim())) return true;
+  if (CONT.test(next.trim())) return true;
+  if (!/[.!?]$/.test(prev) && prev.length < 140) return true;
+  return false;
+}
 
 const emptyAsk = (): AskThread => ({
   id: idOf("ask"),
@@ -35,13 +59,21 @@ const emptyTx = (): TxPad => ({
   turns: [],
 });
 
+let persistReady = typeof window === "undefined";
+let persistQueue: ClassSession[] | null = null;
+
 function persistSessions(sessions: ClassSession[]) {
-  writeLocalSessions(sessions);
-  if (typeof window !== "undefined") {
-    window.setTimeout(() => {
-      void import("@/lib/recap-cloud").then((m) => m.pushSessionsSafe(sessions));
-    }, 400);
+  if (typeof window === "undefined") return;
+  if (!persistReady) {
+    persistQueue = mergeSessions(persistQueue ?? [], sessions);
+    return;
   }
+  const disk = loadSessions();
+  const merged = mergeSessions(disk, sessions).filter((s) => !isRemoved(s.id));
+  writeLocalSessions(merged);
+  window.setTimeout(() => {
+    void import("@/lib/recap-cloud").then((m) => m.pushSessionsSafe(merged));
+  }, 400);
 }
 
 function normJot(raw: Partial<Jot> & { text?: string; id?: string }): Jot {
@@ -72,6 +104,25 @@ function normPair(raw: unknown): { en: string; zh: string } | null {
   return { en, zh };
 }
 
+function normStudy(raw: unknown): RecapStudy | null {
+  const pair = normPair(raw);
+  if (!pair) return null;
+  const row = (raw && typeof raw === "object" ? raw : {}) as {
+    use?: unknown;
+    useZh?: unknown;
+    example?: unknown;
+    exampleZh?: unknown;
+    note?: unknown;
+  };
+  return {
+    ...pair,
+    use: String(row.use ?? row.note ?? "").trim(),
+    useZh: String(row.useZh ?? "").trim(),
+    example: String(row.example ?? "").trim(),
+    exampleZh: String(row.exampleZh ?? "").trim(),
+  };
+}
+
 function normRecap(raw: unknown): ClassRecap | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Partial<ClassRecap> & { arc?: string };
@@ -79,30 +130,42 @@ function normRecap(raw: unknown): ClassRecap | null {
     ? r.sections
         .map((s) => ({
           heading: String(s?.heading ?? "").trim(),
+          headingZh: String((s as { headingZh?: string })?.headingZh ?? "").trim(),
           body: String(s?.body ?? "").trim(),
+          bodyZh: String((s as { bodyZh?: string })?.bodyZh ?? "").trim(),
         }))
         .filter((s) => s.heading && s.body)
     : [];
   return {
     title: String(r.title ?? "").trim(),
     lede: String(r.lede ?? r.arc ?? "").trim(),
+    ledeZh: String((r as { ledeZh?: string }).ledeZh ?? "").trim(),
     sections,
     topics: (Array.isArray(r.topics) ? r.topics : []).map(normPair).filter(Boolean) as {
       en: string;
       zh: string;
     }[],
-    patterns: (Array.isArray(r.patterns) ? r.patterns : []).map(normPair).filter(Boolean) as {
-      en: string;
-      zh: string;
-    }[],
-    lines: (Array.isArray(r.lines) ? r.lines : []).map(normPair).filter(Boolean) as {
-      en: string;
-      zh: string;
-    }[],
-    words: (Array.isArray(r.words) ? r.words : []).map(normPair).filter(Boolean) as {
-      en: string;
-      zh: string;
-    }[],
+    patterns: (Array.isArray(r.patterns) ? r.patterns : []).map(normStudy).filter(Boolean) as RecapStudy[],
+    lines: (Array.isArray(r.lines) ? r.lines : []).map(normStudy).filter(Boolean) as RecapStudy[],
+    words: (Array.isArray(r.words) ? r.words : []).map(normStudy).filter(Boolean) as RecapStudy[],
+    collos: (Array.isArray((r as { collos?: unknown }).collos)
+      ? ((r as { collos: unknown[] }).collos)
+      : []
+    )
+      .map(normStudy)
+      .filter(Boolean) as RecapStudy[],
+    grammar: (Array.isArray((r as { grammar?: unknown }).grammar)
+      ? ((r as { grammar: unknown[] }).grammar)
+      : []
+    )
+      .map(normStudy)
+      .filter(Boolean) as RecapStudy[],
+    skills: (Array.isArray((r as { skills?: unknown }).skills)
+      ? ((r as { skills: unknown[] }).skills)
+      : []
+    )
+      .map(normPair)
+      .filter(Boolean) as { en: string; zh: string }[],
     outline: Array.isArray(r.outline)
       ? (r.outline as RecapOutline[])
           .map((o) => ({
@@ -113,6 +176,12 @@ function normRecap(raw: unknown): ClassRecap | null {
           }))
           .filter((o) => o.heading)
       : [],
+    takeaways: (Array.isArray((r as { takeaways?: unknown }).takeaways)
+      ? (r as { takeaways: unknown[] }).takeaways
+      : []
+    )
+      .map(normPair)
+      .filter(Boolean) as { en: string; zh: string }[],
     draft: r.draft !== false && !String(r.lede ?? "").trim(),
     latencyMs: typeof r.latencyMs === "number" ? r.latencyMs : 0,
     at: typeof r.at === "number" ? r.at : 0,
@@ -121,17 +190,31 @@ function normRecap(raw: unknown): ClassRecap | null {
 
 function normalizeSessions(raw: unknown): ClassSession[] {
   if (!Array.isArray(raw)) return [];
-  return raw.slice(0, 40).map((s: ClassSession) => ({
-    ...s,
-    notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
-    recap: normRecap(s.recap),
-    transcript: Array.isArray(s.transcript)
-      ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
-      : [],
-    sourceId: s.sourceId ?? null,
-    sourceTitle: s.sourceTitle ?? null,
-    updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
-  }));
+  const out: ClassSession[] = [];
+  for (const row of raw.slice(0, 40)) {
+    if (!row || typeof row !== "object") continue;
+    const s = row as ClassSession;
+    if (!s.id) continue;
+    try {
+      out.push({
+        ...s,
+        notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
+        recap: normRecap(s.recap),
+        transcript: Array.isArray(s.transcript)
+          ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
+          : [],
+        sourceId: s.sourceId ?? null,
+        sourceTitle: s.sourceTitle ?? null,
+        updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
+        startedAt: typeof s.startedAt === "number" ? s.startedAt : Date.now(),
+        endedAt: typeof s.endedAt === "number" ? s.endedAt : s.endedAt ?? null,
+        title: String(s.title ?? "课堂"),
+      });
+    } catch {
+      /* skip bad row */
+    }
+  }
+  return out;
 }
 
 function loadSessions(): ClassSession[] {
@@ -143,17 +226,60 @@ function loadSessions(): ClassSession[] {
   }
 }
 
+function recapScore(r: ClassRecap | null) {
+  if (!r) return 0;
+  return (
+    (!r.draft && r.lede ? 2000 : 0) +
+    (r.sections?.length ?? 0) * 40 +
+    (r.words?.length ?? 0) * 8 +
+    (r.patterns?.length ?? 0) * 6 +
+    (r.outline?.length ?? 0) * 8 +
+    (r.lede?.length ?? 0)
+  );
+}
+
+function mergeRecap(a: ClassRecap | null, b: ClassRecap | null) {
+  if (!a) return b;
+  if (!b) return a;
+  if (recapScore(b) !== recapScore(a)) return recapScore(b) > recapScore(a) ? b : a;
+  return (b.at ?? 0) >= (a.at ?? 0) ? b : a;
+}
+
+function mergeNotes(a: Jot[], b: Jot[]) {
+  const map = new Map<string, Jot>();
+  for (const j of [...a, ...b]) map.set(j.id, j);
+  return [...map.values()].sort((x, y) => x.at - y.at).slice(-40);
+}
+
+function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
+  const newer = (b.updatedAt ?? 0) >= (a.updatedAt ?? 0) ? b : a;
+  const older = newer === b ? a : b;
+  return {
+    ...newer,
+    title:
+      newer.title.length >= older.title.length ? newer.title : older.title,
+    endedAt:
+      a.endedAt && b.endedAt
+        ? Math.max(a.endedAt, b.endedAt)
+        : (a.endedAt ?? b.endedAt),
+    recap: mergeRecap(a.recap, b.recap),
+    transcript:
+      (a.transcript?.length ?? 0) >= (b.transcript?.length ?? 0)
+        ? a.transcript
+        : b.transcript,
+    notes: mergeNotes(a.notes ?? [], b.notes ?? []),
+    updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
+    startedAt: Math.min(a.startedAt, b.startedAt),
+    sourceId: newer.sourceId ?? older.sourceId,
+    sourceTitle: newer.sourceTitle ?? older.sourceTitle,
+  };
+}
+
 function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
   const map = new Map<string, ClassSession>();
   for (const s of [...a, ...b]) {
     const prev = map.get(s.id);
-    if (!prev) {
-      map.set(s.id, s);
-      continue;
-    }
-    const dt = (s.updatedAt ?? 0) - (prev.updatedAt ?? 0);
-    if (dt > 0) map.set(s.id, s);
-    else if (dt === 0 && s.endedAt && !prev.endedAt) map.set(s.id, s);
+    map.set(s.id, prev ? mergeOne(prev, s) : s);
   }
   return [...map.values()]
     .sort((x, y) => (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt))
@@ -164,6 +290,7 @@ type AppState = {
   captions: Caption[];
   interim: string;
   mic: MicState;
+  listening: boolean;
   autoCoach: boolean;
   startedAt: number | null;
   lastLatency: number | null;
@@ -197,10 +324,11 @@ type AppState = {
   engineError: string | null;
   seq: number;
   pushFinal: (en: string) => string;
-  setZh: (id: string, patch: { zh: string; ms: number }) => void;
+  setZh: (id: string, patch: { zh: string; ms: number; en?: string }) => void;
   markError: (id: string, error: string) => void;
   setInterim: (text: string) => void;
   setMic: (mic: MicState) => void;
+  setListening: (on: boolean) => void;
   setAutoCoach: (on: boolean) => void;
   setIntent: (text: string) => void;
   setCoach: (card: CoachCard | null) => void;
@@ -263,6 +391,7 @@ export const useCapcom = create<AppState>((set, get) => {
     captions: [],
     interim: "",
     mic: "idle",
+    listening: false,
     autoCoach: true,
     startedAt: null,
     lastLatency: null,
@@ -299,36 +428,33 @@ export const useCapcom = create<AppState>((set, get) => {
       const text = en.replace(/\s+/g, " ").trim();
       if (!text) return "";
       const last = get().captions.at(-1);
-      if (last && last.en === text && Date.now() - last.at < 1800) return last.id;
+      if (last && last.en === text && Date.now() - last.at < 2200) return last.id;
       if (
         last &&
         last.pending &&
         (text.startsWith(last.en) || last.en.startsWith(text)) &&
-        Date.now() - last.at < 2500
+        Date.now() - last.at < 3200
       ) {
         set({
           captions: get().captions.map((c) =>
             c.id === last.id
-              ? { ...c, en: text.length > last.en.length ? text : last.en }
+              ? {
+                  ...c,
+                  en: text.length > last.en.length ? text : last.en,
+                  pending: true,
+                  zh: "",
+                }
               : c,
           ),
           interim: "",
         });
         return last.id;
       }
-      if (
-        last &&
-        Date.now() - last.at < 1600 &&
-        last.en.length < 140 &&
-        text.length < 90 &&
-        !/[.!?]$/.test(last.en) &&
-        !text.startsWith(last.en) &&
-        !last.en.includes(text)
-      ) {
+      if (last && Date.now() - last.at < 2400 && shouldMerge(last.en, text)) {
         const merged = `${last.en} ${text}`.replace(/\s+/g, " ").trim();
         set({
           captions: get().captions.map((c) =>
-            c.id === last.id ? { ...c, en: merged, pending: true } : c,
+            c.id === last.id ? { ...c, en: merged, pending: true, zh: "" } : c,
           ),
           interim: "",
         });
@@ -354,11 +480,11 @@ export const useCapcom = create<AppState>((set, get) => {
     setZh: (id, patch) => {
       set({
         lastLatency: patch.ms,
-        captions: get().captions.map((c) =>
-          c.id === id
-            ? { ...c, zh: patch.zh, pending: false, error: undefined }
-            : c,
-        ),
+        captions: get().captions.map((c) => {
+          if (c.id !== id) return c;
+          if (patch.en && c.en !== patch.en) return c;
+          return { ...c, zh: patch.zh, pending: false, error: undefined };
+        }),
       });
     },
     markError: (id, error) => {
@@ -370,6 +496,7 @@ export const useCapcom = create<AppState>((set, get) => {
     },
     setInterim: (text) => set({ interim: text }),
     setMic: (mic) => set({ mic }),
+    setListening: (on) => set({ listening: on }),
     setAutoCoach: (on) => set({ autoCoach: on }),
     setIntent: (text) => set({ intent: text }),
     setCoach: (card) => {
@@ -410,7 +537,12 @@ export const useCapcom = create<AppState>((set, get) => {
       const zh = (draft.zh ?? "").replace(/\s+/g, " ").trim();
       if (!en && !zh) return null;
       const viewing = get().view === "recap" ? get().sessionId : null;
-      const sid = viewing ?? get().ensureSession();
+      const open = get().sessions.find((s) => s.id === get().liveId && !s.endedAt);
+      const sid =
+        viewing ??
+        open?.id ??
+        (get().listening || get().mic === "arming" ? get().ensureSession() : get().sessionId);
+      if (!sid) return null;
       const host = get().sessions.find((s) => s.id === sid);
       const current = host?.notes ?? get().jots;
       const last = current.at(-1);
@@ -460,7 +592,7 @@ export const useCapcom = create<AppState>((set, get) => {
       });
     },
     renameSession: (id, title) => {
-      const name = title.replace(/\s+/g, " ").trim().slice(0, 24);
+      const name = title.replace(/\s+/g, " ").trim().slice(0, 56);
       if (!name) return;
       const sessions = get().sessions.map((s) => {
         if (s.id !== id) return s;
@@ -498,8 +630,10 @@ export const useCapcom = create<AppState>((set, get) => {
         view: "live",
         bay: null,
         askOpen: false,
+        jotOpen: false,
       }),
     removeSession: (id) => {
+      markRemoved(id);
       const sessions = get().sessions.filter((s) => s.id !== id);
       persistSessions(sessions);
       const sessionId =
@@ -522,28 +656,29 @@ export const useCapcom = create<AppState>((set, get) => {
       set({ sessions });
     },
     ensureSession: () => {
-      const live =
-        get().sessions.find((s) => s.id === get().liveId && !s.endedAt) ??
-        get().sessions.find((s) => !s.endedAt);
-      if (live) {
-        if (get().liveId !== live.id) set({ liveId: live.id });
-        return live.id;
+      const cur = get().sessions.find((s) => s.id === get().liveId && !s.endedAt);
+      if (cur) return cur.id;
+      if (!get().listening && get().mic !== "arming") {
+        return get().liveId ?? get().sessionId ?? "";
       }
-      const now = new Date();
-      const title = `${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const now = Date.now();
+      const title = stampTitle(now);
       const next: ClassSession = {
         id: idOf("ses"),
         title,
-        startedAt: Date.now(),
+        startedAt: now,
         endedAt: null,
         notes: [],
         recap: null,
         transcript: [],
         sourceId: null,
         sourceTitle: null,
-        updatedAt: Date.now(),
+        updatedAt: now,
       };
-      const sessions = [next, ...get().sessions].slice(0, 40);
+      const closed = get().sessions.map((s) =>
+        !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
+      );
+      const sessions = [next, ...closed].slice(0, 40);
       persistSessions(sessions);
       set({
         sessions,
@@ -565,31 +700,53 @@ export const useCapcom = create<AppState>((set, get) => {
       const sid = sessionId ?? get().sessionId;
       const sessions = get().sessions.map((s) =>
         s.id === sid
-          ? { ...s, recap, title: recap.title || s.title, updatedAt: Date.now() }
+          ? {
+              ...s,
+              recap,
+              title: canAutoTitle(s.title, s.startedAt)
+                ? stampTitle(s.startedAt, recap.title)
+                : s.title,
+              updatedAt: Date.now(),
+            }
           : s,
       );
       persistSessions(sessions);
-      set({ sessions, recapPending: false, recapError: null, sessionId: sid ?? get().sessionId });
+      set({
+        sessions,
+        recapPending: recap.draft ? get().recapPending : false,
+        recapError: recap.draft ? get().recapError : null,
+        sessionId: sid ?? get().sessionId,
+      });
     },
     setLiveDraft: (sid, draft) => {
       const sessions = get().sessions.map((s) => {
         if (s.id !== sid) return s;
         if (s.recap && !s.recap.draft && s.recap.lede) return s;
-        const named = /[\u4e00-\u9fff]/.test(draft.title) ? draft.title.slice(0, 12) : "";
         const recap: ClassRecap = {
-          title: named || s.recap?.title || s.title,
+          title: s.recap?.title || s.title,
           lede: s.recap?.lede ?? "",
+          ledeZh: s.recap?.ledeZh ?? "",
           sections: s.recap?.sections ?? [],
           topics: draft.topics.length ? draft.topics : (s.recap?.topics ?? []),
           patterns: s.recap?.patterns ?? [],
           lines: s.recap?.lines ?? [],
           words: s.recap?.words ?? [],
+          collos: s.recap?.collos ?? [],
+          grammar: s.recap?.grammar ?? [],
+          skills: s.recap?.skills ?? [],
           outline: draft.outline.length ? draft.outline : (s.recap?.outline ?? []),
+          takeaways: s.recap?.takeaways ?? [],
           draft: true,
           latencyMs: draft.ms,
           at: Date.now(),
         };
-        return { ...s, recap, title: recap.title || s.title };
+        return {
+          ...s,
+          recap,
+          title: canAutoTitle(s.title, s.startedAt)
+            ? stampTitle(s.startedAt, draft.title)
+            : s.title,
+        };
       });
       persistSessions(sessions);
       set({ sessions });
@@ -598,7 +755,8 @@ export const useCapcom = create<AppState>((set, get) => {
       set({ recapPending: on, recapError: on ? null : get().recapError }),
     setRecapError: (msg) => set({ recapError: msg, recapPending: false }),
     stashLive: () => {
-      const sid = get().ensureSession();
+      const sid = get().liveId;
+      if (!sid) return;
       const transcript = get()
         .captions.filter((c) => c.en && !c.error)
         .map((c) => ({ en: c.en, zh: c.zh }));
@@ -624,17 +782,23 @@ export const useCapcom = create<AppState>((set, get) => {
     setJotOpen: (on) => set({ jotOpen: on }),
     hydrateSessions: () => {
       const apply = (sessions: ClassSession[]) => {
+        if (!sessions.length && get().sessions.length) return;
         const cur = get();
         const open =
-          sessions.find((s) => s.id === cur.liveId && !s.endedAt) ??
-          (cur.liveId ? null : sessions.find((s) => !s.endedAt)) ??
-          null;
+          sessions.find((s) => s.id === cur.liveId && !s.endedAt) ?? null;
         const tape = open?.transcript ?? [];
         const keepTape = cur.captions.length > 0;
+        const keepSession =
+          (cur.sessionId && sessions.some((s) => s.id === cur.sessionId)
+            ? cur.sessionId
+            : null) ??
+          open?.id ??
+          sessions[0]?.id ??
+          null;
         set({
           sessions,
           liveId: open?.id ?? (keepTape ? cur.liveId : null),
-          sessionId: cur.sessionId ?? open?.id ?? sessions[0]?.id ?? null,
+          sessionId: keepSession,
           jots: cur.jots.length ? cur.jots : (open?.notes ?? []),
           captions: keepTape
             ? cur.captions
@@ -649,7 +813,27 @@ export const useCapcom = create<AppState>((set, get) => {
           seq: keepTape ? cur.seq : tape.length,
         });
       };
-      apply(loadSessions());
+      const withSample = (sessions: ClassSession[]) => {
+        if (isRemoved(SAMPLE_ID) || sessions.some((s) => s.id === SAMPLE_ID)) return sessions;
+        return mergeSessions(sessions, [sampleSession()]);
+      };
+      try {
+        apply(withSample(loadSessions()));
+      } catch {
+        apply(withSample([]));
+      }
+      const showSample = !isRemoved(SAMPLE_ID);
+      if (showSample && get().sessions.some((s) => s.id === SAMPLE_ID) && get().view === "live" && !get().listening) {
+        set({ view: "recap", sessionId: SAMPLE_ID });
+      }
+      window.setTimeout(() => {
+        if (persistReady) return;
+        persistReady = true;
+        if (persistQueue) {
+          persistSessions(persistQueue);
+          persistQueue = null;
+        }
+      }, 2500);
       void (async () => {
         try {
           const persist = await import("@/lib/persist");
@@ -668,10 +852,20 @@ export const useCapcom = create<AppState>((set, get) => {
           } catch {
             /* signed out or offline */
           }
-          persistSessions(next);
+          persistReady = true;
+          if (persistQueue) {
+            next = mergeSessions(next, persistQueue);
+            persistQueue = null;
+          }
+          next = withSample(next);
+          writeLocalSessions(next);
           apply(next);
         } catch {
-          /* ignore */
+          persistReady = true;
+          if (persistQueue) {
+            persistSessions(persistQueue);
+            persistQueue = null;
+          }
         }
       })();
     },
@@ -729,7 +923,7 @@ export const useCapcom = create<AppState>((set, get) => {
     setEngineError: (msg) => set({ engineError: msg }),
     armClock: () => {
       if (!get().startedAt) set({ startedAt: Date.now() });
-      get().ensureSession();
+      if (get().listening || get().mic === "arming") get().ensureSession();
     },
     resetHud: () =>
       set({
@@ -749,15 +943,15 @@ export const useCapcom = create<AppState>((set, get) => {
         startedAt: null,
         lastLatency: null,
         engineError: null,
+        listening: false,
       }),
     clear: (opts) => {
       const ask = emptyAsk();
       const tx = emptyTx();
-      const liveId = get().liveId ?? get().sessionId;
+      const now = Date.now();
+      const liveId = get().liveId;
       const sessions = get().sessions.map((s) =>
-        s.id === liveId && !s.endedAt
-          ? { ...s, endedAt: Date.now(), updatedAt: Date.now() }
-          : s,
+        !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
       );
       persistSessions(sessions);
       set({
@@ -774,7 +968,7 @@ export const useCapcom = create<AppState>((set, get) => {
         jots: [],
         sessions,
         liveId: null,
-        sessionId: opts?.keepBay ? liveId : get().sessionId,
+        sessionId: opts?.keepBay ? liveId ?? get().sessionId : get().sessionId,
         bay: opts?.keepBay ? get().bay : null,
         recapPending: opts?.keepBay ? get().recapPending : false,
         recapError: opts?.keepBay ? get().recapError : null,
@@ -790,6 +984,7 @@ export const useCapcom = create<AppState>((set, get) => {
         startedAt: null,
         lastLatency: null,
         engineError: null,
+        listening: false,
       });
     },
   };

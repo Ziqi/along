@@ -5,6 +5,20 @@ const PING = "along.ping";
 const DB = "along";
 const STORE = "kv";
 
+const removed = new Set<string>();
+
+export function markRemoved(id: string) {
+  removed.add(id);
+}
+
+export function isRemoved(id: string) {
+  return removed.has(id);
+}
+
+export function removedIds() {
+  return removed;
+}
+
 function openDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -63,11 +77,16 @@ export async function readIdbSessions(): Promise<unknown> {
 
 export function writeLocalSessions(sessions: ClassSession[]) {
   if (typeof window === "undefined") return;
-  const payload = JSON.stringify(sessions.slice(0, 40));
+  const trimmed = sessions.filter((s) => !removed.has(s.id)).slice(0, 40);
+  const payload = JSON.stringify(trimmed);
   try {
     window.localStorage.setItem(KEY, payload);
   } catch {
-    /* quota */
+    try {
+      window.localStorage.setItem(KEY, JSON.stringify(trimmed.slice(0, 12)));
+    } catch {
+      /* quota — IndexedDB still writes */
+    }
   }
   void writeIdb(payload);
 }
@@ -75,12 +94,17 @@ export function writeLocalSessions(sessions: ClassSession[]) {
 async function writeIdb(payload: string) {
   const db = await openDb();
   if (!db) return;
-  try {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(payload, KEY);
-  } catch {
-    /* ignore */
-  }
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(payload, KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
 }
 
 export async function probeStorage(): Promise<{

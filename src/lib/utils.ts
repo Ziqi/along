@@ -28,6 +28,23 @@ export function formatDayTime(ts: number) {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+export function stampTitle(startedAt: number, topic?: string | null) {
+  const stamp = formatDayTime(startedAt);
+  const name = String(topic ?? "")
+    .replace(stamp, "")
+    .replace(/[·•|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 32);
+  return name ? `${name} · ${stamp}` : stamp;
+}
+
+export function canAutoTitle(current: string, startedAt: number) {
+  const stamp = formatDayTime(startedAt);
+  const t = current.trim();
+  return !t || t === stamp || t.endsWith(stamp);
+}
+
 export function extractJsonObject(text: string): Record<string, unknown> | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");

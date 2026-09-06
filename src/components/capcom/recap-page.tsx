@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MarkedEn } from "@/components/capcom/marked-en";
 import { useCapcom } from "@/lib/store";
 import { requestRecap, forkAndRecap, captureNote } from "@/components/capcom/use-engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
-import type { ClassSession, RecapPair } from "@/lib/types";
+import type { ClassSession, RecapPair, RecapStudy } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
 
 export function RecapPage() {
@@ -15,23 +14,38 @@ export function RecapPage() {
   const setView = useCapcom((s) => s.setView);
   const renameSession = useCapcom((s) => s.renameSession);
   const removeSession = useCapcom((s) => s.removeSession);
-  const updateRecap = useCapcom((s) => s.updateRecap);
   const pending = useCapcom((s) => s.recapPending);
   const error = useCapcom((s) => s.recapError);
   const captions = useCapcom((s) => s.captions);
+  const liveId = useCapcom((s) => s.liveId);
   const [mode, setMode] = useState<"read" | "drill">("read");
+  const [withTape, setWithTape] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [catalog, setCatalog] = useState(false);
+  const updateRecap = useCapcom((s) => s.updateRecap);
   const session = sessions.find((s) => s.id === sessionId) ?? sessions[0];
   const recap = session?.recap ?? null;
   const sections = recap?.sections ?? [];
   const patterns = recap?.patterns ?? [];
   const lines = recap?.lines ?? [];
   const words = recap?.words ?? [];
+  const collos = recap?.collos ?? [];
+  const grammar = recap?.grammar ?? [];
+  const skills = recap?.skills ?? [];
   const topics = recap?.topics ?? [];
   const outline = recap?.outline ?? [];
+  const takeaways = recap?.takeaways ?? [];
   const living = Boolean(session && !session.endedAt);
+  const inClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const canRun = (session?.transcript?.length ?? 0) >= 2 || captions.length >= 2;
   const stats = useMemo(() => tally(sessions), [sessions]);
-  const keys = words.map((w) => w.en.split(/\s+/)[0] ?? w.en);
+  const marks = useMemo(() => {
+    const raw = [...words, ...collos, ...patterns, ...grammar, ...lines].map((x) => x.en);
+    return [...new Set(raw.filter((t) => t && t.length >= 3))].sort((a, b) => b.length - a.length).slice(0, 48);
+  }, [words, collos, patterns, grammar, lines]);
+  const tape = living && captions.length
+    ? captions.map((c) => ({ en: c.en, zh: c.zh }))
+    : (session?.transcript ?? []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -43,7 +57,22 @@ export function RecapPage() {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside className="flex w-[min(18rem,42vw)] shrink-0 flex-col border-r border-line">
+      {catalog ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-20 bg-fg/20 md:hidden"
+          aria-label="关闭目录"
+          onClick={() => setCatalog(false)}
+        />
+      ) : null}
+      <aside
+        className={
+          "flex w-[min(18rem,86vw)] shrink-0 flex-col border-r border-line bg-bg md:w-[min(18rem,42vw)] " +
+          (catalog
+            ? "fixed inset-y-0 left-0 z-30 md:static"
+            : "hidden md:flex")
+        }
+      >
         <div className="flex h-8 items-center justify-between border-b border-line px-3">
           <p className="font-mono text-[10px] tracking-[0.2em] text-dim">纪要</p>
           <Button
@@ -53,7 +82,7 @@ export function RecapPage() {
             className="h-7 min-h-7 px-2"
             onClick={() => setView("live")}
           >
-            回课堂
+            {inClass ? "回课堂" : "首页"}
           </Button>
         </div>
         <div className="border-b border-line px-3 py-3">
@@ -77,17 +106,18 @@ export function RecapPage() {
                       onClick={() => {
                         setSession(s.id);
                         setMode("read");
+                        setCatalog(false);
                       }}
                       className="min-w-0 flex-1 px-1 py-0.5 text-left"
                     >
                       <span className="block truncate text-sm text-fg">{s.title}</span>
                       <span className="mt-0.5 block font-mono text-[10px] text-dim">
                         {formatDayTime(s.startedAt)}
-                        {s.endedAt ? "" : " · 进行中"}
+                        {s.id === liveId && !s.endedAt ? " · live" : ""}
                       </span>
                       {s.sourceTitle ? (
                         <span className="mt-0.5 block truncate text-[10px] text-dim">
-                          由「{s.sourceTitle}」再出
+                          from {s.sourceTitle}
                         </span>
                       ) : null}
                     </button>
@@ -112,18 +142,40 @@ export function RecapPage() {
       </aside>
 
       <article className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 py-8 md:px-10 md:py-12">
+        <div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-8 md:px-10 md:py-12">
           {!session ? (
             <p className="text-base text-muted">结课之后，每一堂会成为左边的一条纪要。</p>
           ) : (
             <>
               <header className="flex flex-col gap-3">
-                <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
-                  {formatDayTime(session.startedAt)}
-                  {living ? " · 进行中" : ""}
-                  {recap?.draft ? " · 实时提纲" : ""}
-                  {session.sourceTitle ? ` · 由「${session.sourceTitle}」再出` : ""}
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
+                    {formatDayTime(session.startedAt)}
+                    {living ? " · live" : ""}
+                    {recap?.draft ? " · outline" : ""}
+                    {session.sourceTitle ? ` · from ${session.sourceTitle}` : ""}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="sm"
+                      className="h-7 min-h-7 px-2 md:hidden"
+                      onClick={() => setCatalog(true)}
+                    >
+                      目录
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="sm"
+                      className="h-7 min-h-7 px-2"
+                      onClick={() => setView("live")}
+                    >
+                      {inClass ? "回课堂" : "首页"}
+                    </Button>
+                  </div>
+                </div>
                 <input
                   key={`${session.id}-${session.title}`}
                   defaultValue={session.title}
@@ -134,7 +186,7 @@ export function RecapPage() {
                   className="bg-transparent text-3xl font-medium tracking-tight text-fg text-balance focus:outline-none"
                   aria-label="纪要标题"
                 />
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="quiet"
@@ -148,6 +200,16 @@ export function RecapPage() {
                     disabled={pending || !canRun}
                   >
                     {pending ? "在写" : recap && !recap.draft ? "再出一份" : "整理本堂"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="quiet"
+                    size="sm"
+                    className="h-7 min-h-7 px-2"
+                    onClick={() => setEditing((v) => !v)}
+                    disabled={!recap}
+                  >
+                    {editing ? "完成" : "编辑"}
                   </Button>
                   <Button
                     type="button"
@@ -176,7 +238,7 @@ export function RecapPage() {
                     onClick={() =>
                       downloadText(
                         `${session.title}.md`,
-                        recapMarkdown(session),
+                        recapMarkdown(session, { tape: withTape }),
                         "text/markdown;charset=utf-8",
                       )
                     }
@@ -188,10 +250,18 @@ export function RecapPage() {
                     variant="quiet"
                     size="sm"
                     className="h-7 min-h-7 px-2"
-                    onClick={() => printRecap(session)}
+                    onClick={() => printRecap(session, { tape: withTape })}
                   >
-                    下载 PDF
+                    导出 PDF
                   </Button>
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    <input
+                      type="checkbox"
+                      checked={withTape}
+                      onChange={(e) => setWithTape(e.target.checked)}
+                    />
+                    含实录
+                  </label>
                 </div>
               </header>
 
@@ -200,92 +270,260 @@ export function RecapPage() {
               ) : (
                 <>
                   {error && !recap ? <p className="text-sm text-abort">{error}</p> : null}
-                  {pending && !recap?.lede ? (
-                    <p className="text-base leading-relaxed text-muted">正在整理本堂…</p>
+                  {pending ? <RecapProgress /> : null}
+
+                  {outline.length || recap?.lede || sections.length || takeaways.length ? (
+                    <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
+                      PART 1 · CONTENT · 本堂内容
+                    </p>
                   ) : null}
 
                   {outline.length ? (
                     <section className="flex flex-col gap-4">
-                      <h2 className="text-xl font-medium tracking-tight">提纲</h2>
-                      {outline.map((o) => (
-                        <div key={o.heading}>
-                          <p className="text-base font-medium">{o.heading}</p>
-                          {o.bullets.length ? (
-                            <ul className="mt-1 flex flex-col gap-1">
-                              {o.bullets.map((b) => (
-                                <li key={b} className="text-sm leading-relaxed text-muted text-pretty">
-                                  {b}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                      ))}
+                      <h2 className="text-xl font-medium tracking-tight">Contents · 本堂目录</h2>
+                      <ol className="list-decimal space-y-3 pl-5">
+                        {outline.map((o) => (
+                          <li key={o.heading} className="pl-1">
+                            <p className="text-base font-medium">{o.heading}</p>
+                            {o.bullets.length ? (
+                              <ul className="mt-1 list-disc space-y-1 pl-5">
+                                {o.bullets.map((b) => (
+                                  <li key={b} className="text-sm leading-relaxed text-fg text-pretty">
+                                    <MarkText text={b} terms={marks} />
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
                     </section>
-                  ) : living && !recap ? (
+                  ) : living && !recap && !pending ? (
                     <p className="text-base leading-relaxed text-muted">
-                      听几句之后，提纲会写在这里。现在就可以记下要点。
+                      After a few lines, the outline lands here. You can jot a point now.
                     </p>
                   ) : null}
 
-                  {living ? (
-                    <LiveTape
-                      lines={
-                        captions.length
-                          ? captions.map((c) => ({ en: c.en, zh: c.zh }))
-                          : session.transcript
-                      }
-                    />
-                  ) : session.transcript.length ? (
-                    <LiveTape lines={session.transcript} />
+                  {recap?.lede || editing ? (
+                    <section className="flex flex-col gap-2">
+                      {editing ? (
+                        <>
+                          <EditText
+                            value={recap?.lede ?? ""}
+                            rows={4}
+                            className="text-lg leading-8 text-fg"
+                            onSave={(lede) => updateRecap(session.id, { lede })}
+                          />
+                          <EditText
+                            value={recap?.ledeZh ?? ""}
+                            rows={3}
+                            className="text-sm leading-relaxed text-muted"
+                            onSave={(ledeZh) => updateRecap(session.id, { ledeZh })}
+                          />
+                        </>
+                      ) : recap?.lede ? (
+                        <>
+                          <p className="text-lg leading-8 text-fg text-pretty">
+                            <MarkText text={recap.lede} terms={marks} />
+                          </p>
+                          {recap.ledeZh ? (
+                            <p className="text-sm leading-relaxed text-muted text-pretty">
+                              {recap.ledeZh}
+                            </p>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </section>
                   ) : null}
 
-                  {recap?.lede || sections.length ? (
-                    <>
-                      <EditableBlock
-                        label="导语"
-                        value={recap?.lede ?? ""}
-                        onSave={(lede) => updateRecap(session.id, { lede })}
-                        large
+                  {takeaways.length ? (
+                    <section className="flex flex-col gap-2">
+                      <h2 className="text-xl font-medium tracking-tight">Takeaways · 要点</h2>
+                      <ol className="list-decimal space-y-2 pl-5">
+                        {takeaways.map((t) => (
+                          <li key={t.en} className="pl-1">
+                            <p className="text-base leading-relaxed text-fg">
+                              <MarkText text={t.en} terms={marks} />
+                            </p>
+                            {t.zh ? (
+                              <p className="text-sm leading-relaxed text-muted">{t.zh}</p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  ) : null}
+
+                  {sections.map((sec, i) => (
+                    <section key={`${sec.heading}-${i}`} className="flex flex-col gap-2">
+                      {editing ? (
+                        <>
+                          <EditText
+                            value={sec.heading}
+                            rows={1}
+                            className="text-xl font-medium tracking-tight"
+                            onSave={(heading) => {
+                              const next = sections.map((s, n) =>
+                                n === i ? { ...s, heading } : s,
+                              );
+                              updateRecap(session.id, { sections: next });
+                            }}
+                          />
+                          <EditText
+                            value={sec.headingZh}
+                            rows={1}
+                            className="text-sm text-muted"
+                            onSave={(headingZh) => {
+                              const next = sections.map((s, n) =>
+                                n === i ? { ...s, headingZh } : s,
+                              );
+                              updateRecap(session.id, { sections: next });
+                            }}
+                          />
+                          <EditText
+                            value={sec.body}
+                            rows={Math.min(10, Math.max(4, sec.body.split("\n").length + 1))}
+                            className="text-base leading-8 text-fg"
+                            onSave={(body) => {
+                              const next = sections.map((s, n) =>
+                                n === i ? { ...s, body } : s,
+                              );
+                              updateRecap(session.id, { sections: next });
+                            }}
+                          />
+                          <EditText
+                            value={sec.bodyZh}
+                            rows={4}
+                            className="text-sm leading-relaxed text-muted"
+                            onSave={(bodyZh) => {
+                              const next = sections.map((s, n) =>
+                                n === i ? { ...s, bodyZh } : s,
+                              );
+                              updateRecap(session.id, { sections: next });
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <h2 className="text-xl font-medium tracking-tight text-balance">
+                            {i + 1}. {sec.heading}
+                          </h2>
+                          {sec.headingZh ? (
+                            <p className="text-sm text-muted">{sec.headingZh}</p>
+                          ) : null}
+                          <ProseBlocks text={sec.body} terms={marks} />
+                          {sec.bodyZh ? <ProseBlocks text={sec.bodyZh} muted /> : null}
+                        </>
+                      )}
+                    </section>
+                  ))}
+
+                  {topics.length || sections.length ? (
+                    <section className="flex flex-col gap-4">
+                      <h2 className="text-xl font-medium tracking-tight">Map · 内容分布</h2>
+                      <BarList
+                        rows={
+                          topics.length
+                            ? topics.map((t) => ({
+                                label: t.en,
+                                sub: t.zh,
+                                n: topicHits(t.en, tape),
+                              }))
+                            : sections.map((s, i) => ({
+                                label: s.heading,
+                                n: Math.max(1, 6 - i),
+                              }))
+                        }
                       />
-                      {sections.map((sec, i) => (
-                        <section key={`${sec.heading}-${i}`} className="flex flex-col gap-3">
-                          <input
-                            defaultValue={sec.heading}
-                            key={`${session.id}-h-${i}-${sec.heading}`}
-                            onBlur={(e) => {
-                              const next = sections.map((s, n) =>
-                                n === i ? { ...s, heading: e.target.value } : s,
-                              );
-                              updateRecap(session.id, { sections: next });
-                            }}
-                            className="bg-transparent text-xl font-medium tracking-tight text-fg text-balance focus:outline-none"
-                          />
-                          <textarea
-                            defaultValue={sec.body}
-                            key={`${session.id}-b-${i}`}
-                            rows={Math.min(8, Math.max(3, sec.body.split("\n").length + 1))}
-                            onBlur={(e) => {
-                              const next = sections.map((s, n) =>
-                                n === i ? { ...s, body: e.target.value } : s,
-                              );
-                              updateRecap(session.id, { sections: next });
-                            }}
-                            className="resize-none bg-transparent text-base leading-8 text-muted text-pretty focus:outline-none"
-                          />
-                        </section>
-                      ))}
-                    </>
+                    </section>
                   ) : null}
 
-                  {topics.length ? (
-                    <Locker kicker="主题" items={topics} keys={keys} />
+                  {topics.length ? <PairList kicker="Topics · 主题" items={topics} /> : null}
+
+                  {words.length ||
+                  collos.length ||
+                  patterns.length ||
+                  grammar.length ||
+                  lines.length ||
+                  skills.length ? (
+                    <section className="flex flex-col gap-8 border-t border-line pt-8">
+                      <div>
+                        <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
+                          PART 2 · ENGLISH · 英语学习
+                        </p>
+                        <h2 className="mt-2 text-xl font-medium tracking-tight">Language · 语言点</h2>
+                        <p className="mt-1 text-sm text-muted">
+                          单词、搭配、句式、语法、好例句。正文里已标出重点。英文为主，中文点拨。
+                        </p>
+                      </div>
+                      <BarList
+                        rows={[
+                          { label: "Words 单词", n: words.length },
+                          { label: "Collocations 搭配", n: collos.length },
+                          { label: "Patterns 句式", n: patterns.length },
+                          { label: "Grammar 语法", n: grammar.length },
+                          { label: "Sentences 例句", n: lines.length },
+                        ].filter((r) => r.n > 0)}
+                      />
+                      <StudyTable
+                        kicker="Words · 单词"
+                        items={words}
+                        editing={editing}
+                        onChange={(next) => updateRecap(session.id, { words: next })}
+                      />
+                      <StudyTable
+                        kicker="Collocations · 搭配"
+                        items={collos}
+                        editing={editing}
+                        onChange={(next) => updateRecap(session.id, { collos: next })}
+                      />
+                      <StudyTable
+                        kicker="Patterns · 句式"
+                        items={patterns}
+                        editing={editing}
+                        onChange={(next) => updateRecap(session.id, { patterns: next })}
+                      />
+                      <StudyTable
+                        kicker="Grammar · 语法"
+                        items={grammar}
+                        editing={editing}
+                        onChange={(next) => updateRecap(session.id, { grammar: next })}
+                      />
+                      <StudyTable
+                        kicker="Key sentences · 好例句"
+                        items={lines}
+                        editing={editing}
+                        onChange={(next) => updateRecap(session.id, { lines: next })}
+                      />
+                      {skills.length ? (
+                        <div className="flex flex-col gap-2">
+                          <h3 className="text-lg font-medium tracking-tight">Speaking moves · 开口建议</h3>
+                          <ol className="list-decimal space-y-2 pl-5">
+                            {skills.map((t) => (
+                              <li key={t.en} className="pl-1">
+                                <p className="text-base leading-relaxed text-fg">
+                                  <MarkText text={t.en} terms={marks} />
+                                </p>
+                                {t.zh ? (
+                                  <p className="text-sm leading-relaxed text-muted">{t.zh}</p>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      ) : null}
+                    </section>
                   ) : null}
-                  <Locker kicker="句式" items={patterns} keys={keys} />
-                  <Locker kicker="句子" items={lines} keys={keys} />
-                  <Locker kicker="单词" items={words} keys={keys} mark />
 
                   <NotesEditor session={session} />
+
+                  <LiveTape
+                    lines={
+                      living && captions.length
+                        ? captions.map((c) => ({ en: c.en, zh: c.zh }))
+                        : session.transcript
+                    }
+                  />
                 </>
               )}
             </>
@@ -296,28 +534,358 @@ export function RecapPage() {
   );
 }
 
-function EditableBlock({
-  label,
+function EditText({
   value,
   onSave,
-  large,
+  rows,
+  className,
 }: {
-  label: string;
   value: string;
   onSave: (v: string) => void;
-  large?: boolean;
+  rows: number;
+  className?: string;
 }) {
-  if (!value) return null;
   return (
-    <section className="flex flex-col gap-2">
-      <p className="text-[10px] tracking-[0.16em] text-dim">{label}</p>
-      <textarea
-        defaultValue={value}
-        key={value.slice(0, 24)}
-        rows={large ? 4 : 3}
-        onBlur={(e) => onSave(e.target.value)}
-        className="resize-none bg-transparent text-lg leading-8 text-fg text-pretty focus:outline-none"
-      />
+    <textarea
+      defaultValue={value}
+      key={value.slice(0, 48)}
+      rows={rows}
+      onBlur={(e) => onSave(e.target.value)}
+      className={
+        "w-full resize-none border border-line bg-elevated px-2 py-1.5 focus:outline-none " +
+        (className ?? "")
+      }
+    />
+  );
+}
+
+function MarkText({ text, terms }: { text: string; terms?: string[] }) {
+  const chunks = text.split(/(\*[^*]+\*)/g);
+  return (
+    <>
+      {chunks.map((chunk, i) => {
+        if (chunk.startsWith("*") && chunk.endsWith("*") && chunk.length > 2) {
+          return (
+            <mark
+              key={i}
+              className="bg-transparent font-medium underline decoration-fg/40 underline-offset-4"
+            >
+              {chunk.slice(1, -1)}
+            </mark>
+          );
+        }
+        return <HighlightTerms key={i} text={chunk} terms={terms} />;
+      })}
+    </>
+  );
+}
+
+function StarEn({ text }: { text: string }) {
+  return <MarkText text={text} />;
+}
+
+function HighlightTerms({ text, terms }: { text: string; terms?: string[] }) {
+  const keys = (terms ?? [])
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)
+    .slice(0, 40);
+  if (!keys.length || !text) return <>{text}</>;
+  const escaped = [...keys]
+    .sort((a, b) => b.length - a.length)
+    .map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  let re: RegExp;
+  try {
+    re = new RegExp(`(${escaped.join("|")})`, "gi");
+  } catch {
+    return <>{text}</>;
+  }
+  const parts = text.split(re);
+  const lower = new Set(keys.map((k) => k.toLowerCase()));
+  return (
+    <>
+      {parts.map((p, i) =>
+        lower.has(p.toLowerCase()) ? (
+          <mark key={i} className="rounded-sm bg-hold/25 px-0.5 font-medium text-fg">
+            {p}
+          </mark>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function RecapProgress() {
+  const [pct, setPct] = useState(4);
+  const [label, setLabel] = useState("读取本堂实录…");
+  useEffect(() => {
+    const t0 = Date.now();
+    const id = window.setInterval(() => {
+      const s = (Date.now() - t0) / 1000;
+      const p = Math.min(94, 100 * (1 - Math.exp(-s / 16)));
+      setPct(p);
+      setLabel(
+        s < 4
+          ? "装配本堂骨架…"
+          : s < 12
+            ? "写入内容分层和中文释义…"
+            : "补全单词、句式、语法表…",
+      );
+    }, 200);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <div className="flex flex-col gap-2 border border-line bg-elevated px-4 py-3">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <p className="text-fg">{label}</p>
+        <p className="font-mono text-xs tabular-nums text-dim">{Math.round(pct)}%</p>
+      </div>
+      <div className="h-1.5 w-full bg-line">
+        <div className="h-1.5 bg-fg transition-[width] duration-200" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-xs text-muted">骨架已在。装配器在填内容与中文，写完这条会关掉。</p>
+    </div>
+  );
+}
+
+function topicHits(topic: string, tape: { en: string }[]) {
+  const keys = topic
+    .toLowerCase()
+    .split(/[^a-z0-9']+/)
+    .filter((w) => w.length > 3);
+  if (!keys.length && !topic.trim()) return 1;
+  let n = 0;
+  const whole = topic.toLowerCase();
+  for (const line of tape) {
+    const t = line.en.toLowerCase();
+    if (whole && t.includes(whole)) n += 2;
+    else if (keys.some((w) => t.includes(w))) n += 1;
+  }
+  return Math.max(1, n);
+}
+
+function BarList({
+  rows,
+}: {
+  rows: { label: string; n: number; sub?: string }[];
+}) {
+  if (!rows.length) return null;
+  const max = Math.max(1, ...rows.map((r) => r.n));
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {rows.map((r) => (
+        <li key={r.label}>
+          <div className="flex items-baseline justify-between gap-3 text-xs">
+            <span className="min-w-0 truncate text-fg">{r.label}</span>
+            <span className="shrink-0 text-dim">{r.sub || r.n}</span>
+          </div>
+          <div className="mt-1 h-1.5 bg-line">
+            <div className="h-1.5 bg-fg" style={{ width: `${Math.round((r.n / max) * 100)}%` }} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ProseBlocks({
+  text,
+  muted,
+  terms,
+}: {
+  text: string;
+  muted?: boolean;
+  terms?: string[];
+}) {
+  const raw = text.split("\n");
+  const blocks: { type: "p" | "ol" | "ul"; items: string[] }[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    const line = raw[i]?.trim() ?? "";
+    if (!line) {
+      i += 1;
+      continue;
+    }
+    if (/^\d+[\.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < raw.length) {
+        const cur = raw[i]?.trim() ?? "";
+        if (!cur) {
+          i += 1;
+          break;
+        }
+        if (/^\d+[\.)]\s+/.test(cur)) {
+          items.push(cur.replace(/^\d+[\.)]\s+/, ""));
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      if (items.length) blocks.push({ type: "ol", items });
+      continue;
+    }
+    if (/^[-•]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < raw.length) {
+        const cur = raw[i]?.trim() ?? "";
+        if (!cur) {
+          i += 1;
+          break;
+        }
+        if (/^[-•]\s+/.test(cur)) {
+          items.push(cur.replace(/^[-•]\s+/, ""));
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      if (items.length) blocks.push({ type: "ul", items });
+      continue;
+    }
+    const items: string[] = [];
+    while (i < raw.length) {
+      const cur = raw[i]?.trim() ?? "";
+      if (!cur) {
+        i += 1;
+        break;
+      }
+      if (/^\d+[\.)]\s+/.test(cur) || /^[-•]\s+/.test(cur)) break;
+      items.push(cur);
+      i += 1;
+    }
+    if (items.length) blocks.push({ type: "p", items: [items.join(" ")] });
+  }
+  if (!blocks.length) return null;
+  const body = muted ? "text-sm leading-relaxed text-muted text-pretty" : "text-base leading-8 text-fg text-pretty";
+  return (
+    <div className="flex flex-col gap-3">
+      {blocks.map((b, bi) =>
+        b.type === "ol" ? (
+          <ol key={bi} className="list-decimal space-y-2 pl-5">
+            {b.items.map((l, li) => (
+              <li key={li} className={body}>
+                <MarkText text={l} terms={muted ? undefined : terms} />
+              </li>
+            ))}
+          </ol>
+        ) : b.type === "ul" ? (
+          <ul key={bi} className="list-disc space-y-1 pl-5">
+            {b.items.map((l, li) => (
+              <li key={li} className={body}>
+                <MarkText text={l} terms={muted ? undefined : terms} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p key={bi} className={body}>
+            <MarkText text={b.items[0] ?? ""} terms={muted ? undefined : terms} />
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
+
+function PairList({ kicker, items }: { kicker: string; items: RecapPair[] }) {
+  if (!items.length) return null;
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-xl font-medium tracking-tight">{kicker}</h2>
+      <table className="w-full border-collapse text-left">
+        <thead>
+          <tr className="border-b border-line text-[10px] tracking-[0.14em] text-dim">
+            <th className="py-2 pr-3 font-normal">English</th>
+            <th className="py-2 font-normal">中文</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it) => (
+            <tr key={it.en} className="border-b border-line/70 align-top">
+              <td className="py-2.5 pr-3 text-sm font-medium leading-snug text-fg">{it.en}</td>
+              <td className="py-2.5 text-sm leading-snug text-muted">{it.zh}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function StudyTable({
+  kicker,
+  items,
+  editing,
+  onChange,
+}: {
+  kicker: string;
+  items: RecapStudy[];
+  editing?: boolean;
+  onChange?: (next: RecapStudy[]) => void;
+}) {
+  if (!items.length && !editing) return null;
+  function patch(i: number, field: keyof RecapStudy, value: string) {
+    if (!onChange) return;
+    onChange(items.map((it, n) => (n === i ? { ...it, [field]: value } : it)));
+  }
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-lg font-medium tracking-tight">{kicker}</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[36rem] border-collapse text-left">
+          <thead>
+            <tr className="border-b border-line text-[10px] tracking-[0.14em] text-dim">
+              <th className="py-2 pr-3 font-normal">English</th>
+              <th className="py-2 pr-3 font-normal">中文</th>
+              <th className="py-2 pr-3 font-normal">Usage</th>
+              <th className="py-2 font-normal">Example</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it, i) => (
+              <tr key={`${it.en}-${i}`} className="border-b border-line/70 align-top">
+                {editing ? (
+                  <>
+                    <td className="py-2 pr-2">
+                      <EditText value={it.en} rows={2} className="text-sm font-medium" onSave={(v) => patch(i, "en", v)} />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <EditText value={it.zh} rows={2} className="text-sm text-muted" onSave={(v) => patch(i, "zh", v)} />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <EditText value={it.use} rows={2} className="text-sm" onSave={(v) => patch(i, "use", v)} />
+                      <EditText value={it.useZh} rows={2} className="mt-1 text-sm text-muted" onSave={(v) => patch(i, "useZh", v)} />
+                    </td>
+                    <td className="py-2">
+                      <EditText value={it.example} rows={2} className="text-sm" onSave={(v) => patch(i, "example", v)} />
+                      <EditText value={it.exampleZh} rows={2} className="mt-1 text-sm text-muted" onSave={(v) => patch(i, "exampleZh", v)} />
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="py-2.5 pr-3 text-sm font-medium leading-snug text-fg">{it.en}</td>
+                    <td className="py-2.5 pr-3 text-sm leading-snug text-muted">{it.zh}</td>
+                    <td className="py-2.5 pr-3 text-sm leading-snug">
+                      {it.use ? <p className="text-fg">{it.use}</p> : null}
+                      {it.useZh ? <p className="mt-0.5 text-muted">{it.useZh}</p> : null}
+                    </td>
+                    <td className="py-2.5 text-sm leading-snug">
+                      {it.example ? (
+                        <p className="text-fg text-pretty">
+                          <StarEn text={it.example} />
+                        </p>
+                      ) : null}
+                      {it.exampleZh ? (
+                        <p className="mt-0.5 text-muted text-pretty">{it.exampleZh}</p>
+                      ) : null}
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -326,22 +894,24 @@ function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
   const shown = lines.filter((l) => l.en);
   if (!shown.length) return null;
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-xl font-medium tracking-tight">实录</h2>
-      <p className="text-sm text-muted">课上说的都会记在这里。结课再整理成完整纪要。</p>
-      <ul className="flex max-h-64 flex-col gap-3 overflow-y-auto border border-line bg-surface px-4 py-3">
+    <details className="border-t border-line pt-8">
+      <summary className="cursor-pointer text-xl font-medium tracking-tight">
+        Appendix · Transcript
+      </summary>
+      <p className="mt-2 text-sm text-muted">Optional in download. English first.</p>
+      <ul className="mt-4 flex max-h-72 flex-col gap-3 overflow-y-auto">
         {shown.map((l, i) => (
           <li key={`${i}-${l.en.slice(0, 24)}`}>
             <p className="text-sm leading-snug text-fg text-pretty">{l.en}</p>
             {l.zh ? (
               <p className="mt-0.5 text-sm leading-snug text-muted text-pretty">{l.zh}</p>
             ) : (
-              <p className="mt-0.5 text-xs text-dim">译…</p>
+              <p className="mt-0.5 text-xs text-dim">translating…</p>
             )}
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }
 
@@ -362,7 +932,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
 
   return (
     <section className="flex flex-col gap-4 border-t border-line pt-8">
-      <h2 className="text-xl font-medium tracking-tight">要点</h2>
+      <h2 className="text-xl font-medium tracking-tight">Notes</h2>
       {session.notes.length ? (
         <ul className="flex flex-col gap-5">
           {session.notes.map((j) => (
@@ -374,7 +944,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
                   rows={2}
                   onBlur={(e) => patchJot(j.id, { en: e.target.value, pending: false })}
                   className="mt-1 w-full resize-none bg-transparent text-base leading-snug text-fg focus:outline-none"
-                  placeholder="英文"
+                  placeholder="English"
                 />
                 <textarea
                   defaultValue={j.zh}
@@ -437,6 +1007,8 @@ function tally(sessions: ClassSession[]) {
         cards += 1;
       }
     }
+    for (const t of s.recap?.collos ?? []) if (t.en) cards += 1;
+    for (const t of s.recap?.grammar ?? []) if (t.en) cards += 1;
     for (const t of s.recap?.lines ?? []) if (t.en) cards += 1;
     for (const t of s.recap?.words ?? []) {
       if (t.en) {
@@ -454,37 +1026,6 @@ function tally(sessions: ClassSession[]) {
   };
 }
 
-function Locker({
-  kicker,
-  items,
-  keys,
-  mark,
-}: {
-  kicker: string;
-  items: RecapPair[];
-  keys: string[];
-  mark?: boolean;
-}) {
-  if (!items?.length) return null;
-  return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-xl font-medium tracking-tight">{kicker}</h2>
-      <ul className="flex flex-col gap-5">
-        {items.map((it) => (
-          <li key={it.en || it.zh}>
-            <p className="text-lg font-medium leading-snug tracking-tight text-fg text-pretty">
-              {mark ? it.en : <MarkedEn text={it.en} keys={keys} />}
-            </p>
-            {it.zh ? (
-              <p className="mt-1 text-sm leading-relaxed text-muted text-pretty">{it.zh}</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 type Drill = { id: string; kind: string; en: string; zh: string };
 
 function collect(sessions: ClassSession[], onlyId?: string): Drill[] {
@@ -495,6 +1036,8 @@ function collect(sessions: ClassSession[], onlyId?: string): Drill[] {
     if (!recap) continue;
     for (const [kind, list] of [
       ["句式", recap.patterns ?? []],
+      ["搭配", recap.collos ?? []],
+      ["语法", recap.grammar ?? []],
       ["句子", recap.lines ?? []],
       ["单词", recap.words ?? []],
     ] as const) {

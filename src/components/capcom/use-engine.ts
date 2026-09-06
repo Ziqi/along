@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { SpeechController, speechSupported } from "@/lib/speech-controller";
-import { micSupported, SttController } from "@/lib/stt-controller";
+import { micErrorCode, micSupported, requestMic, SttController } from "@/lib/stt-controller";
 import { useCapcom } from "@/lib/store";
 import {
   askTopic,
@@ -12,6 +12,7 @@ import {
   liveOutline,
   quickTranslate,
 } from "@/lib/capcom-ai";
+import { heuristicRecap } from "@/lib/recap-kit";
 
 let coachGen = 0;
 let essayGen = 0;
@@ -23,19 +24,22 @@ let liveRecapTimer: number | null = null;
 let liveRecapGen = 0;
 const transBatch: { id: string; en: string }[] = [];
 
-export function ingest(en: string) {
+export function ingest(en: string, src: "mic" | "hand" = "mic") {
   const store = useCapcom.getState();
+  if (src === "mic" && !store.listening) return;
   const id = store.pushFinal(en);
   if (!id) return;
   store.armClock();
+  const text =
+    useCapcom.getState().captions.find((c) => c.id === id)?.en ?? en;
   const existing = transBatch.find((b) => b.id === id);
-  if (existing) existing.en = en;
-  else transBatch.push({ id, en });
+  if (existing) existing.en = text;
+  else transBatch.push({ id, en: text });
   if (transTimer != null) window.clearTimeout(transTimer);
   transTimer = window.setTimeout(() => {
     transTimer = null;
     void flushTranslate();
-  }, 50);
+  }, 600);
   if (store.autoCoach) {
     if (coachTimer != null) window.clearTimeout(coachTimer);
     coachTimer = window.setTimeout(() => {
@@ -46,39 +50,47 @@ export function ingest(en: string) {
   scheduleLiveRecap();
 }
 
+let transBusy = 0;
+const transTries = new Map<string, number>();
+
+function hasZh(s: string) {
+  return /[\u4e00-\u9fff]/.test(s);
+}
+
 async function flushTranslate() {
-  const lines = transBatch.splice(0, 4);
-  if (!lines.length) return;
-  const result = await liveTranslate({ data: { lines } });
+  if (transBusy >= 2) return;
+  const line = transBatch.shift();
+  if (!line) return;
+  transBusy += 1;
+  const result = await liveTranslate({ data: { lines: [line] } });
+  transBusy -= 1;
   const s = useCapcom.getState();
-  if (!result.ok) {
-    for (const line of lines) s.markError(line.id, result.error);
+  const zh = result.ok ? (result.items[0]?.zh ?? "") : "";
+  if (hasZh(zh)) {
+    transTries.delete(line.id);
+    s.setZh(line.id, { zh, ms: result.ok ? result.ms : 0, en: line.en });
   } else {
-    for (const line of lines) {
-      const hit = result.items.find((it) => it.id === line.id);
-      s.setZh(line.id, { zh: hit?.zh || line.en, ms: result.ms });
-    }
+    const n = (transTries.get(line.id) ?? 0) + 1;
+    transTries.set(line.id, n);
+    if (n < 4) transBatch.push(line);
+    else s.markError(line.id, "未译");
   }
-  if (transBatch.length) {
-    if (transTimer != null) window.clearTimeout(transTimer);
-    transTimer = window.setTimeout(() => {
-      transTimer = null;
-      void flushTranslate();
-    }, 40);
-  }
+  if (transBatch.length) void flushTranslate();
 }
 
 export function retryPendingZh() {
   const s = useCapcom.getState();
   for (const c of s.captions) {
-    if (!c.en || c.error || (c.zh && !c.pending)) continue;
+    if (!c.en) continue;
+    if (hasZh(c.zh) && !c.pending) continue;
+    if ((transTries.get(c.id) ?? 0) >= 4) continue;
     if (!transBatch.some((b) => b.id === c.id)) transBatch.push({ id: c.id, en: c.en });
   }
-  if (!transBatch.length || transTimer != null) return;
-  transTimer = window.setTimeout(() => {
-    transTimer = null;
-    void flushTranslate();
-  }, 40);
+  if (!transBatch.length || transBusy >= 2) {
+    if (transBatch.length && transBusy < 2) void flushTranslate();
+    return;
+  }
+  void flushTranslate();
 }
 
 async function flushCoach(source: "auto" | "intent", spoken?: string) {
@@ -124,8 +136,11 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
     id: `c-${Date.now().toString(36)}`,
     topic: result.topic,
     topicZh: result.topicZh,
+    briefZh: result.briefZh,
+    briefEn: result.briefEn,
     move: result.move,
     options: result.options,
+    extras: result.extras ?? [],
     source,
     prompt: intent || last,
     latencyMs: result.ms,
@@ -210,6 +225,7 @@ export async function requestAsk(q: string) {
           en: t.en,
         })),
         recent: store.captions.slice(-8).map((c) => c.en),
+        topic: store.coach?.topic ?? "",
       },
     });
     if (gen !== askGen) return;
@@ -266,30 +282,63 @@ function toRecap(
   result: {
     title: string;
     lede?: string;
+    ledeZh?: string;
     outline?: { heading: string; bullets: string[] }[];
-    sections?: { heading: string; body: string }[];
+    sections?: { heading: string; headingZh?: string; body: string; bodyZh?: string }[];
     topics: { en: string; zh: string }[];
-    patterns: { en: string; zh: string }[];
-    lines: { en: string; zh: string }[];
-    words: { en: string; zh: string }[];
+    patterns: RecapStudyLike[];
+    lines: RecapStudyLike[];
+    words: RecapStudyLike[];
+    collos?: RecapStudyLike[];
+    grammar?: RecapStudyLike[];
+    skills?: { en: string; zh: string }[];
+    takeaways?: { en: string; zh: string }[];
     ms: number;
   },
   prevOutline: { heading: string; bullets: string[] }[] = [],
 ) {
+  const study = (rows: RecapStudyLike[] | undefined) =>
+    (rows ?? []).map((r) => ({
+      en: r.en,
+      zh: r.zh ?? "",
+      use: r.use ?? "",
+      useZh: r.useZh ?? "",
+      example: r.example ?? "",
+      exampleZh: r.exampleZh ?? "",
+    }));
   return {
     title: result.title,
     lede: result.lede ?? "",
+    ledeZh: result.ledeZh ?? "",
     outline: result.outline?.length ? result.outline : prevOutline,
-    sections: result.sections ?? [],
+    sections: (result.sections ?? []).map((s) => ({
+      heading: s.heading,
+      headingZh: s.headingZh ?? "",
+      body: s.body,
+      bodyZh: s.bodyZh ?? "",
+    })),
     topics: result.topics,
-    patterns: result.patterns,
-    lines: result.lines,
-    words: result.words,
+    patterns: study(result.patterns),
+    lines: study(result.lines),
+    words: study(result.words),
+    collos: study(result.collos),
+    grammar: study(result.grammar),
+    skills: result.skills ?? [],
+    takeaways: result.takeaways ?? [],
     draft: false,
     latencyMs: result.ms,
     at: Date.now(),
   };
 }
+
+type RecapStudyLike = {
+  en: string;
+  zh?: string;
+  use?: string;
+  useZh?: string;
+  example?: string;
+  exampleZh?: string;
+};
 
 function scheduleLiveRecap() {
   if (liveRecapTimer != null) window.clearTimeout(liveRecapTimer);
@@ -341,13 +390,19 @@ export function openRecap() {
     s.setSession(s.sessions[0].id);
   }
   s.setView("recap");
+  retryPendingZh();
 }
 
 export async function requestRecap(targetId?: string) {
   const store = useCapcom.getState();
   if (!targetId) store.stashLive();
   const live = useCapcom.getState();
-  const sid = targetId ?? live.ensureSession();
+  const sid = targetId ?? live.liveId ?? live.sessionId;
+  if (!sid) {
+    live.setRecapError("没有可整理的课。");
+    live.setView("recap");
+    return;
+  }
   const session = live.sessions.find((s) => s.id === sid);
   const isLive = live.liveId === sid;
   const fromLive = isLive
@@ -365,11 +420,25 @@ export async function requestRecap(targetId?: string) {
   const topics = isLive
     ? live.coaches.map((c) => c.topic).filter(Boolean)
     : (session?.recap?.topics ?? []).map((t) => t.en);
+  const notes = (session?.notes ?? (isLive ? live.jots : [])).map((j) => j.zh || j.en);
+  live.setRecap(
+    {
+      ...heuristicRecap({
+        transcript: lines,
+        topics,
+        notes,
+        title: session?.title,
+      }),
+      draft: true,
+    },
+    sid,
+  );
+  useCapcom.getState().setRecapPending(true);
   const result = await recapClass({
     data: {
       lines,
       topics,
-      notes: (session?.notes ?? (isLive ? live.jots : [])).map((j) => j.zh || j.en),
+      notes,
     },
   });
   if (!result.ok) {
@@ -388,20 +457,15 @@ export async function forkAndRecap(fromId: string) {
 export async function endClass() {
   safe();
   const store = useCapcom.getState();
-  const sid = store.liveId;
-  if (!sid) {
-    store.setView("recap");
-    return;
-  }
+  const sid = store.liveId ?? store.sessionId;
   store.stashLive();
-  const next = useCapcom.getState();
-  const session = next.sessions.find((s) => s.id === sid);
+  store.clear({ keepBay: true });
+  if (sid) store.setSession(sid);
+  store.setView("recap");
+  const session = useCapcom.getState().sessions.find((s) => s.id === sid);
   const ready = (session?.transcript.length ?? 0) >= 2;
   const polished = Boolean(session?.recap && !session.recap.draft && session.recap.lede);
-  if (ready && !polished) await requestRecap(sid);
-  useCapcom.getState().clear({ keepBay: ready });
-  useCapcom.getState().setSession(sid);
-  useCapcom.getState().setView("recap");
+  if (sid && ready && !polished) await requestRecap(sid);
 }
 
 function wireChrome() {
@@ -415,26 +479,44 @@ function wireChrome() {
 }
 
 function onListenError(code: string) {
+  const s = useCapcom.getState();
+  s.setListening(false);
+  const framed = (() => {
+    try {
+      return typeof window !== "undefined" && window.top !== window;
+    } catch {
+      return true;
+    }
+  })();
   if (code === "denied") {
-    useCapcom.getState().setMic("denied");
-    useCapcom
-      .getState()
-      .setEngineError("麦克风被拒绝。可在左侧手写，或换 Chrome。");
+    s.setMic("denied");
+    s.setEngineError(
+      framed
+        ? "这一页拦了麦克风。请在地址栏允许麦克风，或用系统浏览器打开本页。左侧仍可手写。"
+        : "麦克风被拒绝。点地址栏的锁允许麦克风，再点「开始听」。左侧仍可手写。",
+    );
     return;
   }
   if (code === "unsupported") {
-    useCapcom.getState().setMic("unsupported");
+    s.setMic("unsupported");
+    s.setEngineError("此浏览器不能听写。请用 Chrome / Safari，或在左侧手写。");
     return;
   }
-  if (code === "stt") {
-    useCapcom.getState().setEngineError("实时听写断开，正在重连。");
-  }
+  s.setMic("idle");
+  s.setEngineError("实时听写没接通。再点一次开始听，或在左侧手写。");
 }
 
 function onListenState(live: boolean) {
   const s = useCapcom.getState();
-  if (live) s.setMic("live");
-  else if (s.mic === "live" || s.mic === "arming") s.setMic("idle");
+  if (!s.listening) {
+    if (s.mic === "live" || s.mic === "arming") s.setMic("idle");
+    return;
+  }
+  if (live) {
+    s.setMic("live");
+    s.setEngineError(null);
+    return;
+  }
 }
 
 export function arm() {
@@ -442,15 +524,16 @@ export function arm() {
   const open =
     store.sessions.find((s) => s.id === store.liveId && !s.endedAt) ?? null;
   store.setView("live");
+  if (!open) store.resetHud();
+  store.setListening(true);
   store.setMic("arming");
-  store.setEngineError(null);
-  if (!open) {
-    store.resetHud();
-  }
+  store.setEngineError("请允许麦克风。接通后会出现「听课中」。");
   store.armClock();
-  controller?.stop();
+  const prev = controller;
   controller = null;
-  if (micSupported()) {
+  prev?.stop();
+
+  const startStt = (stream?: MediaStream) => {
     controller = new SttController(
       {
         onPartial: (t) => useCapcom.getState().setInterim(t),
@@ -460,7 +543,7 @@ export function arm() {
             onListenError("denied");
             return;
           }
-          if (code === "stt" && speechSupported()) {
+          if (speechSupported()) {
             controller?.stop();
             controller = null;
             useCapcom.getState().setEngineError("改用浏览器听写。");
@@ -477,13 +560,28 @@ export function arm() {
         return minted.token;
       },
     );
-    void controller.start();
+    void controller.start(stream);
+  };
+
+  if (micSupported()) {
+    void requestMic()
+      .then((stream) => startStt(stream))
+      .catch((err) => {
+        const code = micErrorCode(err);
+        if (code !== "denied" && speechSupported()) {
+          useCapcom.getState().setEngineError("改用浏览器听写。");
+          wireChrome();
+          return;
+        }
+        onListenError(code);
+      });
     return;
   }
   if (speechSupported()) {
     wireChrome();
     return;
   }
+  store.setListening(false);
   store.setMic("unsupported");
   store.setEngineError("此浏览器不能听写。请用 Chrome，或在左侧手写。");
 }
@@ -500,8 +598,10 @@ export function useCapcomEngine() {
 }
 
 export function safe() {
+  const s = useCapcom.getState();
+  s.setListening(false);
+  s.setMic("idle");
+  s.setInterim("");
   controller?.stop();
   controller = null;
-  useCapcom.getState().setMic("idle");
-  useCapcom.getState().setInterim("");
 }

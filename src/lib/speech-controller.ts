@@ -162,16 +162,25 @@ export class SpeechController {
         this.handlers.onState(false);
         return;
       }
-      this.boot(Ctor);
+      window.setTimeout(() => {
+        if (this.wanted) this.boot(Ctor);
+      }, 280);
     };
     this.rec = rec;
     try {
       rec.start();
       this.booting = false;
       this.handlers.onState(true);
-    } catch {
+    } catch (err) {
       this.booting = false;
       this.rec = null;
+      const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        this.wanted = false;
+        this.handlers.onError("denied");
+        this.handlers.onState(false);
+        return;
+      }
       window.setTimeout(() => {
         if (this.wanted) this.boot(Ctor);
       }, 160);

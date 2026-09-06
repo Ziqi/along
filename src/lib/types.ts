@@ -19,8 +19,11 @@ export type CoachCard = {
   id: string;
   topic: string;
   topicZh: string;
+  briefZh: string;
+  briefEn: string;
   move: "answer" | "join";
   options: CoachOption[];
+  extras: CoachOption[];
   source: "auto" | "intent";
   prompt: string;
   latencyMs: number;
@@ -87,9 +90,20 @@ export type RecapPair = {
   zh: string;
 };
 
+export type RecapStudy = {
+  en: string;
+  zh: string;
+  use: string;
+  useZh: string;
+  example: string;
+  exampleZh: string;
+};
+
 export type RecapSection = {
   heading: string;
+  headingZh: string;
   body: string;
+  bodyZh: string;
 };
 
 export type RecapOutline = {
@@ -100,12 +114,17 @@ export type RecapOutline = {
 export type ClassRecap = {
   title: string;
   lede: string;
+  ledeZh: string;
   sections: RecapSection[];
   topics: RecapPair[];
-  patterns: RecapPair[];
-  lines: RecapPair[];
-  words: RecapPair[];
+  patterns: RecapStudy[];
+  lines: RecapStudy[];
+  words: RecapStudy[];
+  collos: RecapStudy[];
+  grammar: RecapStudy[];
+  skills: RecapPair[];
   outline: RecapOutline[];
+  takeaways: RecapPair[];
   draft: boolean;
   latencyMs: number;
   at: number;

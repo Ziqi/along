@@ -78,6 +78,26 @@ export function UplinkPanel() {
           </p>
         </div>
       </header>
+      {coaches.length > 1 ? (
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
+          {coaches.map((card, i) => (
+            <button
+              key={card.id}
+              type="button"
+              className="shrink-0 px-2 py-1 text-[10px] text-muted hover:text-fg"
+              onClick={() => {
+                document.getElementById(`coach-${card.id}`)?.scrollIntoView({
+                  block: "start",
+                  behavior: "smooth",
+                });
+              }}
+            >
+              {card.topic || `主题 ${i + 1}`}
+              {essays[card.id] ? " ·" : ""}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 md:px-4">
         {empty ? (
@@ -86,7 +106,7 @@ export function UplinkPanel() {
               {pending ? "写…" : "待命"}
             </p>
             <p className="max-w-sm text-sm leading-relaxed text-muted text-pretty">
-              主题流往上滚。问句三条回复，讨论接话、追问、例子。重点词会划出来。
+              先概括主题，再给三条开口、两条扩展。问句三条回复；讨论接话、追问、例子。点上方主题可跳回。
             </p>
           </div>
         ) : error && !latest ? (
@@ -95,6 +115,7 @@ export function UplinkPanel() {
           <ol className="flex flex-col gap-6">
             {coaches.map((card, i) => (
               <li
+                id={`coach-${card.id}`}
                 key={card.id}
                 className={i < coaches.length - 1 ? "border-b border-line pb-6" : ""}
               >
@@ -105,7 +126,9 @@ export function UplinkPanel() {
                   busy={essayPending}
                   onDeep={() => void requestEssay(card.id)}
                   onJot={(text) => {
-                    const hit = card.options.find((o) => o.en === text);
+                    const hit = [...card.options, ...(card.extras ?? [])].find(
+                      (o) => o.en === text,
+                    );
                     void captureNote(text, "coach", { en: text, zh: hit?.zh });
                   }}
                   onJotDeep={(text) => void captureNote(text, "deep", { en: text })}
@@ -144,7 +167,7 @@ function CoachBlock({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-[10px] text-dim">
-            {card.move === "join" ? "主题 · 三条参与" : "主题 · 三条回复"}
+            {card.move === "join" ? "主题 · 概括 + 三条参与 + 两条扩展" : "主题 · 概括 + 三条回复 + 两条扩展"}
           </p>
           <p className="mt-1 text-base font-medium tracking-tight text-fg">
             {card.topic || "—"}
@@ -164,17 +187,37 @@ function CoachBlock({
           {deepPending ? "检索中" : "DeepSearch"}
         </Button>
       </div>
+      {card.briefZh || card.briefEn ? (
+        <div>
+          <p className="text-[10px] text-dim">概括</p>
+          {card.briefEn ? (
+            <p className="mt-1 text-sm leading-relaxed text-fg text-pretty">{card.briefEn}</p>
+          ) : null}
+          {card.briefZh ? (
+            <p className="mt-0.5 text-sm leading-relaxed text-muted text-pretty">{card.briefZh}</p>
+          ) : null}
+        </div>
+      ) : null}
       <ol className="flex flex-col gap-3">
         {card.options.map((opt, i) => (
-          <li key={`${card.id}-${i}`}>
-            <OptionRow
-              n={i + 1}
-              option={opt}
-              onJot={() => onJot(opt.en)}
-            />
+          <li key={`${card.id}-o-${i}`}>
+            <OptionRow n={i + 1} option={opt} onJot={() => onJot(opt.en)} />
           </li>
         ))}
       </ol>
+      {card.extras?.length ? (
+        <div className="flex flex-col gap-3 border-t border-line pt-3">
+          <p className="text-[10px] text-dim">扩展 · 把话题推远一点</p>
+          {card.extras.map((opt, i) => (
+            <OptionRow
+              key={`${card.id}-x-${i}`}
+              n={card.options.length + i + 1}
+              option={opt}
+              onJot={() => onJot(opt.en)}
+            />
+          ))}
+        </div>
+      ) : null}
       {essay ? <EssayBlock essay={essay} onJot={onJotDeep} /> : null}
     </div>
   );

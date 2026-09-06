@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Mic, Moon, Pause, PenLine, Sun } from "lucide-react";
+import { Mic, Moon, MoreHorizontal, Pause, PenLine, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
-import { endClass, openRecap, retryPendingZh } from "@/components/capcom/use-engine";
+import { endClass, openRecap } from "@/components/capcom/use-engine";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -15,17 +15,21 @@ type Props = {
 
 export function MissionBar({ onArm, onSafe }: Props) {
   const mic = useCapcom((s) => s.mic);
+  const listening = useCapcom((s) => s.listening);
   const lastLatency = useCapcom((s) => s.lastLatency);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
   const view = useCapcom((s) => s.view);
-  const setView = useCapcom((s) => s.setView);
   const goHome = useCapcom((s) => s.goHome);
   const setJotOpen = useCapcom((s) => s.setJotOpen);
-  const live = mic === "live";
+  const live = listening || mic === "live";
+  const arming = listening && mic === "arming";
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
-  const paused = !live && openClass;
+  const paused = !live && !arming && openClass;
+  const atHome = view === "live" && !openClass;
+  const showRecap = sessions.length > 0 || openClass;
   const [theme, setTheme] = useState<Theme>("day");
+  const [more, setMore] = useState(false);
   const { isPending } = useCurrentUserState();
 
   useEffect(() => {
@@ -40,15 +44,71 @@ export function MissionBar({ onArm, onSafe }: Props) {
     applyTheme(next);
   }
 
-  const canEnd = live || openClass;
+  const listenBtn = live ? (
+    <Button type="button" variant="safe" size="lg" className="max-md:h-10 max-md:min-h-10 max-md:px-3" onClick={onSafe}>
+      <Pause className="size-3.5" />
+      暂停
+    </Button>
+  ) : (
+    <Button type="button" variant="arm" size="lg" className="max-md:h-10 max-md:min-h-10 max-md:px-3" onClick={onArm} disabled={arming}>
+      <Mic className="size-4" />
+      {arming ? "开麦中" : paused ? "继续听" : "开始听"}
+    </Button>
+  );
+
+  const extras = (
+    <>
+      {openClass ? (
+        <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { setJotOpen(true); setMore(false); }}>
+          <PenLine className="size-3.5" />
+          记
+        </Button>
+      ) : null}
+      {view === "recap" ? (
+        <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { goHome(); setMore(false); }}>
+          {openClass ? "回课堂" : "首页"}
+        </Button>
+      ) : null}
+      {showRecap ? (
+        <Button
+          type="button"
+          variant="quiet"
+          size="lg"
+          className="max-md:w-full max-md:justify-start"
+          onClick={() => {
+            openRecap();
+            setMore(false);
+          }}
+          disabled={view === "recap"}
+        >
+          纪要
+        </Button>
+      ) : null}
+      {openClass ? (
+        <Button type="button" variant="end" size="lg" className="max-md:w-full" onClick={() => { void endClass(); setMore(false); }}>
+          结课
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="quiet"
+        size="lg"
+        className="max-md:w-full max-md:justify-start"
+        onClick={toggleTheme}
+      >
+        {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        {theme === "night" ? "白天" : "夜间"}
+      </Button>
+    </>
+  );
 
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-3 py-2.5 md:gap-x-4 md:px-6 md:py-3">
+    <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-line px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-4 md:px-6 md:py-3">
       <button
         type="button"
         onClick={goHome}
-        className="flex min-w-0 items-center gap-3 text-left"
-        aria-label="回课堂"
+        className="flex min-w-0 items-center gap-2 text-left md:gap-3"
+        aria-label="首页"
       >
         <Mark className="size-6 shrink-0 text-fg" />
         <h1 className="text-base font-medium tracking-[0.22em] text-fg md:text-lg">
@@ -56,10 +116,12 @@ export function MissionBar({ onArm, onSafe }: Props) {
         </h1>
         <p className="hidden text-xs text-muted sm:block">跟课</p>
       </button>
-      <div className="flex items-center gap-2 text-xs text-muted">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
         <span className="go-dot" data-live={live} data-hold={mic === "denied"} />
         {live ? <span className="text-fg">听课中</span> : null}
-        {paused && !live ? <span>已暂停</span> : null}
+        {arming ? <span className="text-fg">正在开麦…</span> : null}
+        {paused ? <span>已暂停</span> : null}
+        {atHome ? <span className="hidden sm:inline">首页</span> : null}
         {lastLatency != null ? (
           <span className="hidden font-mono tabular-nums text-dim sm:inline">
             {lastLatency} 毫秒
@@ -67,7 +129,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
         ) : null}
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+      <div className="relative ml-auto flex items-center gap-1 md:gap-2">
         {isPending ? (
           <span className="hidden h-8 w-8 animate-pulse rounded-full bg-line sm:inline-block" />
         ) : (
@@ -84,56 +146,61 @@ export function MissionBar({ onArm, onSafe }: Props) {
             </SignedOut>
           </>
         )}
+        <div className="hidden items-center gap-1.5 md:flex">
+          <Button
+            type="button"
+            variant="quiet"
+            size="icon"
+            aria-label={theme === "night" ? "白天" : "夜间"}
+            className="size-9 min-h-9 min-w-9"
+            onClick={toggleTheme}
+          >
+            {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </Button>
+          {openClass ? (
+            <Button type="button" variant="quiet" size="lg" onClick={() => setJotOpen(true)}>
+              <PenLine className="size-3.5" />
+              记
+            </Button>
+          ) : null}
+          {view === "recap" ? (
+            <Button type="button" variant="quiet" size="lg" onClick={goHome}>
+              {openClass ? "回课堂" : "首页"}
+            </Button>
+          ) : null}
+          {showRecap ? (
+            <Button
+              type="button"
+              variant="quiet"
+              size="lg"
+              onClick={() => openRecap()}
+              disabled={view === "recap"}
+            >
+              纪要
+            </Button>
+          ) : null}
+          {openClass ? (
+            <Button type="button" variant="end" size="lg" onClick={() => void endClass()}>
+              结课
+            </Button>
+          ) : null}
+        </div>
+        {listenBtn}
         <Button
           type="button"
           variant="quiet"
           size="icon"
-          aria-label={theme === "night" ? "白天" : "夜间"}
-          className="size-9 min-h-9 min-w-9"
-          onClick={toggleTheme}
+          className="size-10 min-h-10 min-w-10 md:hidden"
+          aria-label="更多"
+          onClick={() => setMore((v) => !v)}
         >
-          {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          <MoreHorizontal className="size-4" />
         </Button>
-        <Button
-          type="button"
-          variant="quiet"
-          size="lg"
-          onClick={() => setJotOpen(true)}
-        >
-          <PenLine className="size-3.5" />
-          记
-        </Button>
-        <Button
-          type="button"
-          variant="quiet"
-          size="lg"
-          onClick={() => {
-            if (view === "recap") {
-              setView("live");
-              retryPendingZh();
-            } else {
-              openRecap();
-            }
-          }}
-        >
-          {view === "recap" ? "回课堂" : "纪要"}
-        </Button>
-        {canEnd ? (
-          <Button type="button" variant="quiet" size="lg" onClick={() => void endClass()}>
-            结课
-          </Button>
+        {more ? (
+          <div className="absolute right-0 top-[calc(100%+4px)] z-50 flex w-44 flex-col border border-line bg-elevated p-1 md:hidden">
+            {extras}
+          </div>
         ) : null}
-        {live ? (
-          <Button type="button" variant="safe" size="lg" onClick={onSafe}>
-            <Pause className="size-3.5" />
-            暂停
-          </Button>
-        ) : (
-          <Button type="button" variant="arm" size="lg" onClick={onArm}>
-            <Mic className="size-4" />
-            {paused ? "继续听" : "开始听"}
-          </Button>
-        )}
       </div>
     </header>
   );

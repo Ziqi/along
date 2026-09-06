@@ -14,7 +14,7 @@ Live classroom companion: captions, a coach, translation, AI chat, and a recap y
 - **开始听**：开一堂新课，打开麦克风，走 xAI Speech-to-Text **Streaming**（`wss://api.x.ai/v1/stt`）。
 - **暂停**：只停麦，课还在。
 - **继续听**：同一堂课接着听。
-- **结课**：这堂结束，自动整理纪要。下一堂必须再点「开始听」，不会误续旧课。
+- **结课**：红色实心按钮，下课并整理纪要。下一堂必须再点「开始听」。
 - 左侧是实录字幕（英 + 中）。可手写补一句。
 
 ### 教练
@@ -25,10 +25,13 @@ Live classroom companion: captions, a coach, translation, AI chat, and a recap y
 - **记 / N**：弹出要点框，写入当前纪要，不必打开纪要页。
 
 ### 纪要
-- **课中**：实录、实时提纲、自己记的要点，同一份文档。
-- **结课后**：导语、段落、主题、句式、句子、单词。
+- 一份文档，两块：**Part 1 本堂内容**（目录、导语、分层章节、要点、分布条）和 **Part 2 英语学习**（单词、搭配、句式、语法、好例句、开口建议）。
+- **装配器**：结课或点「整理本堂」立刻用实录拼出骨架（段落 + 1.2.3.4 + 表），不等模型排版。后台用 Flash 短调用填内容和中文释义，缺的中文再补一刀翻译。
+- 正文会自动标出重点词（模型 `*词*` + 语言表里的词）。
+- 课中可写要点（记 / N），不必离开课堂。
 - 可改标题、改正文、删除。「再出一份」另存，并标明由哪一份再出。
-- 下载 Markdown，或「下载 PDF」走打印另存。
+- 下载 Markdown，或「导出 PDF」走打印另存。
+- 仓库里带一份样课 `Money apps · 理财课`，打开纪要即可看目标效果。删除后不会再出现。
 
 ### 翻译
 独立便签。中英互译，`+` 开新便签，同一便签可持续翻。
@@ -43,8 +46,9 @@ Live classroom companion: captions, a coach, translation, AI chat, and a recap y
 | 能力 | 模型 |
 |---|---|
 | 听写 | xAI STT Streaming |
-| 字幕翻译、课上提纲 | grok-4.20-non-reasoning（Flash） |
-| 教练、AI 对话、结课纪要、DeepSearch | grok-4.6 low；超时退 Flash |
+| 字幕翻译、课上提纲、纪要装配填空 | grok-4.20-non-reasoning（Flash） |
+| 教练、AI 对话、DeepSearch | grok-4.6 low；超时退 Flash |
+| 纪要中文补译 | Flash 短调用 |
 
 ---
 

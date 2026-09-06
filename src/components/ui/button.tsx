@@ -14,6 +14,7 @@ const buttonVariants = cva(
         arm: "bg-fg text-bg hover:opacity-90",
         safe: "bg-transparent text-fg border border-fg/40 hover:bg-elevated",
         quiet: "bg-transparent text-muted hover:text-fg",
+        end: "border border-abort bg-abort text-white hover:opacity-90",
       },
       size: {
         sm: "h-9 px-3 text-xs",
