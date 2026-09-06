@@ -92,6 +92,11 @@ export type RecapSection = {
   body: string;
 };
 
+export type RecapOutline = {
+  heading: string;
+  bullets: string[];
+};
+
 export type ClassRecap = {
   title: string;
   lede: string;
@@ -100,6 +105,8 @@ export type ClassRecap = {
   patterns: RecapPair[];
   lines: RecapPair[];
   words: RecapPair[];
+  outline: RecapOutline[];
+  draft: boolean;
   latencyMs: number;
   at: number;
 };
@@ -116,7 +123,7 @@ export type ClassSession = {
   sourceTitle: string | null;
 };
 
-export type Bay = null | "notes";
-export type View = "live" | "recap" | "notes";
+export type Bay = null;
+export type View = "live" | "recap";
 
 export type MicState = "idle" | "arming" | "live" | "denied" | "unsupported";

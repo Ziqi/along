@@ -9,6 +9,7 @@ import type {
   CoachCard,
   Jot,
   MicState,
+  RecapOutline,
   TopicEssay,
   TxPad,
   TxTurn,
@@ -103,6 +104,17 @@ function normRecap(raw: unknown): ClassRecap | null {
       en: string;
       zh: string;
     }[],
+    outline: Array.isArray(r.outline)
+      ? (r.outline as RecapOutline[])
+          .map((o) => ({
+            heading: String(o?.heading ?? "").trim(),
+            bullets: Array.isArray(o?.bullets)
+              ? o.bullets.map((b) => String(b).trim()).filter(Boolean)
+              : [],
+          }))
+          .filter((o) => o.heading)
+      : [],
+    draft: r.draft !== false && !String(r.lede ?? "").trim(),
     latencyMs: typeof r.latencyMs === "number" ? r.latencyMs : 0,
     at: typeof r.at === "number" ? r.at : 0,
   };
@@ -195,6 +207,15 @@ type AppState = {
   setBay: (bay: Bay) => void;
   setView: (view: View) => void;
   setRecap: (recap: ClassRecap, sessionId?: string) => void;
+  setLiveDraft: (
+    sid: string,
+    draft: {
+      title: string;
+      outline: RecapOutline[];
+      topics: { en: string; zh: string }[];
+      ms: number;
+    },
+  ) => void;
   setRecapPending: (on: boolean) => void;
   setRecapError: (msg: string | null) => void;
   stashLive: () => void;
@@ -527,6 +548,29 @@ export const useCapcom = create<AppState>((set, get) => {
       persistSessions(sessions);
       set({ sessions, recapPending: false, recapError: null, sessionId: sid ?? get().sessionId });
     },
+    setLiveDraft: (sid, draft) => {
+      const sessions = get().sessions.map((s) => {
+        if (s.id !== sid) return s;
+        if (s.recap && !s.recap.draft && s.recap.lede) return s;
+        const named = /[\u4e00-\u9fff]/.test(draft.title) ? draft.title.slice(0, 12) : "";
+        const recap: ClassRecap = {
+          title: named || s.recap?.title || s.title,
+          lede: s.recap?.lede ?? "",
+          sections: s.recap?.sections ?? [],
+          topics: draft.topics.length ? draft.topics : (s.recap?.topics ?? []),
+          patterns: s.recap?.patterns ?? [],
+          lines: s.recap?.lines ?? [],
+          words: s.recap?.words ?? [],
+          outline: draft.outline.length ? draft.outline : (s.recap?.outline ?? []),
+          draft: true,
+          latencyMs: draft.ms,
+          at: Date.now(),
+        };
+        return { ...s, recap, title: recap.title || s.title };
+      });
+      persistSessions(sessions);
+      set({ sessions });
+    },
     setRecapPending: (on) =>
       set({ recapPending: on, recapError: on ? null : get().recapError }),
     setRecapError: (msg) => set({ recapError: msg, recapPending: false }),
@@ -557,11 +601,21 @@ export const useCapcom = create<AppState>((set, get) => {
       const sessions = loadSessions();
       if (!sessions.length) return;
       const open = sessions.find((s) => !s.endedAt) ?? null;
+      const tape = open?.transcript ?? [];
       set({
         sessions,
         liveId: open?.id ?? null,
         sessionId: get().sessionId ?? open?.id ?? sessions[0]?.id ?? null,
         jots: open?.notes ?? get().jots,
+        captions: tape.map((t, i) => ({
+          id: `hyd-${i}`,
+          seq: i + 1,
+          at: (open?.startedAt ?? 0) + i,
+          en: t.en,
+          zh: t.zh,
+          pending: false,
+        })),
+        seq: tape.length,
       });
     },
     setAskActive: (id) => set({ askActiveId: id, askError: null }),
@@ -655,6 +709,7 @@ export const useCapcom = create<AppState>((set, get) => {
         txActiveId: tx.id,
         txPending: false,
         seq: 0,
+        startedAt: null,
         lastLatency: null,
         engineError: null,
       });

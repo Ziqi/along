@@ -9,6 +9,7 @@ import {
   liveTranslate,
   mintSttSecret,
   recapClass,
+  liveOutline,
   quickTranslate,
 } from "@/lib/capcom-ai";
 import { SIM_LINES } from "@/components/capcom/sim-feed";
@@ -22,6 +23,8 @@ let simPartialTimer: number | null = null;
 let simIndex = 0;
 let transTimer: number | null = null;
 let coachTimer: number | null = null;
+let liveRecapTimer: number | null = null;
+let liveRecapGen = 0;
 const transBatch: { id: string; en: string }[] = [];
 
 export function ingest(en: string) {
@@ -44,6 +47,7 @@ export function ingest(en: string) {
       void flushCoach("auto");
     }, 2200);
   }
+  scheduleLiveRecap();
 }
 
 async function flushTranslate() {
@@ -125,7 +129,9 @@ export function setCoachLive(on: boolean) {
       coachTimer = null;
     }
     useCapcom.getState().setCoachPending(false);
+    return;
   }
+  void flushCoach("auto");
 }
 
 export async function requestEssay(coachId?: string) {
@@ -221,9 +227,10 @@ export async function captureNote(
   };
   const id = useCapcom.getState().addJot(draft);
   if (!id) return;
-  useCapcom.getState().ping("已记入笔记");
+  useCapcom.getState().ping("已记入纪要");
   if (draft.en && draft.zh) {
     useCapcom.getState().patchJot(id, { en: draft.en, zh: draft.zh, pending: false });
+    scheduleLiveRecap();
     return;
   }
   const result = await quickTranslate({ data: { text: draft.en || draft.zh } });
@@ -236,89 +243,124 @@ export async function captureNote(
   } else {
     useCapcom.getState().patchJot(id, { en: draft.en || text, zh: result.out, pending: false });
   }
+  scheduleLiveRecap();
+}
+
+function toRecap(
+  result: {
+    title: string;
+    lede?: string;
+    outline?: { heading: string; bullets: string[] }[];
+    sections?: { heading: string; body: string }[];
+    topics: { en: string; zh: string }[];
+    patterns: { en: string; zh: string }[];
+    lines: { en: string; zh: string }[];
+    words: { en: string; zh: string }[];
+    ms: number;
+  },
+  prevOutline: { heading: string; bullets: string[] }[] = [],
+) {
+  return {
+    title: result.title,
+    lede: result.lede ?? "",
+    outline: result.outline?.length ? result.outline : prevOutline,
+    sections: result.sections ?? [],
+    topics: result.topics,
+    patterns: result.patterns,
+    lines: result.lines,
+    words: result.words,
+    draft: false,
+    latencyMs: result.ms,
+    at: Date.now(),
+  };
+}
+
+function scheduleLiveRecap() {
+  if (liveRecapTimer != null) window.clearTimeout(liveRecapTimer);
+  liveRecapTimer = window.setTimeout(() => {
+    liveRecapTimer = null;
+    void flushLiveRecap();
+  }, 7000);
+}
+
+async function flushLiveRecap() {
+  const store = useCapcom.getState();
+  const sid = store.liveId;
+  if (!sid || store.recapPending) return;
+  const session = store.sessions.find((s) => s.id === sid);
+  if (!session || session.endedAt) return;
+  if (session.recap && !session.recap.draft && session.recap.lede) return;
+  store.stashLive();
+  const next = useCapcom.getState();
+  const ses = next.sessions.find((s) => s.id === sid);
+  const fromLive = next.captions
+    .filter((c) => c.en && !c.error)
+    .map((c) => ({ en: c.en, zh: c.zh }));
+  const lines = fromLive.length >= 2 ? fromLive : (ses?.transcript ?? []);
+  if (lines.length < 2 && !(ses?.notes.length)) return;
+  const gen = ++liveRecapGen;
+  const result = await liveOutline({
+    data: {
+      lines,
+      topics: next.coaches.map((c) => c.topic).filter(Boolean),
+      notes: (ses?.notes ?? next.jots).map((j) => j.zh || j.en),
+    },
+  });
+  if (gen !== liveRecapGen) return;
+  if (!result.ok) return;
+  useCapcom.getState().setLiveDraft(sid, {
+    title: result.title,
+    outline: result.outline,
+    topics: result.topics,
+    ms: result.ms,
+  });
+}
+
+export function openRecap() {
+  const s = useCapcom.getState();
+  if (s.liveId) {
+    s.stashLive();
+    s.setSession(s.liveId);
+  } else if (!s.sessionId && s.sessions[0]) {
+    s.setSession(s.sessions[0].id);
+  }
+  s.setView("recap");
 }
 
 export async function requestRecap(targetId?: string) {
   const store = useCapcom.getState();
-  if (targetId) {
-    const session = store.sessions.find((s) => s.id === targetId);
-    const lines = session?.transcript ?? [];
-    if (lines.length < 2) {
-      store.setRecapError("这份没有足够实录，没法再出。");
-      store.setView("recap");
-      return;
-    }
-    store.setRecapPending(true);
-    store.setView("recap");
-    const result = await recapClass({
-      data: {
-        lines,
-        topics: [],
-        notes: (session?.notes ?? []).map((j) => j.zh || j.en),
-      },
-    });
-    if (!result.ok) {
-      useCapcom.getState().setRecapError(result.error);
-      return;
-    }
-    useCapcom.getState().setRecap(
-      {
-        title: result.title,
-        lede: result.lede ?? "",
-        sections: result.sections ?? [],
-        topics: result.topics,
-        patterns: result.patterns,
-        lines: result.lines,
-        words: result.words,
-        latencyMs: result.ms,
-        at: Date.now(),
-      },
-      targetId,
-    );
-    return;
-  }
-
-  const sid = store.ensureSession();
-  store.stashLive();
+  if (!targetId) store.stashLive();
   const live = useCapcom.getState();
+  const sid = targetId ?? live.ensureSession();
   const session = live.sessions.find((s) => s.id === sid);
-  const fromLive = live.captions
-    .filter((c) => c.en && !c.error)
-    .map((c) => ({ en: c.en, zh: c.zh }));
+  const isLive = live.liveId === sid;
+  const fromLive = isLive
+    ? live.captions.filter((c) => c.en && !c.error).map((c) => ({ en: c.en, zh: c.zh }))
+    : [];
   const lines = fromLive.length >= 2 ? fromLive : (session?.transcript ?? []);
   if (lines.length < 2) {
-    live.setRecapError("再听两句再出纪要。");
+    live.setRecapError(targetId ? "这份没有足够实录，没法再出。" : "再听两句再出纪要。");
     live.setView("recap");
     return;
   }
   live.setRecapPending(true);
   live.setView("recap");
   live.setSession(sid);
+  const topics = isLive
+    ? live.coaches.map((c) => c.topic).filter(Boolean)
+    : (session?.recap?.topics ?? []).map((t) => t.en);
   const result = await recapClass({
     data: {
       lines,
-      topics: live.coaches.map((c) => c.topic).filter(Boolean),
-      notes: (session?.notes ?? live.jots).map((j) => j.zh || j.en),
+      topics,
+      notes: (session?.notes ?? (isLive ? live.jots : [])).map((j) => j.zh || j.en),
     },
   });
   if (!result.ok) {
     useCapcom.getState().setRecapError(result.error);
     return;
   }
-  useCapcom.getState().setRecap(
-    {
-      title: result.title,
-      lede: result.lede ?? "",
-      sections: result.sections ?? [],
-      topics: result.topics,
-      patterns: result.patterns,
-      lines: result.lines,
-      words: result.words,
-      latencyMs: result.ms,
-      at: Date.now(),
-    },
-    sid,
-  );
+  useCapcom.getState().setRecap(toRecap(result, session?.recap?.outline ?? []), sid);
 }
 
 export async function forkAndRecap(fromId: string) {
@@ -333,10 +375,10 @@ export async function endClass() {
   const sid = store.ensureSession();
   store.stashLive();
   const next = useCapcom.getState();
-  const ready =
-    next.captions.filter((c) => c.en && !c.error).length >= 2 ||
-    (next.sessions.find((s) => s.id === sid)?.transcript.length ?? 0) >= 2;
-  if (ready) await requestRecap();
+  const session = next.sessions.find((s) => s.id === sid);
+  const ready = (session?.transcript.length ?? 0) >= 2;
+  const polished = Boolean(session?.recap && !session.recap.draft && session.recap.lede);
+  if (ready && !polished) await requestRecap(sid);
   useCapcom.getState().clear({ keepBay: ready });
   useCapcom.getState().setSession(sid);
   if (ready) useCapcom.getState().setView("recap");
@@ -376,6 +418,7 @@ function onListenState(live: boolean) {
 }
 
 export function arm() {
+  stopSim();
   const store = useCapcom.getState();
   store.setView("live");
   store.setMic("arming");
@@ -451,7 +494,11 @@ export function safe() {
 
 export function runSim() {
   stopSim();
+  controller?.stop();
+  controller = null;
   const store = useCapcom.getState();
+  store.setMic("idle");
+  store.setInterim("");
   store.armClock();
   store.setEngineError(null);
   simIndex = 0;

@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #050505;
-  --color-surface: #0c0c0c;
-  --color-elevated: #141414;
-  --color-fg: #eceae4;
-  --color-muted: #b7b3aa;
-  --color-dim: #8a867c;
-  --color-line: #2c2a26;
-  --color-go: #6fbf73;
-  --color-hold: #c4a35a;
-  --color-abort: #c45c4a;
+  --color-bg: #efeae0;
+  --color-surface: #f7f3ea;
+  --color-elevated: #fffdf8;
+  --color-fg: #1c1b17;
+  --color-muted: #5c5850;
+  --color-dim: #8a857a;
+  --color-line: #d8d0c3;
+  --color-go: #2f8a42;
+  --color-hold: #a67a28;
+  --color-abort: #b54438;
   --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --radius-xs: 2px;
@@ -35,17 +35,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  html[data-theme="day"] {
-    --color-bg: #efeae0;
-    --color-surface: #f7f3ea;
-    --color-elevated: #fffdf8;
-    --color-fg: #1c1b17;
-    --color-muted: #5c5850;
-    --color-dim: #8a857a;
-    --color-line: #d8d0c3;
-    --color-go: #2f8a42;
-    --color-hold: #a67a28;
-    --color-abort: #b54438;
+  html[data-theme="night"] {
+    --color-bg: #050505;
+    --color-surface: #0c0c0c;
+    --color-elevated: #141414;
+    --color-fg: #eceae4;
+    --color-muted: #b7b3aa;
+    --color-dim: #8a867c;
+    --color-line: #2c2a26;
+    --color-go: #6fbf73;
+    --color-hold: #c4a35a;
+    --color-abort: #c45c4a;
   }
   html,
   body,

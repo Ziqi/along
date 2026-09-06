@@ -92,6 +92,7 @@ export function UplinkPanel() {
                   card={card}
                   essay={essays[card.id]}
                   deepPending={essayPending && essayTarget === card.id}
+                  busy={essayPending}
                   onDeep={() => void requestEssay(card.id)}
                   onJot={(text) => {
                     const hit = card.options.find((o) => o.en === text);
@@ -115,6 +116,7 @@ function CoachBlock({
   card,
   essay,
   deepPending,
+  busy,
   onDeep,
   onJot,
   onJotDeep,
@@ -122,6 +124,7 @@ function CoachBlock({
   card: CoachCard;
   essay?: TopicEssay;
   deepPending: boolean;
+  busy: boolean;
   onDeep: () => void;
   onJot: (text: string) => void;
   onJotDeep: (text: string) => void;
@@ -146,7 +149,7 @@ function CoachBlock({
           size="sm"
           className="h-7 min-h-7 px-2"
           onClick={onDeep}
-          disabled={deepPending}
+          disabled={busy}
         >
           {deepPending ? "检索中" : "DeepSearch"}
         </Button>

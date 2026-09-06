@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { useCapcom } from "@/lib/store";
-import { requestRecap, forkAndRecap } from "@/components/capcom/use-engine";
+import { requestRecap, forkAndRecap, captureNote } from "@/components/capcom/use-engine";
 import type { ClassSession, RecapPair } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ export function RecapPage() {
   const updateRecap = useCapcom((s) => s.updateRecap);
   const pending = useCapcom((s) => s.recapPending);
   const error = useCapcom((s) => s.recapError);
+  const captions = useCapcom((s) => s.captions);
   const [mode, setMode] = useState<"read" | "drill">("read");
   const session = sessions.find((s) => s.id === sessionId) ?? sessions[0];
   const recap = session?.recap ?? null;
@@ -25,7 +26,9 @@ export function RecapPage() {
   const lines = recap?.lines ?? [];
   const words = recap?.words ?? [];
   const topics = recap?.topics ?? [];
-  const canRun = (session?.transcript?.length ?? 0) >= 2;
+  const outline = recap?.outline ?? [];
+  const living = Boolean(session && !session.endedAt);
+  const canRun = (session?.transcript?.length ?? 0) >= 2 || captions.length >= 2;
   const stats = useMemo(() => tally(sessions), [sessions]);
   const keys = words.map((w) => w.en.split(/\s+/)[0] ?? w.en);
 
@@ -102,7 +105,7 @@ export function RecapPage() {
               ))}
             </ul>
           ) : (
-            <p className="px-3 py-4 text-sm text-muted">还没有纪要。结课会自动写一份。</p>
+            <p className="px-3 py-4 text-sm text-muted">上课后这里会出现进行中的纪要。</p>
           )}
         </nav>
       </aside>
@@ -116,6 +119,8 @@ export function RecapPage() {
               <header className="flex flex-col gap-3">
                 <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
                   {formatDayTime(session.startedAt)}
+                  {living ? " · 进行中" : ""}
+                  {recap?.draft ? " · 实时提纲" : ""}
                   {session.sourceTitle ? ` · 由「${session.sourceTitle}」再出` : ""}
                 </p>
                 <input
@@ -135,11 +140,13 @@ export function RecapPage() {
                     size="sm"
                     className="h-7 min-h-7 px-2"
                     onClick={() =>
-                      void (recap ? forkAndRecap(session.id) : requestRecap(session.id))
+                      void (recap && !recap.draft
+                        ? forkAndRecap(session.id)
+                        : requestRecap(session.id))
                     }
                     disabled={pending || !canRun}
                   >
-                    {pending ? "在写" : recap ? "再出一份" : "出纪要"}
+                    {pending ? "在写" : recap && !recap.draft ? "再出一份" : "整理本堂"}
                   </Button>
                   <Button
                     type="button"
@@ -168,20 +175,49 @@ export function RecapPage() {
               ) : (
                 <>
                   {error && !recap ? <p className="text-sm text-abort">{error}</p> : null}
-                  {pending && !recap ? (
-                    <p className="text-base leading-relaxed text-muted">正在把本堂写成纪要…</p>
+                  {pending && !recap?.lede ? (
+                    <p className="text-base leading-relaxed text-muted">正在整理本堂…</p>
                   ) : null}
-                  {!pending && !recap && !error ? (
+
+                  {outline.length ? (
+                    <section className="flex flex-col gap-4">
+                      <h2 className="text-xl font-medium tracking-tight">提纲</h2>
+                      {outline.map((o) => (
+                        <div key={o.heading}>
+                          <p className="text-base font-medium">{o.heading}</p>
+                          {o.bullets.length ? (
+                            <ul className="mt-1 flex flex-col gap-1">
+                              {o.bullets.map((b) => (
+                                <li key={b} className="text-sm leading-relaxed text-muted text-pretty">
+                                  {b}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      ))}
+                    </section>
+                  ) : living && !recap ? (
                     <p className="text-base leading-relaxed text-muted">
-                      这份还没有成文。有实录就可以出纪要。
+                      听几句之后，提纲会写在这里。现在就可以记下要点。
                     </p>
                   ) : null}
 
-                  {recap ? (
+                  {living ? (
+                    <LiveTape
+                      lines={
+                        captions.length
+                          ? captions.map((c) => ({ en: c.en, zh: c.zh }))
+                          : session.transcript
+                      }
+                    />
+                  ) : null}
+
+                  {recap?.lede || sections.length ? (
                     <>
                       <EditableBlock
                         label="导语"
-                        value={recap.lede}
+                        value={recap?.lede ?? ""}
                         onSave={(lede) => updateRecap(session.id, { lede })}
                         large
                       />
@@ -212,14 +248,15 @@ export function RecapPage() {
                           />
                         </section>
                       ))}
-                      {topics.length ? (
-                        <Locker kicker="主题" items={topics} keys={keys} />
-                      ) : null}
-                      <Locker kicker="句式" items={patterns} keys={keys} />
-                      <Locker kicker="句子" items={lines} keys={keys} />
-                      <Locker kicker="单词" items={words} keys={keys} mark />
                     </>
                   ) : null}
+
+                  {topics.length ? (
+                    <Locker kicker="主题" items={topics} keys={keys} />
+                  ) : null}
+                  <Locker kicker="句式" items={patterns} keys={keys} />
+                  <Locker kicker="句子" items={lines} keys={keys} />
+                  <Locker kicker="单词" items={words} keys={keys} mark />
 
                   <NotesEditor session={session} />
                 </>
@@ -258,46 +295,97 @@ function EditableBlock({
   );
 }
 
-function NotesEditor({ session }: { session: ClassSession }) {
-  const patchJot = useCapcom((s) => s.patchJot);
-  const removeJot = useCapcom((s) => s.removeJot);
-  if (!session.notes.length) return null;
+function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
+  const shown = lines.filter((l) => l.en).slice(-6);
+  if (!shown.length) return null;
   return (
-    <section className="flex flex-col gap-4 border-t border-line pt-8">
-      <h2 className="text-xl font-medium tracking-tight">笔记</h2>
-      <ul className="flex flex-col gap-5">
-        {session.notes.map((j) => (
-          <li key={j.id} className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="font-mono text-[10px] text-dim">{formatDayTime(j.at)}</p>
-              <textarea
-                defaultValue={j.en}
-                rows={2}
-                onBlur={(e) => patchJot(j.id, { en: e.target.value, pending: false })}
-                className="mt-1 w-full resize-none bg-transparent text-base leading-snug text-fg focus:outline-none"
-                placeholder="英文"
-              />
-              <textarea
-                defaultValue={j.zh}
-                rows={2}
-                onBlur={(e) => patchJot(j.id, { zh: e.target.value, pending: false })}
-                className="w-full resize-none bg-transparent text-sm leading-relaxed text-muted focus:outline-none"
-                placeholder="中文"
-              />
-            </div>
-            <Button
-              type="button"
-              variant="quiet"
-              size="icon"
-              aria-label="删这条笔记"
-              className="size-7 min-h-7 min-w-7"
-              onClick={() => removeJot(j.id)}
-            >
-              <Trash2 className="size-3" />
-            </Button>
+    <section className="flex flex-col gap-3">
+      <h2 className="text-xl font-medium tracking-tight">刚才听到</h2>
+      <ul className="flex flex-col gap-3">
+        {shown.map((l) => (
+          <li key={l.en}>
+            <p className="text-sm leading-snug text-fg text-pretty">{l.en}</p>
+            {l.zh ? (
+              <p className="mt-0.5 text-sm leading-snug text-muted text-pretty">{l.zh}</p>
+            ) : null}
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function NotesEditor({ session }: { session: ClassSession }) {
+  const patchJot = useCapcom((s) => s.patchJot);
+  const removeJot = useCapcom((s) => s.removeJot);
+  const setSession = useCapcom((s) => s.setSession);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const el = inputRef.current;
+    if (!el) return;
+    setSession(session.id);
+    void captureNote(el.value, "hand");
+    el.value = "";
+  }
+
+  return (
+    <section className="flex flex-col gap-4 border-t border-line pt-8">
+      <h2 className="text-xl font-medium tracking-tight">要点</h2>
+      {session.notes.length ? (
+        <ul className="flex flex-col gap-5">
+          {session.notes.map((j) => (
+            <li key={j.id} className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[10px] text-dim">{formatDayTime(j.at)}</p>
+                <textarea
+                  defaultValue={j.en}
+                  rows={2}
+                  onBlur={(e) => patchJot(j.id, { en: e.target.value, pending: false })}
+                  className="mt-1 w-full resize-none bg-transparent text-base leading-snug text-fg focus:outline-none"
+                  placeholder="英文"
+                />
+                <textarea
+                  defaultValue={j.zh}
+                  rows={2}
+                  onBlur={(e) => patchJot(j.id, { zh: e.target.value, pending: false })}
+                  className="w-full resize-none bg-transparent text-sm leading-relaxed text-muted focus:outline-none"
+                  placeholder="中文"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="quiet"
+                size="icon"
+                aria-label="删这条要点"
+                className="size-7 min-h-7 min-w-7"
+                onClick={() => removeJot(j.id)}
+              >
+                <Trash2 className="size-3" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted">教练点「记」，或在下面自己写一条。</p>
+      )}
+      <form onSubmit={submit}>
+        <textarea
+          ref={inputRef}
+          rows={3}
+          className="w-full resize-none bg-transparent text-sm text-fg placeholder:text-dim focus:outline-none"
+          placeholder="记一条要点，中英都行"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            submit(e);
+          }}
+        />
+        <Button type="submit" variant="primary" size="lg" className="mt-2">
+          记入纪要
+        </Button>
+      </form>
     </section>
   );
 }

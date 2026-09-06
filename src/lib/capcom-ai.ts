@@ -478,6 +478,22 @@ function parseSections(v: unknown): { heading: string; body: string }[] {
   return out;
 }
 
+function parseOutline(v: unknown): { heading: string; bullets: string[] }[] {
+  if (!Array.isArray(v)) return [];
+  const out: { heading: string; bullets: string[] }[] = [];
+  for (const it of v) {
+    if (!it || typeof it !== "object") continue;
+    const row = it as { heading?: unknown; bullets?: unknown };
+    const heading = typeof row.heading === "string" ? row.heading.trim() : "";
+    const bullets = Array.isArray(row.bullets)
+      ? row.bullets.map((b) => String(b).trim()).filter(Boolean).slice(0, 4)
+      : [];
+    if (heading) out.push({ heading, bullets });
+    if (out.length === 4) break;
+  }
+  return out;
+}
+
 function parsePairs(v: unknown, n: number): { en: string; zh: string }[] {
   if (!Array.isArray(v)) return [];
   const out: { en: string; zh: string }[] = [];
@@ -526,6 +542,7 @@ export const recapClass = createServerFn({ method: "POST" })
         title: string;
         lede: string;
         sections: { heading: string; body: string }[];
+        outline: { heading: string; bullets: string[] }[];
         topics: { en: string; zh: string }[];
         patterns: { en: string; zh: string }[];
         lines: { en: string; zh: string }[];
@@ -537,7 +554,7 @@ export const recapClass = createServerFn({ method: "POST" })
     if (data.lines.length < 2) return { ok: false, error: "实录太短" };
     const result = await chat46low({
       system:
-        'Write a complete English-class debrief for an intermediate Chinese student. Return ONLY JSON: {"title":"...","lede":"...","sections":[{"heading":"...","body":"..."}],"topics":[{"en":"...","zh":"..."}],"patterns":[{"en":"...","zh":"..."}],"lines":[{"en":"...","zh":"..."}],"words":[{"en":"...","zh":"..."}]}. title=≤12 Chinese chars, a real class name they can keep. lede=2-3 Chinese sentences: what this class was about and why it matters. sections=2-4 chapters; heading=short Chinese; body=2-4 Chinese paragraphs separated by \\n\\n, each paragraph may include one English sentence in quotes. topics=2-5. patterns=3-5 reusable English frames + Chinese. lines=3-5 spoken English they can reuse + Chinese. words=4-8 with Chinese. Ground in transcript. No markdown.',
+        'Write a complete English-class debrief for an intermediate Chinese student. Return ONLY JSON: {"title":"...","lede":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","body":"..."}],"topics":[{"en":"...","zh":"..."}],"patterns":[{"en":"...","zh":"..."}],"lines":[{"en":"...","zh":"..."}],"words":[{"en":"...","zh":"..."}]}. title=≤12 Chinese chars. lede=2-3 Chinese sentences. outline=2-4 headings with 1-3 short Chinese bullets. sections=2-4 chapters. Weave in student notes. Ground in transcript. No markdown.',
       user: JSON.stringify({
         transcript: data.lines,
         coach_topics: data.topics,
@@ -552,11 +569,75 @@ export const recapClass = createServerFn({ method: "POST" })
       ok: true,
       title: pick(parsed, "title"),
       lede: pick(parsed, "lede"),
+      outline: parseOutline(parsed?.outline),
       sections: parseSections(parsed?.sections),
       topics: parsePairs(parsed?.topics, 5),
       patterns: parsePairs(parsed?.patterns, 5),
       lines: parsePairs(parsed?.lines, 5),
       words: parsePairs(parsed?.words, 8),
+      ms: result.ms,
+    };
+  });
+
+export const liveOutline = createServerFn({ method: "POST" })
+  .validator(
+    (input: {
+      lines: { en: string; zh: string }[];
+      topics: string[];
+      notes: string[];
+    }) => ({
+      lines: Array.isArray(input?.lines)
+        ? input.lines
+            .slice(-20)
+            .map((l) => ({
+              en: String(l?.en ?? "")
+                .trim()
+                .slice(0, 180),
+              zh: String(l?.zh ?? "")
+                .trim()
+                .slice(0, 120),
+            }))
+            .filter((l) => l.en)
+        : [],
+      topics: Array.isArray(input?.topics)
+        ? input.topics.map((s) => String(s).slice(0, 80)).slice(0, 6)
+        : [],
+      notes: Array.isArray(input?.notes)
+        ? input.notes.map((s) => String(s).slice(0, 160)).slice(0, 10)
+        : [],
+    }),
+  )
+  .handler(async ({ data }): Promise<
+    | {
+        ok: true;
+        title: string;
+        outline: { heading: string; bullets: string[] }[];
+        topics: { en: string; zh: string }[];
+        ms: number;
+      }
+    | ChatErr
+  > => {
+    if (data.lines.length < 2 && data.notes.length < 1) {
+      return { ok: false, error: "还太短" };
+    }
+    const result = await chatFlash({
+      system:
+        'Living English-class notes, in progress. Intermediate Chinese student. Return ONLY JSON: {"title":"...","outline":[{"heading":"...","bullets":["..."]}],"topics":[{"en":"...","zh":"..."}]}. title=≤10 Chinese chars for this class so far. outline=2-4 current themes, heading Chinese, 1-3 short Chinese bullets each. Fold student notes into bullets. Not a final essay. No markdown.',
+      user: JSON.stringify({
+        transcript: data.lines,
+        coach_topics: data.topics,
+        student_notes: data.notes,
+      }),
+      maxTokens: 420,
+      temperature: 0.2,
+    });
+    if (!result.ok) return result;
+    const parsed = extractJsonObject(result.text);
+    return {
+      ok: true,
+      title: pick(parsed, "title"),
+      outline: parseOutline(parsed?.outline),
+      topics: parsePairs(parsed?.topics, 5),
       ms: result.ms,
     };
   });

@@ -15,7 +15,7 @@ export const Route = createRootRoute({
         name: "description",
         content: "跟课：听进去，说得出。实录、教练、笔记、整理。",
       },
-      { name: "theme-color", content: "#050505" },
+      { name: "theme-color", content: "#efeae0" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

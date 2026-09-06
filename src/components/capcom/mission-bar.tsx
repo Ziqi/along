@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
-import { endClass } from "@/components/capcom/use-engine";
+import { endClass, openRecap } from "@/components/capcom/use-engine";
 
 type Props = {
   onArm: () => void;
@@ -78,15 +78,7 @@ export function MissionBar({ onArm, onSafe, onSim }: Props) {
           type="button"
           variant="quiet"
           size="lg"
-          onClick={() => setView(view === "notes" ? "live" : "notes")}
-        >
-          {view === "notes" ? "回课堂" : "笔记"}
-        </Button>
-        <Button
-          type="button"
-          variant="quiet"
-          size="lg"
-          onClick={() => setView(view === "recap" ? "live" : "recap")}
+          onClick={() => (view === "recap" ? setView("live") : openRecap())}
         >
           {view === "recap" ? "回课堂" : "纪要"}
         </Button>
