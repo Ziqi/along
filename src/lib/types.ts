@@ -116,6 +116,7 @@ export type ClassSession = {
   title: string;
   startedAt: number;
   endedAt: number | null;
+  updatedAt: number;
   notes: Jot[];
   recap: ClassRecap | null;
   transcript: { en: string; zh: string }[];

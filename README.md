@@ -1,12 +1,20 @@
 # ALONG 跟课
 
-课堂实时听写、中英字幕、教练三条回复、翻译、AI 对话、纪要。
+Classroom companion for English lessons: live captions, a coach that suggests what to say, a translator, an AI chat, and a living recap you can keep.
 
-点「开始听」上课。暂停只停麦，课还在。结课才下课并整理纪要。课上即可打开纪要：实时提纲、刚才听到的、自己记的要点。教练点「记」也写入纪要。「再出一份」另存新纪要，并标明由哪一份再出。默认白天模式。
+课堂英语跟课工具：实时字幕、教练三条回复、翻译、AI 对话、课上就能写的纪要。
 
-## 本地运行
+## What it does
 
-需要 [xAI API key](https://console.x.ai/)。
+- **Listen** — `开始听` starts a class. Pause only stops the mic. `结课` ends the class and polishes the recap.
+- **Coach** — pause/resume independently of the mic. Questions get three replies; discussion gets three ways in. DeepSearch stays under that topic.
+- **Recap** — while class is running, the recap page shows the transcript, a live outline, and your notes. After class it becomes a full write-up (lede, sections, patterns, lines, words).
+- **Jot** — `记` or `N` opens a box. Notes go onto the current recap. You do not need a separate notes app.
+- **Translate / AI chat** — independent pads and threads. `+` starts a new one.
+
+## Run locally
+
+Needs an [xAI API key](https://console.x.ai/).
 
 ```bash
 npm install
@@ -14,18 +22,16 @@ export XAI_API_KEY=your_key
 npm run dev
 ```
 
-浏览器打开提示的地址。Chrome 下实时听写最稳。
+Chrome is the most reliable for live speech.
 
-## 数据存在哪
+## Data
 
-纪要和要点存在**你这台浏览器的 localStorage**，不进云端。
+- **This browser:** recaps are kept in `localStorage` and IndexedDB (up to 40 classes).
+- **Signed in:** recaps also sync to the app database, so they survive a cache clear on that account.
+- **Download:** Markdown, or Print → Save as PDF.
 
-- 不会因为关掉标签而丢，除非清站点数据、换浏览器、或换设备
-- 浏览器一般给每个站点大约 **5 MB**
-- 本应用最多保留 **40 堂**纪要，每堂要点最多 **40 条**
+Clearing site data still wipes the local copy. Sign in if you want the cloud copy.
 
-要长期保存：定期导出，或自己接数据库。换电脑不会自动同步。
-
-## 许可
+## License
 
 MIT

@@ -4,10 +4,10 @@ import { UplinkPanel } from "@/components/capcom/uplink-panel";
 import { TranslatePanel } from "@/components/capcom/translate-panel";
 import { AskPanel } from "@/components/capcom/ask-panel";
 import { RecapPage } from "@/components/capcom/recap-page";
+import { JotPad } from "@/components/capcom/jot-pad";
 import {
   arm,
   ingest,
-  openRecap,
   runSim,
   safe,
   useCapcomEngine,
@@ -36,11 +36,15 @@ export function MissionShell() {
       }
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
-        if (useCapcom.getState().view === "recap") useCapcom.getState().setView("live");
-        else openRecap();
+        useCapcom.getState().setJotOpen(!useCapcom.getState().jotOpen);
       }
       if (e.key === "Escape") {
         const s = useCapcom.getState();
+        if (s.jotOpen) {
+          s.setJotOpen(false);
+          e.preventDefault();
+          return;
+        }
         if (s.askOpen) {
           s.setAskOpen(false);
           e.preventDefault();
@@ -64,16 +68,20 @@ export function MissionShell() {
           {flash}
         </p>
       ) : null}
-      {view === "recap" ? (
-        <RecapPage />
-      ) : (
-        <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.25fr)_minmax(0,1.2fr)_minmax(108px,128px)_minmax(150px,175px)] gap-3 p-3 md:gap-4 md:p-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:grid-rows-[minmax(0,1fr)_minmax(148px,190px)] lg:p-5">
-          <DownlinkPanel onInject={ingest} />
-          <UplinkPanel />
-          <TranslatePanel />
-          <AskPanel />
-        </main>
-      )}
+      {view === "recap" ? <RecapPage /> : null}
+      <main
+        className={
+          (view === "recap" ? "hidden " : "") +
+          "grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.25fr)_minmax(0,1.2fr)_minmax(108px,128px)_minmax(150px,175px)] gap-3 p-3 md:gap-4 md:p-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:grid-rows-[minmax(0,1fr)_minmax(148px,190px)] lg:p-5"
+        }
+        aria-hidden={view === "recap"}
+      >
+        <DownlinkPanel onInject={ingest} />
+        <UplinkPanel />
+        <TranslatePanel />
+        <AskPanel />
+      </main>
+      <JotPad />
     </div>
   );
 }

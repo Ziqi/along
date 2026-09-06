@@ -15,6 +15,7 @@ export function UplinkPanel() {
   const essayTarget = useCapcom((s) => s.essayTarget);
   const captions = useCapcom((s) => s.captions);
   const autoCoach = useCapcom((s) => s.autoCoach);
+  const setJotOpen = useCapcom((s) => s.setJotOpen);
   const latest = coaches.at(-1) ?? null;
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -41,6 +42,15 @@ export function UplinkPanel() {
           <h2 className="text-xs font-medium">教练</h2>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            className="h-7 min-h-7 px-2"
+            onClick={() => setJotOpen(true)}
+          >
+            记要点
+          </Button>
           <Button
             type="button"
             variant="quiet"

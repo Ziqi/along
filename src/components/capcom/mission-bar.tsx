@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { Mic, Moon, Pause, Sun } from "lucide-react";
+import { Mic, Moon, Pause, PenLine, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
-import { endClass, openRecap } from "@/components/capcom/use-engine";
+import { endClass, openRecap, retryPendingZh } from "@/components/capcom/use-engine";
+import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 type Props = {
   onArm: () => void;
@@ -20,9 +22,11 @@ export function MissionBar({ onArm, onSafe, onSim }: Props) {
   const view = useCapcom((s) => s.view);
   const setView = useCapcom((s) => s.setView);
   const goHome = useCapcom((s) => s.goHome);
+  const setJotOpen = useCapcom((s) => s.setJotOpen);
   const live = mic === "live";
   const paused = !live && (captions.length > 0 || Boolean(liveId));
   const [theme, setTheme] = useState<Theme>("day");
+  const { isPending } = useCurrentUserState();
 
   useEffect(() => {
     const next = readTheme();
@@ -64,6 +68,22 @@ export function MissionBar({ onArm, onSafe, onSim }: Props) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+        {isPending ? (
+          <span className="hidden h-8 w-8 animate-pulse rounded-full bg-line sm:inline-block" />
+        ) : (
+          <>
+            <SignedIn>
+              <span className="hidden sm:inline">
+                <UserButton />
+              </span>
+            </SignedIn>
+            <SignedOut>
+              <a href="/login" className="hidden text-xs text-muted hover:text-fg sm:inline">
+                登录保存
+              </a>
+            </SignedOut>
+          </>
+        )}
         <Button
           type="button"
           variant="quiet"
@@ -78,7 +98,23 @@ export function MissionBar({ onArm, onSafe, onSim }: Props) {
           type="button"
           variant="quiet"
           size="lg"
-          onClick={() => (view === "recap" ? setView("live") : openRecap())}
+          onClick={() => setJotOpen(true)}
+        >
+          <PenLine className="size-3.5" />
+          记
+        </Button>
+        <Button
+          type="button"
+          variant="quiet"
+          size="lg"
+          onClick={() => {
+            if (view === "recap") {
+              setView("live");
+              retryPendingZh();
+            } else {
+              openRecap();
+            }
+          }}
         >
           {view === "recap" ? "回课堂" : "纪要"}
         </Button>

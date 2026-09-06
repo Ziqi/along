@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { useCapcom } from "@/lib/store";
 import { requestRecap, forkAndRecap, captureNote } from "@/components/capcom/use-engine";
+import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import type { ClassSession, RecapPair } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
 
@@ -167,6 +168,30 @@ export function RecapPage() {
                   >
                     删除
                   </Button>
+                  <Button
+                    type="button"
+                    variant="quiet"
+                    size="sm"
+                    className="h-7 min-h-7 px-2"
+                    onClick={() =>
+                      downloadText(
+                        `${session.title}.md`,
+                        recapMarkdown(session),
+                        "text/markdown;charset=utf-8",
+                      )
+                    }
+                  >
+                    下载 Markdown
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="quiet"
+                    size="sm"
+                    className="h-7 min-h-7 px-2"
+                    onClick={() => printRecap(session)}
+                  >
+                    下载 PDF
+                  </Button>
                 </div>
               </header>
 
@@ -211,6 +236,8 @@ export function RecapPage() {
                           : session.transcript
                       }
                     />
+                  ) : session.transcript.length ? (
+                    <LiveTape lines={session.transcript} />
                   ) : null}
 
                   {recap?.lede || sections.length ? (
@@ -296,18 +323,21 @@ function EditableBlock({
 }
 
 function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
-  const shown = lines.filter((l) => l.en).slice(-6);
+  const shown = lines.filter((l) => l.en);
   if (!shown.length) return null;
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xl font-medium tracking-tight">刚才听到</h2>
-      <ul className="flex flex-col gap-3">
-        {shown.map((l) => (
-          <li key={l.en}>
+      <h2 className="text-xl font-medium tracking-tight">实录</h2>
+      <p className="text-sm text-muted">课上说的都会记在这里。结课再整理成完整纪要。</p>
+      <ul className="flex max-h-64 flex-col gap-3 overflow-y-auto border border-line bg-surface px-4 py-3">
+        {shown.map((l, i) => (
+          <li key={`${i}-${l.en.slice(0, 24)}`}>
             <p className="text-sm leading-snug text-fg text-pretty">{l.en}</p>
             {l.zh ? (
               <p className="mt-0.5 text-sm leading-snug text-muted text-pretty">{l.zh}</p>
-            ) : null}
+            ) : (
+              <p className="mt-0.5 text-xs text-dim">译…</p>
+            )}
           </li>
         ))}
       </ul>
@@ -370,12 +400,16 @@ function NotesEditor({ session }: { session: ClassSession }) {
       ) : (
         <p className="text-sm text-muted">教练点「记」，或在下面自己写一条。</p>
       )}
-      <form onSubmit={submit}>
+      <form onSubmit={submit} className="border border-line bg-surface p-3">
+        <label className="text-xs text-muted" htmlFor="recap-jot">
+          写一条要点，中文或英文都可以
+        </label>
         <textarea
+          id="recap-jot"
           ref={inputRef}
           rows={3}
-          className="w-full resize-none bg-transparent text-sm text-fg placeholder:text-dim focus:outline-none"
-          placeholder="记一条要点，中英都行"
+          className="mt-2 w-full resize-none border border-line bg-elevated px-3 py-2 text-sm text-fg placeholder:text-dim focus:outline-none"
+          placeholder="例如：I'd rather use a budgeting app. / 复利要尽早开始"
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
             e.preventDefault();

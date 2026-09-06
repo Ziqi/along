@@ -51,18 +51,38 @@ export function ingest(en: string) {
 }
 
 async function flushTranslate() {
-  const lines = transBatch.splice(0, transBatch.length);
+  const lines = transBatch.splice(0, 4);
   if (!lines.length) return;
   const result = await liveTranslate({ data: { lines } });
   const s = useCapcom.getState();
   if (!result.ok) {
     for (const line of lines) s.markError(line.id, result.error);
-    return;
+  } else {
+    for (const line of lines) {
+      const hit = result.items.find((it) => it.id === line.id);
+      s.setZh(line.id, { zh: hit?.zh || line.en, ms: result.ms });
+    }
   }
-  for (const line of lines) {
-    const hit = result.items.find((it) => it.id === line.id);
-    s.setZh(line.id, { zh: hit?.zh || line.en, ms: result.ms });
+  if (transBatch.length) {
+    if (transTimer != null) window.clearTimeout(transTimer);
+    transTimer = window.setTimeout(() => {
+      transTimer = null;
+      void flushTranslate();
+    }, 40);
   }
+}
+
+export function retryPendingZh() {
+  const s = useCapcom.getState();
+  for (const c of s.captions) {
+    if (!c.en || c.error || (c.zh && !c.pending)) continue;
+    if (!transBatch.some((b) => b.id === c.id)) transBatch.push({ id: c.id, en: c.en });
+  }
+  if (!transBatch.length || transTimer != null) return;
+  transTimer = window.setTimeout(() => {
+    transTimer = null;
+    void flushTranslate();
+  }, 40);
 }
 
 async function flushCoach(source: "auto" | "intent", spoken?: string) {
@@ -470,6 +490,8 @@ export function useCapcomEngine() {
       const mic = useCapcom.getState().mic;
       if (mic === "idle") useCapcom.getState().setMic("unsupported");
     }
+    const tick = window.setInterval(() => retryPendingZh(), 2800);
+    return () => window.clearInterval(tick);
   }, []);
 }
 

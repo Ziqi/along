@@ -15,6 +15,7 @@ import type {
   TxTurn,
   View,
 } from "@/lib/types";
+import { readLocalSessions, writeLocalSessions } from "@/lib/persist";
 
 let nid = 0;
 const idOf = (p: string) => {
@@ -34,14 +35,12 @@ const emptyTx = (): TxPad => ({
   turns: [],
 });
 
-const SESSION_KEY = "along.sessions";
-
 function persistSessions(sessions: ClassSession[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(SESSION_KEY, JSON.stringify(sessions.slice(0, 40)));
-  } catch {
-    /* ignore */
+  writeLocalSessions(sessions);
+  if (typeof window !== "undefined") {
+    window.setTimeout(() => {
+      void import("@/lib/recap-cloud").then((m) => m.pushSessionsSafe(sessions));
+    }, 400);
   }
 }
 
@@ -120,27 +119,39 @@ function normRecap(raw: unknown): ClassRecap | null {
   };
 }
 
+function normalizeSessions(raw: unknown): ClassSession[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 40).map((s: ClassSession) => ({
+    ...s,
+    notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
+    recap: normRecap(s.recap),
+    transcript: Array.isArray(s.transcript)
+      ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
+      : [],
+    sourceId: s.sourceId ?? null,
+    sourceTitle: s.sourceTitle ?? null,
+    updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
+  }));
+}
+
 function loadSessions(): ClassSession[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(SESSION_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ClassSession[];
-    return Array.isArray(parsed)
-      ? parsed.slice(0, 40).map((s) => ({
-          ...s,
-          notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
-          recap: normRecap(s.recap),
-          transcript: Array.isArray(s.transcript)
-            ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
-            : [],
-          sourceId: s.sourceId ?? null,
-          sourceTitle: s.sourceTitle ?? null,
-        }))
-      : [];
+    return normalizeSessions(readLocalSessions());
   } catch {
     return [];
   }
+}
+
+function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
+  const map = new Map<string, ClassSession>();
+  for (const s of [...a, ...b]) {
+    const prev = map.get(s.id);
+    if (!prev || (s.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) map.set(s.id, s);
+  }
+  return [...map.values()]
+    .sort((x, y) => (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt))
+    .slice(0, 40);
 }
 
 type AppState = {
@@ -167,6 +178,7 @@ type AppState = {
   recapPending: boolean;
   recapError: string | null;
   flash: string | null;
+  jotOpen: boolean;
   askThreads: AskThread[];
   askActiveId: string;
   askPending: boolean;
@@ -220,6 +232,7 @@ type AppState = {
   setRecapError: (msg: string | null) => void;
   stashLive: () => void;
   ping: (msg: string) => void;
+  setJotOpen: (on: boolean) => void;
   hydrateSessions: () => void;
   setAskActive: (id: string) => void;
   newAskThread: () => void;
@@ -263,6 +276,7 @@ export const useCapcom = create<AppState>((set, get) => {
     recapPending: false,
     recapError: null,
     flash: null,
+    jotOpen: false,
     askThreads: [firstAsk],
     askActiveId: firstAsk.id,
     askPending: false,
@@ -465,6 +479,7 @@ export const useCapcom = create<AppState>((set, get) => {
         transcript: src.transcript.map((t) => ({ ...t })),
         sourceId: src.id,
         sourceTitle: src.title,
+        updatedAt: Date.now(),
       };
       const sessions = [next, ...get().sessions].slice(0, 40);
       persistSessions(sessions);
@@ -519,6 +534,7 @@ export const useCapcom = create<AppState>((set, get) => {
         transcript: [],
         sourceId: null,
         sourceTitle: null,
+        updatedAt: Date.now(),
       };
       const sessions = [next, ...get().sessions].slice(0, 40);
       persistSessions(sessions);
@@ -542,7 +558,7 @@ export const useCapcom = create<AppState>((set, get) => {
       const sid = sessionId ?? get().sessionId;
       const sessions = get().sessions.map((s) =>
         s.id === sid
-          ? { ...s, recap, title: recap.title || s.title }
+          ? { ...s, recap, title: recap.title || s.title, updatedAt: Date.now() }
           : s,
       );
       persistSessions(sessions);
@@ -585,6 +601,7 @@ export const useCapcom = create<AppState>((set, get) => {
               ...s,
               notes: get().jots,
               transcript: transcript.length ? transcript : s.transcript ?? [],
+              updatedAt: Date.now(),
             }
           : s,
       );
@@ -597,26 +614,53 @@ export const useCapcom = create<AppState>((set, get) => {
         if (get().flash === msg) set({ flash: null });
       }, 1400);
     },
+    setJotOpen: (on) => set({ jotOpen: on }),
     hydrateSessions: () => {
-      const sessions = loadSessions();
-      if (!sessions.length) return;
-      const open = sessions.find((s) => !s.endedAt) ?? null;
-      const tape = open?.transcript ?? [];
-      set({
-        sessions,
-        liveId: open?.id ?? null,
-        sessionId: get().sessionId ?? open?.id ?? sessions[0]?.id ?? null,
-        jots: open?.notes ?? get().jots,
-        captions: tape.map((t, i) => ({
-          id: `hyd-${i}`,
-          seq: i + 1,
-          at: (open?.startedAt ?? 0) + i,
-          en: t.en,
-          zh: t.zh,
-          pending: false,
-        })),
-        seq: tape.length,
-      });
+      const apply = (sessions: ClassSession[]) => {
+        const cur = get();
+        const open =
+          sessions.find((s) => s.id === cur.liveId && !s.endedAt) ??
+          sessions.find((s) => !s.endedAt) ??
+          null;
+        const tape = open?.transcript ?? [];
+        const keepTape = cur.captions.length > 0;
+        set({
+          sessions,
+          liveId: open?.id ?? (keepTape ? cur.liveId : null),
+          sessionId: cur.sessionId ?? open?.id ?? sessions[0]?.id ?? null,
+          jots: cur.jots.length ? cur.jots : (open?.notes ?? []),
+          captions: keepTape
+            ? cur.captions
+            : tape.map((t, i) => ({
+                id: `hyd-${i}`,
+                seq: i + 1,
+                at: (open?.startedAt ?? 0) + i,
+                en: t.en,
+                zh: t.zh,
+                pending: false,
+              })),
+          seq: keepTape ? cur.seq : tape.length,
+        });
+      };
+      apply(loadSessions());
+      void (async () => {
+        try {
+          const { readIdbSessions } = await import("@/lib/persist");
+          const idb = normalizeSessions(await readIdbSessions());
+          let next = mergeSessions(get().sessions, idb);
+          try {
+            const cloud = await import("@/lib/recap-cloud");
+            const remote = normalizeSessions(await cloud.pullSessions());
+            next = mergeSessions(next, remote);
+          } catch {
+            /* signed out or offline */
+          }
+          persistSessions(next);
+          apply(next);
+        } catch {
+          /* ignore */
+        }
+      })();
     },
     setAskActive: (id) => set({ askActiveId: id, askError: null }),
     newAskThread: () => {
