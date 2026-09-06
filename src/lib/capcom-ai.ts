@@ -134,7 +134,7 @@ const TRANS_SYS =
   'Translate classroom English to spoken 简体中文. No thinking. Return ONLY JSON: {"items":[{"id":"...","zh":"..."}]}. zh=complete spoken Chinese of that line. No markdown.';
 
 const COACH_SYS =
-  'English-class coach. Intermediate Chinese student. No thinking. Return ONLY JSON: {"topic":"...","topicZh":"...","move":"answer"|"join","options":[{"label":"...","en":"...","zh":"...","keys":["..."]},{"label":"...","en":"...","zh":"...","keys":["..."]},{"label":"...","en":"...","zh":"...","keys":["..."]}]}. topic=ongoing theme ≤6 English words from recent_class. topicZh=简体中文 of topic. move=answer if last_heard is a question to reply to; move=join if discussion. ALWAYS exactly 3 options. NEVER repeat last_heard. If answer: 3 different spoken replies (agree / contrast / example), label each 答. If join: 1 接话 (add a point), 2 追问 (a follow-up question), 3 例子 (a short personal example). en=12-22 words spoken classroom English. zh=≤20 Chinese chars. keys=2-4 content words from en to highlight (nouns/verbs worth learning). Always fill 3 options. No markdown.';
+  'English-class coach. Intermediate Chinese student. Return ONLY JSON: {"topic":"...","topicZh":"...","move":"answer"|"join","options":[{"label":"...","en":"...","zh":"...","keys":["..."]},{"label":"...","en":"...","zh":"...","keys":["..."]},{"label":"...","en":"...","zh":"...","keys":["..."]}]}. Infer the ongoing theme from recent_class, not just last_heard. topic=ongoing theme ≤6 English words. topicZh=简体中文 of topic. move=answer if last_heard is a question to reply to; move=join if discussion. ALWAYS exactly 3 options. NEVER repeat last_heard. If answer: 3 different spoken replies (agree / contrast / example), label each 答. If join: 1 接话 (add a point), 2 追问 (a follow-up question), 3 例子 (a short personal example). en=12-22 words spoken classroom English. zh=≤20 Chinese chars. keys=2-4 content words from en to highlight (nouns/verbs worth learning). Always fill 3 options. No markdown.';
 
 export const liveTranslate = createServerFn({ method: "POST" })
   .validator((input: { lines: { id: string; en: string }[] }) => ({
@@ -189,7 +189,7 @@ export const liveCoach = createServerFn({ method: "POST" })
         .trim()
         .slice(0, 400),
       recent: Array.isArray(input?.recent)
-        ? input.recent.map((s) => String(s).slice(0, 220)).slice(-16)
+        ? input.recent.map((s) => String(s).slice(0, 220)).slice(-24)
         : [],
       intent: String(input?.intent ?? "")
         .trim()
@@ -208,15 +208,15 @@ export const liveCoach = createServerFn({ method: "POST" })
     | ChatErr
   > => {
     if (!data.last && !data.intent) return { ok: false, error: "empty" };
-    const result = await chatFlash({
+    const result = await chat46low({
       system: COACH_SYS,
       user: JSON.stringify({
         last_heard: data.last || null,
         recent_class: data.recent,
         student_intent: data.intent || null,
       }),
-      maxTokens: 360,
-      temperature: 0.35,
+      maxTokens: 420,
+      timeoutMs: 7000,
     });
     if (!result.ok) return result;
     const parsed = extractJsonObject(result.text);
@@ -330,7 +330,7 @@ export const askTopic = createServerFn({ method: "POST" })
     | ChatErr
   > => {
     if (!data.q) return { ok: false, error: "empty" };
-    const result = await chatFlash({
+    const result = await chat46low({
       system:
         'English-class Q&A. Intermediate Chinese student. They may type a question OR what they want to say. Return ONLY JSON: {"zh":"...","en":"..."}. zh=classroom Chinese, 4-7 short sentences they can discuss: include a discussable point and one example. en=spoken classroom English, 4-7 sentences they can actually say in class, NOT a translation of zh — a full English turn. If they wrote an intent (我想说…), en is how to say it, plus a short follow-up question. Always fill both. No markdown.',
       user: JSON.stringify({
@@ -338,8 +338,8 @@ export const askTopic = createServerFn({ method: "POST" })
         thread: data.history,
         class_so_far: data.recent,
       }),
-      maxTokens: 700,
-      temperature: 0.3,
+      maxTokens: 900,
+      timeoutMs: 12000,
     });
     if (!result.ok) return result;
     const parsed = extractJsonObject(result.text);

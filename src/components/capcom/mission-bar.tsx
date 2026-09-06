@@ -11,20 +11,20 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 type Props = {
   onArm: () => void;
   onSafe: () => void;
-  onSim: () => void;
 };
 
-export function MissionBar({ onArm, onSafe, onSim }: Props) {
+export function MissionBar({ onArm, onSafe }: Props) {
   const mic = useCapcom((s) => s.mic);
   const lastLatency = useCapcom((s) => s.lastLatency);
-  const captions = useCapcom((s) => s.captions);
   const liveId = useCapcom((s) => s.liveId);
+  const sessions = useCapcom((s) => s.sessions);
   const view = useCapcom((s) => s.view);
   const setView = useCapcom((s) => s.setView);
   const goHome = useCapcom((s) => s.goHome);
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const live = mic === "live";
-  const paused = !live && (captions.length > 0 || Boolean(liveId));
+  const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
+  const paused = !live && openClass;
   const [theme, setTheme] = useState<Theme>("day");
   const { isPending } = useCurrentUserState();
 
@@ -40,7 +40,7 @@ export function MissionBar({ onArm, onSafe, onSim }: Props) {
     applyTheme(next);
   }
 
-  const canEnd = captions.length > 0 || live || Boolean(liveId);
+  const canEnd = live || openClass;
 
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-3 py-2.5 md:gap-x-4 md:px-6 md:py-3">
@@ -117,9 +117,6 @@ export function MissionBar({ onArm, onSafe, onSim }: Props) {
           }}
         >
           {view === "recap" ? "回课堂" : "纪要"}
-        </Button>
-        <Button type="button" variant="ghost" size="lg" onClick={onSim}>
-          听课
         </Button>
         {canEnd ? (
           <Button type="button" variant="quiet" size="lg" onClick={() => void endClass()}>

@@ -8,7 +8,6 @@ import { JotPad } from "@/components/capcom/jot-pad";
 import {
   arm,
   ingest,
-  runSim,
   safe,
   useCapcomEngine,
 } from "@/components/capcom/use-engine";
@@ -57,7 +56,7 @@ export function MissionShell() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
-      <MissionBar onArm={arm} onSafe={safe} onSim={runSim} />
+      <MissionBar onArm={arm} onSafe={safe} />
       {engineError ? (
         <p className="shrink-0 border-b border-line px-4 py-2 text-xs text-hold md:px-6">
           {engineError}

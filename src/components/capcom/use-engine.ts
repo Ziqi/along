@@ -12,15 +12,11 @@ import {
   liveOutline,
   quickTranslate,
 } from "@/lib/capcom-ai";
-import { SIM_LINES } from "@/components/capcom/sim-feed";
 
 let coachGen = 0;
 let essayGen = 0;
 let askGen = 0;
 let controller: SpeechController | SttController | null = null;
-let simTimer: number | null = null;
-let simPartialTimer: number | null = null;
-let simIndex = 0;
 let transTimer: number | null = null;
 let coachTimer: number | null = null;
 let liveRecapTimer: number | null = null;
@@ -110,7 +106,7 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
   const result = await liveCoach({
     data: {
       last,
-      recent: store.captions.slice(-16).map((c) => c.en),
+      recent: store.captions.slice(-24).map((c) => c.en),
       intent,
     },
   });
@@ -392,7 +388,11 @@ export async function forkAndRecap(fromId: string) {
 export async function endClass() {
   safe();
   const store = useCapcom.getState();
-  const sid = store.ensureSession();
+  const sid = store.liveId;
+  if (!sid) {
+    store.setView("recap");
+    return;
+  }
   store.stashLive();
   const next = useCapcom.getState();
   const session = next.sessions.find((s) => s.id === sid);
@@ -401,7 +401,7 @@ export async function endClass() {
   if (ready && !polished) await requestRecap(sid);
   useCapcom.getState().clear({ keepBay: ready });
   useCapcom.getState().setSession(sid);
-  if (ready) useCapcom.getState().setView("recap");
+  useCapcom.getState().setView("recap");
 }
 
 function wireChrome() {
@@ -419,7 +419,7 @@ function onListenError(code: string) {
     useCapcom.getState().setMic("denied");
     useCapcom
       .getState()
-      .setEngineError("麦克风被拒绝。可点听课，或在左侧手写。");
+      .setEngineError("麦克风被拒绝。可在左侧手写，或换 Chrome。");
     return;
   }
   if (code === "unsupported") {
@@ -438,11 +438,15 @@ function onListenState(live: boolean) {
 }
 
 export function arm() {
-  stopSim();
   const store = useCapcom.getState();
+  const open =
+    store.sessions.find((s) => s.id === store.liveId && !s.endedAt) ?? null;
   store.setView("live");
   store.setMic("arming");
   store.setEngineError(null);
+  if (!open) {
+    store.resetHud();
+  }
   store.armClock();
   controller?.stop();
   controller = null;
@@ -481,7 +485,7 @@ export function arm() {
     return;
   }
   store.setMic("unsupported");
-  store.setEngineError("此浏览器不能听写。请用 Chrome，或改走听课 / 手写。");
+  store.setEngineError("此浏览器不能听写。请用 Chrome，或在左侧手写。");
 }
 
 export function useCapcomEngine() {
@@ -495,50 +499,9 @@ export function useCapcomEngine() {
   }, []);
 }
 
-export function stopSim() {
-  if (simTimer != null) {
-    window.clearInterval(simTimer);
-    simTimer = null;
-  }
-  if (simPartialTimer != null) {
-    window.clearInterval(simPartialTimer);
-    simPartialTimer = null;
-  }
-}
-
 export function safe() {
   controller?.stop();
   controller = null;
-  stopSim();
   useCapcom.getState().setMic("idle");
   useCapcom.getState().setInterim("");
-}
-
-export function runSim() {
-  stopSim();
-  controller?.stop();
-  controller = null;
-  const store = useCapcom.getState();
-  store.setMic("idle");
-  store.setInterim("");
-  store.armClock();
-  store.setEngineError(null);
-  simIndex = 0;
-  const tick = () => {
-    const line = SIM_LINES[simIndex % SIM_LINES.length] ?? "";
-    simIndex += 1;
-    let i = 1;
-    if (simPartialTimer != null) window.clearInterval(simPartialTimer);
-    simPartialTimer = window.setInterval(() => {
-      useCapcom.getState().setInterim(line.slice(0, i));
-      i += 4;
-      if (i > line.length) {
-        if (simPartialTimer != null) window.clearInterval(simPartialTimer);
-        simPartialTimer = null;
-        ingest(line);
-      }
-    }, 14);
-  };
-  tick();
-  simTimer = window.setInterval(tick, 2400);
 }

@@ -1,6 +1,7 @@
 import type { ClassSession } from "@/lib/types";
 
 const KEY = "along.sessions";
+const PING = "along.ping";
 const DB = "along";
 const STORE = "kv";
 
@@ -81,3 +82,41 @@ async function writeIdb(payload: string) {
     /* ignore */
   }
 }
+
+export async function probeStorage(): Promise<{
+  ok: boolean;
+  local: boolean;
+  idb: boolean;
+}> {
+  if (typeof window === "undefined") return { ok: false, local: false, idb: false };
+  const token = `ok-${Date.now()}`;
+  let local = false;
+  let idb = false;
+  try {
+    window.localStorage.setItem(PING, token);
+    local = window.localStorage.getItem(PING) === token;
+    window.localStorage.removeItem(PING);
+  } catch {
+    /* quota / private */
+  }
+  const db = await openDb();
+  if (db) {
+    idb = await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(STORE, "readwrite");
+        const store = tx.objectStore(STORE);
+        store.put(token, PING);
+        const req = store.get(PING);
+        req.onsuccess = () => {
+          store.delete(PING);
+          resolve(req.result === token);
+        };
+        req.onerror = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+  return { ok: local || idb, local, idb };
+}
+

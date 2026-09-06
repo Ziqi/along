@@ -147,7 +147,13 @@ function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
   const map = new Map<string, ClassSession>();
   for (const s of [...a, ...b]) {
     const prev = map.get(s.id);
-    if (!prev || (s.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) map.set(s.id, s);
+    if (!prev) {
+      map.set(s.id, s);
+      continue;
+    }
+    const dt = (s.updatedAt ?? 0) - (prev.updatedAt ?? 0);
+    if (dt > 0) map.set(s.id, s);
+    else if (dt === 0 && s.endedAt && !prev.endedAt) map.set(s.id, s);
   }
   return [...map.values()]
     .sort((x, y) => (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt))
@@ -246,6 +252,7 @@ type AppState = {
   setTxPending: (on: boolean) => void;
   setEngineError: (msg: string | null) => void;
   armClock: () => void;
+  resetHud: () => void;
   clear: (opts?: { keepBay?: boolean }) => void;
 };
 
@@ -620,7 +627,7 @@ export const useCapcom = create<AppState>((set, get) => {
         const cur = get();
         const open =
           sessions.find((s) => s.id === cur.liveId && !s.endedAt) ??
-          sessions.find((s) => !s.endedAt) ??
+          (cur.liveId ? null : sessions.find((s) => !s.endedAt)) ??
           null;
         const tape = open?.transcript ?? [];
         const keepTape = cur.captions.length > 0;
@@ -645,8 +652,14 @@ export const useCapcom = create<AppState>((set, get) => {
       apply(loadSessions());
       void (async () => {
         try {
-          const { readIdbSessions } = await import("@/lib/persist");
-          const idb = normalizeSessions(await readIdbSessions());
+          const persist = await import("@/lib/persist");
+          const probe = await persist.probeStorage();
+          if (!probe.ok) {
+            set({
+              engineError: "本机存储写不进去。无痕模式或空间已满时，纪要可能保不住。",
+            });
+          }
+          const idb = normalizeSessions(await persist.readIdbSessions());
           let next = mergeSessions(get().sessions, idb);
           try {
             const cloud = await import("@/lib/recap-cloud");
@@ -718,12 +731,33 @@ export const useCapcom = create<AppState>((set, get) => {
       if (!get().startedAt) set({ startedAt: Date.now() });
       get().ensureSession();
     },
+    resetHud: () =>
+      set({
+        captions: [],
+        interim: "",
+        coach: null,
+        coaches: [],
+        coachError: null,
+        coachPending: false,
+        essay: null,
+        essays: {},
+        essayPending: false,
+        essayTarget: null,
+        jots: [],
+        liveId: null,
+        seq: 0,
+        startedAt: null,
+        lastLatency: null,
+        engineError: null,
+      }),
     clear: (opts) => {
       const ask = emptyAsk();
       const tx = emptyTx();
       const liveId = get().liveId ?? get().sessionId;
       const sessions = get().sessions.map((s) =>
-        s.id === liveId && !s.endedAt ? { ...s, endedAt: Date.now() } : s,
+        s.id === liveId && !s.endedAt
+          ? { ...s, endedAt: Date.now(), updatedAt: Date.now() }
+          : s,
       );
       persistSessions(sessions);
       set({
