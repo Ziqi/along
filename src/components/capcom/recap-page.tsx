@@ -74,7 +74,7 @@ export function RecapPage() {
       {catalog ? (
         <button
           type="button"
-          className="fixed inset-0 z-20 bg-fg/20"
+          className="fixed inset-0 z-20 bg-fg/20 md:hidden"
           aria-label="关闭目录"
           onClick={() => setCatalog(false)}
         />
@@ -82,7 +82,7 @@ export function RecapPage() {
       <aside
         className={
           "recap-catalog flex w-[min(18rem,86vw)] shrink-0 flex-col border-r border-line bg-bg " +
-          (catalog ? "fixed inset-y-0 left-0 z-30" : "hidden")
+          (catalog ? "fixed inset-y-0 left-0 z-30" : "hidden md:flex")
         }
       >
         <div className="flex h-10 items-center justify-between border-b border-line px-3">
@@ -180,7 +180,7 @@ export function RecapPage() {
       <article className="recap-sheet min-h-0 min-w-0 flex-1 overflow-y-auto">
         <div className="recap-paper mx-auto flex max-w-[40rem] flex-col gap-10 px-6 py-12 md:px-8 md:py-16">
           {!session ? (
-            <p className="text-base text-muted">结课之后，点「目录」打开课表。</p>
+            <p className="text-base text-muted">结课之后，左边课表会列出各堂。</p>
           ) : (
             <>
               <header className="flex flex-col gap-4">
@@ -195,7 +195,7 @@ export function RecapPage() {
                       type="button"
                       variant="quiet"
                       size="sm"
-                      className="h-7 min-h-7 px-2"
+                      className="h-7 min-h-7 px-2 md:hidden"
                       onClick={() => setCatalog(true)}
                     >
                       目录
@@ -336,7 +336,7 @@ export function RecapPage() {
                             className="h-8 justify-start px-2"
                             onClick={() => printRecap(session, { tape: withTape })}
                           >
-                            导出 PDF
+                            打印
                           </Button>
                           <label className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted">
                             <input
