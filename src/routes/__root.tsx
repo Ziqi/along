@@ -30,16 +30,16 @@ export const Route = createRootRoute({
         href: "https://fonts.gstatic.com",
         crossOrigin: "anonymous",
       },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap",
-      },
     ],
   }),
   component: () => (
     <html lang="zh-CN" className="antialiased" data-theme="day" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+        />
       </head>
       <body className="bg-bg text-fg">
         <PreviewHostBridge />
