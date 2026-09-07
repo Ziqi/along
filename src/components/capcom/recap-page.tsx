@@ -1047,6 +1047,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
   const removeJot = useCapcom((s) => s.removeJot);
   const setSession = useCapcom((s) => s.setSession);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [notesOpen, setNotesOpen] = useState(true);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -1058,7 +1059,11 @@ function NotesEditor({ session }: { session: ClassSession }) {
   }
 
   return (
-    <details className="recap-notes border-t border-line pt-8" defaultOpen>
+    <details
+      className="recap-notes border-t border-line pt-8"
+      open={notesOpen}
+      onToggle={(e) => setNotesOpen(e.currentTarget.open)}
+    >
       <summary className="cursor-pointer text-xl font-medium tracking-tight">
         课堂随手记
         <span className="ml-2 text-sm font-normal text-muted">可补</span>
