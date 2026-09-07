@@ -205,7 +205,7 @@ export function RecapPage() {
                       type="button"
                       variant="quiet"
                       size="sm"
-                      className="h-7 min-h-7 px-2"
+                      className="h-7 min-h-7 px-2 md:hidden"
                       onClick={() => goHomeSafe()}
                     >
                       {inClass ? "回课堂" : "首页"}
@@ -260,7 +260,7 @@ export function RecapPage() {
                     </Button>
                   ) : (
                     <>
-                      <details className="recap-menu relative">
+                      <details className="recap-menu relative" onToggle={closeOtherMenus}>
                         <summary className="cursor-pointer px-2 py-1 text-xs text-muted hover:text-fg">
                           整理
                         </summary>
@@ -306,7 +306,7 @@ export function RecapPage() {
                           </Button>
                         </div>
                       </details>
-                      <details className="recap-menu relative">
+                      <details className="recap-menu relative" onToggle={closeOtherMenus}>
                         <summary className="cursor-pointer px-2 py-1 text-xs text-muted hover:text-fg">
                           导出
                         </summary>
@@ -598,6 +598,13 @@ export function RecapPage() {
       </article>
     </div>
   );
+}
+
+function closeOtherMenus(e: { currentTarget: HTMLDetailsElement }) {
+  if (!e.currentTarget.open) return;
+  document.querySelectorAll<HTMLDetailsElement>(".recap-menu").forEach((el) => {
+    if (el !== e.currentTarget) el.open = false;
+  });
 }
 
 function EditText({
