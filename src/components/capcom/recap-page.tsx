@@ -1090,7 +1090,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
                 type="button"
                 variant="quiet"
                 size="icon"
-                aria-label="删这条要点"
+                aria-label="删这条随手记"
                 className="size-7 min-h-7 min-w-7"
                 onClick={() => removeJot(j.id)}
               >
@@ -1104,7 +1104,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
       )}
       <form onSubmit={submit} className="recap-chrome border border-line bg-surface p-3">
         <label className="text-xs text-muted" htmlFor="recap-jot">
-          写一条要点，中文或英文都可以
+          补一条随手记，中文或英文都可以
         </label>
         <textarea
           id="recap-jot"
