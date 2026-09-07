@@ -11,7 +11,7 @@
   --color-go: #2f8a42;
   --color-hold: #a67a28;
   --color-abort: #b54438;
-  --font-sans: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --radius-xs: 2px;
   --radius-sm: 4px;
@@ -241,7 +241,7 @@
 .recap-paper {
   background: var(--color-elevated);
   box-shadow: 0 0 0 1px var(--color-line);
-  font-family: "Noto Sans SC", "IBM Plex Sans", system-ui, sans-serif;
+  font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
 .recap-paper textarea,

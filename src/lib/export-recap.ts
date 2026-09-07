@@ -220,7 +220,7 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${esc(session.title)}</title>
 <style>
   @page { margin: 16mm; }
-  body{font:16px/1.6 "Noto Sans SC","IBM Plex Sans",system-ui,sans-serif;color:#1c1b17;max-width:42rem;margin:0 auto;padding:1.5rem}
+  body{font:16px/1.6 "IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:#1c1b17;max-width:42rem;margin:0 auto;padding:1.5rem}
   h1{font-size:1.8rem;font-weight:500;letter-spacing:-.02em;margin:0 0 .25rem}
   h2{font-size:1.2rem;font-weight:500;margin:1.6rem 0 .4rem}
   h3{font-size:1rem;font-weight:500;margin:1.2rem 0 .4rem}
