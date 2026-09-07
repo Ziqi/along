@@ -440,7 +440,7 @@ function spacexCoaches(): CoachCard[] {
 
 function spacexEssays(): Record<string, TopicEssay> {
   return {
-    "quarterly pressure vs a 5 10 year horizon": {
+    "coach-horizon": {
       title: "Falcon 9 reuse and the long payoff",
       contextEn: "The class asked whether a decade of ugly tests can survive a public calendar.",
       contextZh: "课上问：十年难看的试验，能不能活过公开市场的日历。",

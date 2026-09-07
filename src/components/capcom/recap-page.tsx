@@ -592,7 +592,7 @@ export function RecapPage() {
                     </section>
                   ) : null}
 
-                  <NotesEditor session={session} />
+                  {session.notes.length ? <NotesEditor session={session} /> : null}
 
                   <LiveTape
                     lines={
@@ -1059,7 +1059,9 @@ function NotesEditor({ session }: { session: ClassSession }) {
 
   return (
     <details className="recap-notes border-t border-line pt-8">
-      <summary className="cursor-pointer text-xl font-medium tracking-tight">Notes · 要点</summary>
+      <summary className="cursor-pointer text-xl font-medium tracking-tight">
+        课堂随手记
+      </summary>
       <div className="mt-4 flex flex-col gap-4">
       {session.notes.length ? (
         <ul className="flex flex-col gap-5">
@@ -1088,7 +1090,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
                 type="button"
                 variant="quiet"
                 size="icon"
-                aria-label="删这条要点"
+                aria-label="删这条随手记"
                 className="size-7 min-h-7 min-w-7"
                 onClick={() => removeJot(j.id)}
               >
@@ -1102,7 +1104,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
       )}
       <form onSubmit={submit} className="recap-chrome border border-line bg-surface p-3">
         <label className="text-xs text-muted" htmlFor="recap-jot">
-          写一条要点，中文或英文都可以
+          补一条随手记，中文或英文都可以
         </label>
         <textarea
           id="recap-jot"

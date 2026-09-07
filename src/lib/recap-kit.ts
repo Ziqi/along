@@ -9,6 +9,7 @@ import type {
   RecapTable,
   TopicEssay,
 } from "./types.ts";
+import { PACK_KEEP } from "./live-queue.ts";
 
 const STOP = new Set(
   "the a an and or but if so to of in on at for from with as is are was were be been being it this that these those you we they i he she my our your their not no yes yeah yup yep just about into over after before than then also more some any can will would could should have has had do did does what when where which who how why there here very much many too own same other than into like think really people kind thing things something because actually maybe perhaps literally somehow already always never still even well right okay ok wait mean means said say says get got going gonna want need see look come take give make made hello subscribe best constantly world jobs it's that's don't didn't there's they're we're you're i've you've we've let's them they this that will would could should have been being very also".split(
@@ -165,6 +166,7 @@ export const GOLD_STUDY = `You have the same full class (transcript, notes, coac
 Write the LANGUAGE half of the handout. YOU decide: words to take home, harder upgrades, collocations, what to underline, patterns worth stealing — including useful language from coach/DeepSearch, taught as study items (usage + example), not pasted replies.
 marks = exact short strings (1-4 words) to underline in the essay.
 Every study row: en, zh (precise 简体), use (how THIS class used it), useZh, example (clean 12-22 word sentence), exampleZh.
+words and collos are required: at least 3 class-specific words and 2 phrases. Patterns or grammar alone are not enough.
 Do not invent a frequency list. Do not fill with think / like / good / people.
 skills = speaking frames for this topic, not a copy of the 3 coach lines.`;
 
@@ -487,14 +489,13 @@ function clipPair(en: string, zh: string): RecapPair {
   return { en: clip(en, 400), zh: clip(zh, 180) };
 }
 
-/** Live + saved DeepSearch is keyed by coach card id. Topic key is leftover only. */
+/** Live + saved DeepSearch is keyed by coach card id only. Same topic ≠ same essay. */
 export function essayOf(
   card: { id: string; topic?: string },
   essays: Record<string, TopicEssay>,
 ): TopicEssay | undefined {
   if (card.id && essays[card.id]) return essays[card.id];
-  const k = keyOf(card.topic ?? "");
-  return k ? essays[k] : undefined;
+  return undefined;
 }
 
 export function packCoach(
@@ -533,7 +534,7 @@ export function packCoach(
       deep,
     });
   }
-  return out.slice(0, 16);
+  return out.slice(-PACK_KEEP);
 }
 
 export function extractStars(text: string) {
@@ -578,9 +579,13 @@ export function isEssayFilled(recap: ClassRecap) {
   return ledeOk && bilingual.length >= 2;
 }
 
+export function lexiconReady(recap: ClassRecap) {
+  return [...recap.words, ...recap.collos].filter(studyRowReady).length >= 2;
+}
+
 export function isStudyFilled(recap: ClassRecap) {
   const rows = [...recap.words, ...recap.collos, ...recap.patterns, ...recap.grammar, ...recap.lines];
-  return rows.filter(studyRowReady).length >= 4;
+  return rows.filter(studyRowReady).length >= 4 && lexiconReady(recap);
 }
 
 export function isFilled(recap: ClassRecap) {
