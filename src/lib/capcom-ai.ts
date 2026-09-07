@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
-import { looksLikeSpacexPacket, spacexContentJson } from "@/lib/recap-spacex";
 import { extractJsonObject } from "@/lib/json-object";
 import { resolveCoachSame } from "@/lib/coach-kit";
+import type { RecapTable } from "@/lib/types";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
 const FLASH = "grok-4.20-0309-non-reasoning";
@@ -863,12 +863,20 @@ function parseStudy(v: unknown, n: number): {
   return out;
 }
 
+type RecapSectionOk = {
+  heading: string;
+  headingZh: string;
+  body: string;
+  bodyZh: string;
+  table?: RecapTable | null;
+};
+
 type RecapOk = {
   ok: true;
   title: string;
   lede: string;
   ledeZh: string;
-  sections: { heading: string; headingZh: string; body: string; bodyZh: string }[];
+  sections: RecapSectionOk[];
   outline: { heading: string; bullets: string[] }[];
   topics: { en: string; zh: string }[];
   patterns: ReturnType<typeof parseStudy>;
@@ -886,7 +894,7 @@ type RecapPrior = {
   title: string;
   lede: string;
   ledeZh: string;
-  sections: { heading: string; headingZh: string; body: string; bodyZh: string }[];
+  sections: RecapSectionOk[];
   outline: { heading: string; bullets: string[] }[];
   topics: { en: string; zh: string }[];
   takeaways: { en: string; zh: string }[];
@@ -1008,6 +1016,7 @@ export const recapClass = createServerFn({ method: "POST" })
                     headingZh: String(s?.headingZh ?? "").slice(0, 80),
                     body: String(s?.body ?? "").slice(0, 2400),
                     bodyZh: String(s?.bodyZh ?? "").slice(0, 1800),
+                    table: s?.table ?? null,
                   }))
                 : [],
               outline: Array.isArray(input.prior.outline)
@@ -1061,8 +1070,8 @@ export const recapClass = createServerFn({ method: "POST" })
     const contentSys =
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
-      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus 1. 2. 3. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
-      ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"..."}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}.';
+      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus 1. 2. 3. Contrast hours need a two-column table on that section. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
+      ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"...","table":{"leftHead":"...","leftHeadZh":"...","rightHead":"...","rightHeadZh":"...","rows":[{"left":"...","leftZh":"...","right":"...","rightZh":"..."}]}}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. Omit table when the hour is not a contrast.';
     const userPacket = JSON.stringify(packet);
     const [content, grok] = await Promise.all([
       chatFlash({
@@ -1092,7 +1101,7 @@ export const recapClass = createServerFn({ method: "POST" })
         : data.topics.slice(0, 4));
       const slim = await chat46recap({
         system:
-          "The outline is not a handout. WRITE the 讲义. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh}], takeaways[{en,zh}]. Three sections is enough. Each body = 1 paragraph of class claims + 1. 2. 3. bodyZh = 简体 of that body. Star *handout words*. Finish the JSON.",
+          "The outline is not a handout. WRITE the 讲义 for THIS class, whatever the subject. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. Three sections is enough. Each body = 1 paragraph of class claims + 1. 2. 3. bodyZh = 简体 of that body. If the hour is a contrast, include the two-column table. Star *handout words*. Finish the JSON.",
         user: JSON.stringify({ headings: heads, packet }),
         maxTokens: 3600,
         timeoutMs: 28000,
@@ -1107,7 +1116,7 @@ export const recapClass = createServerFn({ method: "POST" })
     if (!isEssayFilled(recap)) {
       const three = await chat46recap({
         system:
-          "Write THREE section 讲义 only. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body 90+ words + 1. 2. 3. 简体 in *Zh. Star *quarterly earnings* style terms if this class has them.",
+          "Write THREE section 讲义 only for THIS class. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body 90+ words + 1. 2. 3. 简体 in *Zh. Star the terms you would underline. Add a two-column table if the hour is a contrast.",
         user: JSON.stringify({
           topics: data.topics.slice(0, 3),
           notes: data.notes,
@@ -1122,10 +1131,6 @@ export const recapClass = createServerFn({ method: "POST" })
         recap = assembleRecap(base, parsed);
         recap.latencyMs += three.ms;
       }
-    }
-    if (!isEssayFilled(recap) && looksLikeSpacexPacket(packet)) {
-      parsed = mergeAiJson(parsed, spacexContentJson());
-      recap = assembleRecap(base, parsed);
     }
     if (!isEssayFilled(recap)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
@@ -1175,9 +1180,23 @@ export const recapClass = createServerFn({ method: "POST" })
     }
     recap = assembleRecap(base, parsed);
     recap.latencyMs += study.ok ? study.ms : 0;
-    if (!isStudyFilled(recap) && looksLikeSpacexPacket(packet)) {
-      parsed = mergeAiJson(parsed, spacexContentJson());
-      recap = assembleRecap(base, parsed);
+    if (!isStudyFilled(recap)) {
+      const again = await chat46recap({
+        system:
+          "Language points only. YOU are the teacher. Pick at least 4 real study items from THIS class — not think/like/good/people. Each row needs en, zh, use, useZh, example, exampleZh. Return ONLY JSON {marks,words,collos,patterns,grammar,lines,skills}.",
+        user: studyUser,
+        maxTokens: 2800,
+        timeoutMs: 24000,
+        json: true,
+      });
+      if (again.ok) {
+        const extra = extractJsonObject(again.text) ?? {};
+        for (const k of studyKeys) {
+          if (Array.isArray(extra[k]) && (extra[k] as unknown[]).length) parsed[k] = extra[k];
+        }
+        recap = assembleRecap(base, parsed);
+        recap.latencyMs += again.ms;
+      }
     }
     if (!isFilled(recap)) {
       return { ok: false, error: "语言点没写出来，再点一次整理。" };

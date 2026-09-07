@@ -106,11 +106,27 @@ export type RecapStudy = {
   exampleZh: string;
 };
 
+export type RecapTableRow = {
+  left: string;
+  leftZh: string;
+  right: string;
+  rightZh: string;
+};
+
+export type RecapTable = {
+  leftHead: string;
+  leftHeadZh: string;
+  rightHead: string;
+  rightHeadZh: string;
+  rows: RecapTableRow[];
+};
+
 export type RecapSection = {
   heading: string;
   headingZh: string;
   body: string;
   bodyZh: string;
+  table?: RecapTable | null;
 };
 
 export type RecapDeep = {

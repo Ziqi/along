@@ -5,6 +5,7 @@ import {
   assembleRecap,
   emptyRecap,
   essayOf,
+  extractStars,
   isEssayFilled,
   isFilled,
   isStudyFilled,
@@ -18,11 +19,13 @@ import {
 import type { CoachCard, TopicEssay } from "./types.ts";
 import { extractJsonObject } from "./json-object.ts";
 import {
+  SPACEX_ID,
   SPACEX_TITLE,
   cleanRecapTitle,
   fillKnownHandout,
   looksLikeSpacexPacket,
   looksLikeSpacexSession,
+  looksLikeSpacexText,
   spacexContentJson,
   spacexRecap,
   spacexSession,
@@ -51,8 +54,8 @@ function essayOnly() {
     lede: LONG_EN,
     ledeZh: LONG_ZH,
     sections: [
-      { heading: "Clock", headingZh: "钟", body: LONG_EN, bodyZh: LONG_ZH },
-      { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH },
+      { heading: "Clock", headingZh: "钟", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+      { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH, table: null },
     ],
   };
 }
@@ -90,6 +93,13 @@ describe("SpaceX 讲义 P0", () => {
     }
     assert.ok(recap.coachPack.length >= 2);
     assert.ok(recap.coachPack.some((c) => c.deep && c.deep.aEn.length > 40));
+    const table = recap.sections[0]?.table;
+    assert.ok(table);
+    assert.match(table.leftHead, /quarterly/i);
+    assert.match(table.rightHead, /year|physics/i);
+    assert.ok(table.rows.length >= 3);
+    assert.ok(table.rows.some((r) => /retail/i.test(r.left)));
+    assert.ok(table.rows.some((r) => /SpaceX/i.test(r.right)));
   });
 
   it("assembleRecap keeps gold bodies and does not promote a bare outline", () => {
@@ -111,10 +121,10 @@ describe("SpaceX 讲义 P0", () => {
     assert.equal(outlineOnly.draft, true);
   });
 
-  it("fillKnownHandout writes the SpaceX hour and strips · 再出", () => {
+  it("fillKnownHandout writes only the SpaceX fixture id", () => {
     const hollow = {
       ...spacexSession(),
-      id: "ses-user-spacex",
+      id: SPACEX_ID,
       title: "Long-Term Vision vs Quarterly Pressure · 9月7日 01:02 · 再出",
       recap: emptyRecap("整理中"),
     };
@@ -123,6 +133,14 @@ describe("SpaceX 讲义 P0", () => {
     assert.ok(filled.recap && isFilled(filled.recap));
     assert.match(filled.recap.lede, /time horizon/i);
     assert.ok(filled.recap.words.some((w) => w.en === "retail investor"));
+
+    const liveLookalike = fillKnownHandout({
+      ...spacexSession(),
+      id: "ses-user-spacex",
+      title: "Long-Term Vision vs Quarterly Pressure",
+      recap: emptyRecap("整理中"),
+    });
+    assert.equal(liveLookalike.recap?.lede ?? "", "");
 
     const untouched = fillKnownHandout({
       ...spacexSession(),
@@ -136,7 +154,22 @@ describe("SpaceX 讲义 P0", () => {
     assert.equal(untouched.recap?.lede ?? "", "");
   });
 
-  it("detects the SpaceX packet from transcript and topics", () => {
+  it("does not call a finance or grammar hour SpaceX", () => {
+    assert.equal(
+      looksLikeSpacexText("long-term vision and the payoff for a retail investor"),
+      false,
+    );
+    assert.equal(
+      looksLikeSpacexText("quarterly earnings force a ninety-day story; the time horizon is five years"),
+      false,
+    );
+    assert.equal(
+      looksLikeSpacexPacket({
+        topics: ["Long-Term Vision vs Quarterly Pressure"],
+        transcript: [{ en: "Who can wait for the payoff?" }],
+      }),
+      false,
+    );
     assert.equal(
       looksLikeSpacexPacket({
         topics: ["Long-Term Vision vs Quarterly Pressure"],
@@ -248,6 +281,58 @@ describe("handout gate and document close", () => {
     assert.match(src, /splitProse/);
     assert.match(src, /<ol>/);
     assert.match(src, /class="card"/);
+    assert.match(src, /tableMarkdown|table\.contrast/);
+  });
+
+  it("does not keep a frequency word picker", () => {
+    const src = readFileSync(new URL("./recap-kit.ts", import.meta.url), "utf8");
+    assert.equal(src.includes("studyFromTape"), false);
+    assert.equal(src.includes("studyHints"), false);
+    assert.equal(src.includes("scoreToken"), false);
+    assert.equal(src.includes("function isBasic"), false);
+    assert.match(src, /extractStars/);
+  });
+
+  it("does not paste the SpaceX gold into recapClass", () => {
+    const src = readFileSync(new URL("./capcom-ai.ts", import.meta.url), "utf8");
+    assert.equal(src.includes("spacexContentJson"), false);
+    assert.equal(src.includes("looksLikeSpacexPacket"), false);
+  });
+
+  it("keeps model stars and assembles a contrast table on a grammar hour", () => {
+    const recap = assembleRecap(emptyRecap("Used to"), {
+      title: "Used to vs be used to",
+      lede: "The hour split a past habit from a present comfort, and the class kept missing the complement.",
+      ledeZh: "这堂课把过去的习惯和现在的习惯分开。班上一直补错后面的成分，有人把 used to 后面接了 -ing，也有人把 be used to 后面直接接了动词原形。",
+      sections: [
+        {
+          heading: "Used to vs be used to",
+          headingZh: "过去习惯对上现在习惯",
+          body: LONG_EN,
+          bodyZh: LONG_ZH,
+          table: {
+            leftHead: "used to",
+            leftHeadZh: "过去常常",
+            rightHead: "be used to",
+            rightHeadZh: "习惯于",
+            rows: [
+              { left: "past habit", leftZh: "过去的习惯", right: "present comfort", rightZh: "现在习以为常" },
+              { left: "used to + verb", leftZh: "后接动词原形", right: "be used to + -ing", rightZh: "后接动名词" },
+            ],
+          },
+        },
+        { heading: "The complement", headingZh: "后面接什么", body: LONG_EN, bodyZh: LONG_ZH },
+      ],
+      words: [studyRow("used to"), studyRow("be used to"), studyRow("get used to"), studyRow("complement")],
+    });
+    assert.equal(isFilled(recap), true);
+    assert.ok(recap.sections[0]?.table);
+    assert.equal(recap.sections[0]?.table?.rows.length, 2);
+    assert.match(recap.sections[0]?.table?.leftHead ?? "", /used to/i);
+    assert.deepEqual(
+      extractStars("They *used to* smoke. Now they are *used to* the smell."),
+      ["used to"],
+    );
   });
 });
 

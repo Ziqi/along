@@ -1,4 +1,14 @@
-import type { ClassRecap, CoachCard, RecapCoach, RecapDeep, RecapPair, RecapSection, RecapStudy, TopicEssay } from "./types.ts";
+import type {
+  ClassRecap,
+  CoachCard,
+  RecapCoach,
+  RecapDeep,
+  RecapPair,
+  RecapSection,
+  RecapStudy,
+  RecapTable,
+  TopicEssay,
+} from "./types.ts";
 
 const STOP = new Set(
   "the a an and or but if so to of in on at for from with as is are was were be been being it this that these those you we they i he she my our your their not no yes yeah yup yep just about into over after before than then also more some any can will would could should have has had do did does what when where which who how why there here very much many too own same other than into like think really people kind thing things something because actually maybe perhaps literally somehow already always never still even well right okay ok wait mean means said say says get got going gonna want need see look come take give make made hello subscribe best constantly world jobs it's that's don't didn't there's they're we're you're i've you've we've let's them they this that will would could should have been being very also".split(
@@ -139,12 +149,13 @@ export function splitProse(text: string): ProseBlock[] {
 }
 
 export const GOLD_CONTENT = `You have read the FULL class: live transcript, student notes, coach cards, DeepSearch.
-Write the CONTENT half of a teaching 讲义 (handout) for a mainland student who was in this English class.
+Write the CONTENT half of a teaching 讲义 (handout) for a mainland student who was in this English class — any subject (finance, grammar, science, business). Do not assume SpaceX.
 Synthesize the hour: the argument, the tension, examples, any DeepSearch facts (names, numbers) that belong, anything in the notes they wanted kept.
 Do NOT reprint the coach's numbered 3+2 replies — those stay in a speaking appendix. You may teach the same ideas as claims.
 title = 3-8 English words.
 lede + ledeZh: 2-3 sentences, the point of the hour.
-sections: one per theme. headingZh = 简体. body = paragraph + 1. 2. 3.
+sections: 2-4 themes. headingZh = 简体. body = paragraph + 1. 2. 3.
+If the hour is a contrast (X vs Y, public vs private, institution vs retail, app vs spreadsheet, tense A vs tense B), that section MUST include table {leftHead,leftHeadZh,rightHead,rightHeadZh,rows:[{left,leftZh,right,rightZh}]} with 2-4 rows. Skip the table if the hour is not a contrast.
 Star *only* what you would underline on the handout.
 bodyZh = 简体 of that body. No stars in Chinese.
 takeaways: 4 bilingual claims worth keeping.
@@ -154,6 +165,7 @@ export const GOLD_STUDY = `You have the same full class (transcript, notes, coac
 Write the LANGUAGE half of the handout. YOU decide: words to take home, harder upgrades, collocations, what to underline, patterns worth stealing — including useful language from coach/DeepSearch, taught as study items (usage + example), not pasted replies.
 marks = exact short strings (1-4 words) to underline in the essay.
 Every study row: en, zh (precise 简体), use (how THIS class used it), useZh, example (clean 12-22 word sentence), exampleZh.
+Do not invent a frequency list. Do not fill with think / like / good / people.
 skills = speaking frames for this topic, not a copy of the 3 coach lines.`;
 
 function uniqPairs(rows: RecapPair[], n: number) {
@@ -190,10 +202,6 @@ function uniqStudy(rows: RecapStudy[], n: number) {
   return out;
 }
 
-const BASIC = new Set(
-  "people time year years company companies money make take good new old big small work working want need going really actually something things thing world jobs job life live living talk talking think thinking like just very much many also because about after before still even well right look come give get got see know known say said tell told use used using way ways part parts kind kinds lot lots bit stuff maybe perhaps basically honestly public private long short high low next last first second point points idea ideas problem problems question questions answer answers class student teacher english chinese today week month today tomorrow pressure pressures result results strong future focus support often show grow growing build building human earth moon mars view views goal goals investor investors thinking think",
-);
-
 export function isGlue(en: string) {
   const w = en.trim().toLowerCase();
   if (!w) return true;
@@ -203,21 +211,6 @@ export function isGlue(en: string) {
     if (w.length < 3) return true;
   }
   if (parts.every((p) => STOP.has(p))) return true;
-  return false;
-}
-
-export function isBasic(en: string) {
-  if (isGlue(en)) return true;
-  const parts = en
-    .toLowerCase()
-    .replace(/[^a-z\s'-]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!parts.length) return true;
-  if (parts.length === 1) return BASIC.has(parts[0]) || (parts[0].length < 5 && !/-/.test(en));
-  const content = parts.filter((p) => !STOP.has(p));
-  if (!content.length) return true;
-  if (content.length <= 2 && content.every((p) => BASIC.has(p) || STOP.has(p))) return true;
   return false;
 }
 
@@ -295,11 +288,42 @@ function asSection(v: unknown): RecapSection | null {
     (typeof r.bodyZh === "string" ? r.bodyZh.trim() : "") || formatBody([], pointsZh),
   );
   if (!body) return null;
+  const table = asTable(r.table);
   return {
     heading: clip(heading, 72),
     headingZh: typeof r.headingZh === "string" ? r.headingZh.trim() : "",
     body,
     bodyZh,
+    table,
+  };
+}
+
+export function asTable(v: unknown): RecapTable | null {
+  if (!v || typeof v !== "object") return null;
+  const t = v as RecapTable;
+  const rows = Array.isArray(t.rows)
+    ? t.rows
+        .map((row) => {
+          if (!row || typeof row !== "object") return null;
+          const left = String(row.left ?? "").trim();
+          const right = String(row.right ?? "").trim();
+          if (!left || !right) return null;
+          return {
+            left: clip(left, 160),
+            leftZh: clip(String(row.leftZh ?? "").trim(), 120),
+            right: clip(right, 160),
+            rightZh: clip(String(row.rightZh ?? "").trim(), 120),
+          };
+        })
+        .filter((row): row is RecapTable["rows"][number] => Boolean(row))
+    : [];
+  if (rows.length < 2) return null;
+  return {
+    leftHead: clip(String(t.leftHead ?? "").trim() || "This side", 40),
+    leftHeadZh: clip(String(t.leftHeadZh ?? "").trim(), 24),
+    rightHead: clip(String(t.rightHead ?? "").trim() || "That side", 40),
+    rightHeadZh: clip(String(t.rightHeadZh ?? "").trim(), 24),
+    rows: rows.slice(0, 6),
   };
 }
 
@@ -334,6 +358,14 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
   const lede = typeof ai.lede === "string" && ai.lede.trim() ? ai.lede.trim() : "";
   const ledeZh = typeof ai.ledeZh === "string" && ai.ledeZh.trim() ? ai.ledeZh.trim() : "";
   const useSections = sections.filter((s) => writtenBody(s.body));
+  const looseTable = asTable(ai.table);
+  if (looseTable) {
+    const i = useSections.findIndex((s) => !s.table && /\bvs\.?\b|versus|对上|对比/.test(s.heading));
+    const idx = i >= 0 ? i : useSections.findIndex((s) => !s.table);
+    if (idx >= 0 && useSections[idx] && !useSections[idx].table) {
+      useSections[idx] = { ...useSections[idx], table: looseTable };
+    }
+  }
   const useLede = lede.trim().length > 40 ? lede : "";
   const marks = [
     ...((Array.isArray(ai.marks) ? ai.marks : []) as unknown[])
@@ -375,6 +407,14 @@ export function missingZh(recap: ClassRecap): string[] {
   for (const s of recap.sections) {
     add(s.heading, s.headingZh);
     if (s.body && !s.bodyZh) add(clip(s.body, 280), s.bodyZh);
+    if (s.table) {
+      add(s.table.leftHead, s.table.leftHeadZh);
+      add(s.table.rightHead, s.table.rightHeadZh);
+      for (const row of s.table.rows) {
+        add(row.left, row.leftZh);
+        add(row.right, row.rightZh);
+      }
+    }
   }
   for (const t of [...recap.topics, ...recap.takeaways, ...recap.skills]) add(t.en, t.zh);
   for (const t of [...recap.words, ...recap.collos, ...recap.patterns, ...recap.grammar, ...recap.lines]) {
@@ -394,6 +434,18 @@ export function applyZh(recap: ClassRecap, map: Record<string, string>): ClassRe
       ...s,
       headingZh: zh(s.heading, s.headingZh),
       bodyZh: s.bodyZh || zh(clip(s.body, 280), s.bodyZh),
+      table: s.table
+        ? {
+            ...s.table,
+            leftHeadZh: zh(s.table.leftHead, s.table.leftHeadZh),
+            rightHeadZh: zh(s.table.rightHead, s.table.rightHeadZh),
+            rows: s.table.rows.map((row) => ({
+              ...row,
+              leftZh: zh(row.left, row.leftZh),
+              rightZh: zh(row.right, row.rightZh),
+            })),
+          }
+        : s.table,
     })),
     topics: recap.topics.map((t) => ({ ...t, zh: zh(t.en, t.zh) })),
     takeaways: recap.takeaways.map((t) => ({ ...t, zh: zh(t.en, t.zh) })),
@@ -488,92 +540,9 @@ export function extractStars(text: string) {
   const out: string[] = [];
   for (const m of text.matchAll(/\*([^*]{3,40})\*/g)) {
     const t = m[1].trim();
-    if (t && !isBasic(t)) out.push(t);
+    if (t && !isGlue(t)) out.push(t);
   }
   return [...new Set(out)];
-}
-
-function scoreToken(w: string) {
-  let s = 0;
-  if (w.length >= 10) s += 4;
-  else if (w.length >= 8) s += 3;
-  else if (w.length >= 6) s += 1;
-  if (/-/.test(w)) s += 3;
-  if (/(tion|sion|ment|ness|ility|izing|ised|ized|ous|ical|ance|ence|atory|ative|ual)$/i.test(w)) s += 3;
-  if (/^[A-Z]{2,5}$/.test(w)) s += 4;
-  if (/^[A-Z][a-z]{4,}/.test(w)) s += 1;
-  return s;
-}
-
-/** Hard-word hints for the study model. Not a frequency list. */
-export function studyHints(tape: { en: string; zh: string }[]) {
-  const scored = new Map<string, number>();
-  for (const row of tape) {
-    const en = row.en.replace(/\s+/g, " ").trim();
-    for (const w of en.match(/\b[A-Za-z][A-Za-z'-]{3,}\b/g) ?? []) {
-      if (isBasic(w)) continue;
-      const s = scoreToken(w);
-      if (s < 3) continue;
-      const k = /[A-Z]{2,}/.test(w) ? w : w.toLowerCase();
-      scored.set(k, Math.max(scored.get(k) ?? 0, s));
-    }
-    for (const p of en.match(/\b[A-Za-z][A-Za-z'-]{3,}\s+[A-Za-z][A-Za-z'-]{3,}\b/g) ?? []) {
-      if (isBasic(p)) continue;
-      const parts = p.split(/\s+/);
-      const s = parts.reduce((n, w) => n + scoreToken(w), 2);
-      if (s < 4) continue;
-      scored.set(p.toLowerCase(), Math.max(scored.get(p.toLowerCase()) ?? 0, s));
-    }
-  }
-  return [...scored.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([w]) => w)
-    .slice(0, 16);
-}
-
-export function studyFromTape(tape: { en: string; zh: string }[]): {
-  words: RecapStudy[];
-  collos: RecapStudy[];
-  lines: RecapStudy[];
-} {
-  const hints = studyHints(tape);
-  const lineOf = (h: string) =>
-    tape.find((t) => t.en.toLowerCase().includes(h.toLowerCase())) ?? { en: "", zh: "" };
-  const toRow = (en: string): RecapStudy => {
-    const hit = lineOf(en);
-    return {
-      en,
-      zh: "",
-      use: "",
-      useZh: "",
-      example: hit.en,
-      exampleZh: hit.zh,
-    };
-  };
-  return {
-    words: uniqStudy(
-      hints.filter((h) => !h.includes(" ")).map(toRow),
-      8,
-    ),
-    collos: uniqStudy(
-      hints.filter((h) => h.includes(" ") || h.includes("-")).map(toRow),
-      6,
-    ),
-    lines: uniqStudy(
-      tape
-        .filter((t) => t.en.length >= 40 && t.en.length <= 140 && !isGlue(t.en))
-        .slice(0, 5)
-        .map((t) => ({
-          en: t.en,
-          zh: t.zh,
-          use: "",
-          useZh: "",
-          example: t.en,
-          exampleZh: t.zh,
-        })),
-      4,
-    ),
-  };
 }
 
 /** Coach stays in Part 3. Never copy replies into the class essay or the word list. */

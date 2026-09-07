@@ -403,7 +403,13 @@ function toRecap(
     lede?: string;
     ledeZh?: string;
     outline?: { heading: string; bullets: string[] }[];
-    sections?: { heading: string; headingZh?: string; body: string; bodyZh?: string }[];
+    sections?: {
+      heading: string;
+      headingZh?: string;
+      body: string;
+      bodyZh?: string;
+      table?: import("@/lib/types").RecapTable | null;
+    }[];
     topics: { en: string; zh: string }[];
     patterns: RecapStudyLike[];
     lines: RecapStudyLike[];
@@ -438,6 +444,7 @@ function toRecap(
       headingZh: s.headingZh ?? "",
       body: s.body,
       bodyZh: s.bodyZh ?? "",
+      table: s.table ?? null,
     })),
     topics: result.topics,
     patterns: study(result.patterns),
@@ -588,7 +595,7 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
   const packet = { lines, topics, notes, coach: coachPayload };
   let lastErr = "纪要没写完，正在重写。";
   try {
-    let essay = null as ReturnType<typeof toRecap> | null;
+    let essay: import("@/lib/types").ClassRecap | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (gen !== recapGen) return;
       useCapcom.getState().setRecapStage(attempt ? "essay-retry" : "essay");

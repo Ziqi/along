@@ -1,9 +1,23 @@
-import type { ClassSession, RecapStudy } from "@/lib/types";
+import type { ClassSession, RecapStudy, RecapTable } from "@/lib/types";
 import { splitProse } from "@/lib/recap-kit";
 import { formatDayTime } from "@/lib/utils";
 
 function mdStars(s: string) {
   return s.replace(/\*/g, "**");
+}
+
+function tableMarkdown(table: RecapTable) {
+  const lines = [
+    `| ${table.leftHead} | ${table.rightHead} |`,
+    "| --- | --- |",
+  ];
+  for (const row of table.rows) {
+    lines.push(`| ${row.left} | ${row.right} |`);
+    if (row.leftZh || row.rightZh) {
+      lines.push(`| ${row.leftZh || ""} | ${row.rightZh || ""} |`);
+    }
+  }
+  return lines;
 }
 
 function dumpStudyMd(title: string, items: RecapStudy[]) {
@@ -50,6 +64,10 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
     lines.push("");
     lines.push(mdStars(sec.body));
     lines.push("");
+    if (sec.table) {
+      lines.push(...tableMarkdown(sec.table));
+      lines.push("");
+    }
     if (sec.bodyZh) {
       lines.push(sec.bodyZh);
       lines.push("");
@@ -156,6 +174,17 @@ function proseHtml(text: string, muted = false) {
     .join("");
 }
 
+function tableHtml(table: RecapTable) {
+  const head = `<tr><th>${esc(table.leftHead)}${table.leftHeadZh ? `<span class="zh"> ${esc(table.leftHeadZh)}</span>` : ""}</th><th>${esc(table.rightHead)}${table.rightHeadZh ? `<span class="zh"> ${esc(table.rightHeadZh)}</span>` : ""}</th></tr>`;
+  const rows = table.rows
+    .map(
+      (row) =>
+        `<tr><td><p>${esc(row.left)}</p>${row.leftZh ? `<p class="zh">${esc(row.leftZh)}</p>` : ""}</td><td><p>${esc(row.right)}</p>${row.rightZh ? `<p class="zh">${esc(row.rightZh)}</p>` : ""}</td></tr>`,
+    )
+    .join("");
+  return `<table class="contrast"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+
 function studyCards(title: string, items: RecapStudy[]) {
   if (!items.length) return "";
   const cards = items
@@ -175,7 +204,7 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   const sections = (recap?.sections ?? [])
     .map(
       (sec, i) =>
-        `<h2>${i + 1}. ${esc(sec.heading)}</h2>${sec.headingZh ? `<p class="zh">${esc(sec.headingZh)}</p>` : ""}${proseHtml(sec.body)}${sec.bodyZh ? proseHtml(sec.bodyZh, true) : ""}`,
+        `<h2>${i + 1}. ${esc(sec.heading)}</h2>${sec.headingZh ? `<p class="zh">${esc(sec.headingZh)}</p>` : ""}${proseHtml(sec.body)}${sec.table ? tableHtml(sec.table) : ""}${sec.bodyZh ? proseHtml(sec.bodyZh, true) : ""}`,
     )
     .join("");
   const notes = session.notes.length
@@ -200,6 +229,9 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   .part{color:#8a857a;font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;margin:2rem 0 .2rem}
   .cards{display:block}
   .card{break-inside:avoid;border-top:1px solid #d8d0c3;padding:.7rem 0}
+  table.contrast{width:100%;border-collapse:collapse;margin:0.8rem 0 1rem;font-size:0.92rem}
+  table.contrast th,table.contrast td{border-top:1px solid #d8d0c3;padding:0.45rem 0.6rem 0.45rem 0;text-align:left;vertical-align:top}
+  table.contrast th{font-weight:600}
   .en{font-weight:600}
   strong{font-weight:600;text-decoration:underline;text-underline-offset:3px}
   @media print { body { padding: 0; } a { color: inherit; } }

@@ -41,6 +41,32 @@ export function spacexRecap(): ClassRecap {
         body: "A listed firm is judged every ninety days. *Quarterly earnings* become the only story the room will hear, even when the real work needs a five-to-ten-year *time horizon*. SpaceX could protect that horizon by staying private; Tesla could not. The tension of the hour was not “growth versus caution”. It was calendar versus physics.\n\n1. A quarter asks for a number. A rocket asks for years of ugly tests.\n2. If you narrate the decade in ninety-day slides, you start cutting the decade.\n3. The useful sentence: we are not missing the quarter; we are funding the horizon.",
         bodyZh:
           "上市公司每九十天被审一次。季报变成房间里唯一愿意听的故事，哪怕真正的工作需要五到十年。SpaceX 靠不上市保住这个尺度；Tesla 做不到。这小时的张力不是「要不要增长」，而是日历和物理谁说了算。\n\n1. 一个季度要数字。一支火箭要多年难看的试验。\n2. 如果用九十天的片子讲十年，你就会开始砍掉十年。\n3. 可用的句子：我们不是没交季报，我们是在给时间尺度付钱。",
+        table: {
+          leftHead: "Quarterly calendar",
+          leftHeadZh: "季报日历",
+          rightHead: "Five-to-ten-year physics",
+          rightHeadZh: "五到十年的物理",
+          rows: [
+            {
+              left: "A listed name must tell a ninety-day story.",
+              leftZh: "上市公司必须每九十天讲一个故事。",
+              right: "The work only pays on a 5–10 year time horizon.",
+              rightZh: "这件事只有在五到十年的尺度上才兑现。",
+            },
+            {
+              left: "Tesla is public, so the quarter rewrites the decade.",
+              leftZh: "Tesla 已上市，季报会改写十年。",
+              right: "Private SpaceX can protect the horizon.",
+              rightZh: "私营的 SpaceX 保得住这个尺度。",
+            },
+            {
+              left: "A retail investor sells the first red quarter.",
+              leftZh: "散户会在第一个红季度卖掉。",
+              right: "An institution can wait if the mandate says so.",
+              rightZh: "机构如果授权里写了尺度，可以等。",
+            },
+          ],
+        },
       },
       {
         heading: "Why public markets punish a long bet",
@@ -48,6 +74,7 @@ export function spacexRecap(): ClassRecap {
         body: "Public markets are not stupid. They are impatient in a specific way: they discount what they cannot mark this quarter. A long bet looks like wasted cash until the *payoff* shows up in one piece — a landing, a reusable booster, a cash-flowing constellation. Until then, every *miss* reads as incompetence, not as a test that had to happen.\n\n1. Analysts can model next quarter. They struggle to model a ten-year learning curve.\n2. The stock becomes a referendum on patience, not on the engineering.\n3. If you cannot name the milestone that will unlock the *payoff*, the market will name a *miss* for you.",
         bodyZh:
           "公开市场并不蠢，它只是用一种很具体的方式没耐心：它会折价那些这个季度标不上价的东西。长线赌注在回报整块出现之前，都像在烧钱——着陆、可重复使用的助推器、能造血的星座。在那之前，每一次不及预期都会被读成无能，而不是一次必须做的试验。\n\n1. 分析师能建下个季度的模型，却很难建十年的学习曲线。\n2. 股价变成对耐心的公投，而不是对工程的公投。\n3. 如果你说不清哪一个里程碑会打开回报，市场就会替你点名一次不及预期。",
+        table: null,
       },
       {
         heading: "The retail investor and a miss",
@@ -55,6 +82,7 @@ export function spacexRecap(): ClassRecap {
         body: "The class was blunt about who flinches first. A *retail investor* often bought the vision, then watches one *miss* on *quarterly earnings* and sells the story they still believe. Institutions can wait if the *time horizon* is in the mandate. Retail usually cannot: the app shows red, and red feels like a verdict.\n\n1. Retail is not “dumb money”. It is money without a ten-year committee.\n2. A miss is information. A panic sale is a second decision.\n3. Steal this line: I can live with a miss if the *time horizon* has not changed.",
         bodyZh:
           "课上说得很直：谁先松手。散户常常先买下愿景，再看着一次季报不及预期，就把自己还相信的故事卖掉。机构如果时间尺度写进了授权，可以等。散户通常不能：应用显示红色，红色就像判决。\n\n1. 散户不是「傻钱」，只是没有一个十年委员会的钱。\n2. 不及预期是信息。恐慌卖出是第二个决定。\n3. 可拿走的句子：只要时间尺度没变，我可以接受一次不及预期。",
+        table: null,
       },
       {
         heading: "The payoff of reusable rockets — and how to say it",
@@ -62,6 +90,7 @@ export function spacexRecap(): ClassRecap {
         body: "Reusable hardware is the cleanest example the hour had. Early flights looked expensive and late. The *payoff* was not a prettier launch; it was flying the same booster again, then again, until the marginal cost collapsed. DeepSearch numbers belonged here as facts, not as a second coach card: first Falcon 9 landing in 2015, Block 5 boosters flown into double digits, Starlink turning launches into cash. That is a decade, not a quarter.\n\n1. Name the mechanism: reuse, not “innovation”.\n2. Name the wait: years of *misses* before the curve bends.\n3. In class English: the *payoff* arrives late, then all at once.",
         bodyZh:
           "可重复使用的硬件是这小时最干净的例子。早期飞行又贵又晚。回报不是更好看的发射，而是同一枚助推器再飞、再飞，直到边际成本塌下来。DeepSearch 的数字应当作为事实进这一段，而不是再抄一张教练卡：2015 年 Falcon 9 首次着陆，Block 5 助推器飞进两位数，Starlink 把发射变成现金。这是十年，不是一个季度。\n\n1. 点出机制：重复使用，不是空说创新。\n2. 点出等待：曲线拐弯之前，会有多年不及预期。\n3. 课上英语：回报来得晚，然后一次性到齐。",
+        table: null,
       },
     ],
     outline: [
@@ -530,8 +559,8 @@ export function spacexSession(): ClassSession {
     updatedAt: STARTED + 52 * 60 * 1000,
     sourceId: null,
     sourceTitle: null,
-    starred: true,
-    starredAt: STARTED + 52 * 60 * 1000,
+    starred: false,
+    starredAt: null,
     notes: [
       {
         id: "jot-spacex-1",
@@ -557,10 +586,9 @@ export function spacexSession(): ClassSession {
 
 export function looksLikeSpacexText(text: string) {
   const t = text.toLowerCase();
+  const named = /\bspacex\b|\bfalcon(?:\s*9)?\b/.test(t);
   const quarterly = /quarterly (earnings|pressure|report|results)|季报/.test(t);
-  const horizon = /time horizon|long-term vision|long term vision|5–10|5-10 year|五年|十年/.test(t);
-  const space = /spacex|retail investor|payoff|reusable|falcon/.test(t);
-  return (quarterly && horizon) || (quarterly && space) || (horizon && space);
+  return named && quarterly;
 }
 
 export function looksLikeSpacexPacket(packet: unknown) {
@@ -589,11 +617,11 @@ export function cleanRecapTitle(title: string) {
   return title.replace(/\s·\s再出/g, "").trim();
 }
 
-/** If this is the SpaceX hour and the recap is still empty/thin, install the written 讲义. */
+/** Fixture only. Never stamp this 讲义 onto some other class that mentioned a horizon. */
 export function fillKnownHandout(session: ClassSession): ClassSession {
-  if (!looksLikeSpacexSession(session)) {
-    const title = cleanRecapTitle(session.title);
-    return title === session.title ? session : { ...session, title };
+  const titleClean = cleanRecapTitle(session.title);
+  if (session.id !== SPACEX_ID) {
+    return titleClean === session.title ? session : { ...session, title: titleClean };
   }
   const cleaned = cleanRecapTitle(session.title);
   const title = /long-term vision|quarterly pressure/i.test(cleaned) ? cleaned : SPACEX_TITLE;
@@ -628,7 +656,13 @@ export function spacexContentJson(): Record<string, unknown> {
     lede: recap.lede,
     ledeZh: recap.ledeZh,
     outline: recap.outline,
-    sections: recap.sections,
+    sections: recap.sections.map((s) => ({
+      heading: s.heading,
+      headingZh: s.headingZh,
+      body: s.body,
+      bodyZh: s.bodyZh,
+      table: s.table ?? null,
+    })),
     topics: recap.topics,
     takeaways: recap.takeaways,
     words: recap.words,

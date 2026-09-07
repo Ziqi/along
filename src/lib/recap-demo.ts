@@ -73,24 +73,47 @@ export function sampleSession(): ClassSession {
           headingZh: "为什么会打开理财 App",
           body: "People do not open a *money app* for fun. They open it so small spends stop disappearing.\n\n1. Tracking makes the month *visible*.\n2. A *budget* is useless if you never look at it.\n3. The class agreed: *as long as* it is simple, they will use it.\n4. If it takes ten taps, they will quit in a week.",
           bodyZh: "打开理财 App 不是为了好玩，是为了让小额支出不再消失。\n\n1. 记账让一个月变得看得见。\n2. 预算如果你从来不看，就没有用。\n3. 课上达成一致：只要够简单，才会用。\n4. 如果要点十下，一周就会放弃。",
+          table: null,
         },
         {
           heading: "App versus spreadsheet",
           headingZh: "应用还是表格",
           body: "The contrast of the hour: an *app* versus a *spreadsheet*.\n\n1. An app is faster to log a coffee.\n2. A spreadsheet gives more *control*.\n3. The line to steal: *I'd rather use an app than a spreadsheet*.\n4. You can flip it: I'd rather keep a spreadsheet than pay for an app.",
           bodyZh: "这小时的对比：应用还是表格。\n\n1. 用 App 记一杯咖啡更快。\n2. 表格更可控。\n3. 可直接用的句子：我宁愿用 App，也不用表格。\n4. 也可以反过来：我宁愿自己做表，也不愿为 App 付钱。",
+          table: {
+            leftHead: "Money app",
+            leftHeadZh: "理财 App",
+            rightHead: "Spreadsheet",
+            rightHeadZh: "表格",
+            rows: [
+              {
+                left: "Faster to log a coffee.",
+                leftZh: "记一杯咖啡更快。",
+                right: "More control over every cell.",
+                rightZh: "每一格都更可控。",
+              },
+              {
+                left: "You will open it if it stays simple.",
+                leftZh: "只要够简单，才会打开。",
+                right: "You keep it if you want the numbers your way.",
+                rightZh: "想按自己的方式看数字，就留着表。",
+              },
+            ],
+          },
         },
         {
           heading: "The catch",
           headingZh: "问题在哪",
           body: "*Not only* does the app show spending, *but it also* trains a checking habit.\n\n1. The risk is you start checking it *instead of* living.\n2. Notifications turn money into a feed.\n3. A weekly review is calmer than a daily stare.\n4. Keep one rule: open it on purpose, then close it.",
           bodyZh: "它不但显示支出，还会养成反复查看的习惯。\n\n1. 风险是你开始刷软件，而不是过日子。\n2. 通知把钱变成信息流。\n3. 一周看一次，比天天盯着更冷静。\n4. 一条规则：有目的地打开，然后关掉。",
+          table: null,
         },
         {
           heading: "How to join the talk",
           headingZh: "怎么接话",
           body: "To join, do not list features. Give a preference, then a condition.\n\n1. I'd rather X than Y, as long as Z.\n2. Ask one question: does tracking change how you spend?\n3. Give one short example from this week.\n4. If you disagree, say the tradeoff, not just no.",
           bodyZh: "接话不要报功能。先说偏好，再加条件。\n\n1. 我宁愿 X 也不 Y，只要 Z。\n2. 问一句：记账会不会改变你怎么花钱？\n3. 举一个这周的短例子。\n4. 如果反对，说取舍，不要只说不。",
+          table: null,
         },
       ],
       takeaways: [

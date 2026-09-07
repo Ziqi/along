@@ -6,7 +6,7 @@ import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/component
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { splitProse } from "@/lib/recap-kit";
 import { recapStageView, type RecapStage } from "@/lib/recap-stage";
-import type { ClassSession, RecapCoach, RecapPair, RecapStudy } from "@/lib/types";
+import type { ClassSession, RecapCoach, RecapPair, RecapStudy, RecapTable } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
 import { SignedOut } from "@/lib/auth/gates";
 
@@ -141,7 +141,10 @@ export function RecapPage() {
                       size="icon"
                       aria-label={s.starred ? "取消置顶" : "置顶"}
                       className="size-7 min-h-7 min-w-7"
-                      onClick={() => starSession(s.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        starSession(s.id);
+                      }}
                     >
                       <Pin
                         className={
@@ -155,7 +158,10 @@ export function RecapPage() {
                       size="icon"
                       aria-label="删这份纪要"
                       className="size-7 min-h-7 min-w-7"
-                      onClick={() => removeSession(s.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeSession(s.id);
+                      }}
                     >
                       <Trash2 className="size-3" />
                     </Button>
@@ -473,6 +479,7 @@ export function RecapPage() {
                               updateRecap(session.id, { sections: next });
                             }}
                           />
+                          {sec.table ? <ContrastTable table={sec.table} /> : null}
                         </>
                       ) : (
                         <>
@@ -483,6 +490,7 @@ export function RecapPage() {
                             <p className="text-sm text-muted">{sec.headingZh}</p>
                           ) : null}
                           <ProseBlocks text={sec.body} terms={marks} />
+                          {sec.table ? <ContrastTable table={sec.table} /> : null}
                           {sec.bodyZh ? <ProseBlocks text={sec.bodyZh} muted /> : null}
                         </>
                       )}
@@ -844,6 +852,48 @@ function ProseBlocks({
           </p>
         ),
       )}
+    </div>
+  );
+}
+
+function ContrastTable({ table }: { table: RecapTable }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[18rem] border-collapse text-left">
+        <caption className="sr-only">
+          {table.leftHead} vs {table.rightHead}
+        </caption>
+        <thead>
+          <tr className="border-b border-line align-bottom">
+            <th className="py-2 pr-4 font-medium text-fg">
+              <span className="block text-sm">{table.leftHead}</span>
+              {table.leftHeadZh ? (
+                <span className="mt-0.5 block text-xs font-normal text-muted">{table.leftHeadZh}</span>
+              ) : null}
+            </th>
+            <th className="py-2 font-medium text-fg">
+              <span className="block text-sm">{table.rightHead}</span>
+              {table.rightHeadZh ? (
+                <span className="mt-0.5 block text-xs font-normal text-muted">{table.rightHeadZh}</span>
+              ) : null}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, i) => (
+            <tr key={`${row.left}-${i}`} className="border-b border-line/70 align-top">
+              <td className="py-2.5 pr-4">
+                <p className="text-sm leading-snug text-fg">{row.left}</p>
+                {row.leftZh ? <p className="mt-0.5 text-xs leading-snug text-muted">{row.leftZh}</p> : null}
+              </td>
+              <td className="py-2.5">
+                <p className="text-sm leading-snug text-fg">{row.right}</p>
+                {row.rightZh ? <p className="mt-0.5 text-xs leading-snug text-muted">{row.rightZh}</p> : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

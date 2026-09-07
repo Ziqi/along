@@ -20,8 +20,11 @@ import type {
 import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions, removedIds, writeLocalSessions } from "@/lib/persist";
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
 import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
+import { newerSession, sortSessions, toggleStar } from "@/lib/session-order";
 import { canAutoTitle, stampTitle, topicKey } from "@/lib/utils";
 import type { RecapStage } from "@/lib/recap-stage";
+
+export { sortSessions } from "@/lib/session-order";
 
 let nid = 0;
 const idOf = (p: string) => {
@@ -149,6 +152,7 @@ function normRecap(raw: unknown): ClassRecap | null {
           headingZh: String((s as { headingZh?: string })?.headingZh ?? "").trim(),
           body: String(s?.body ?? "").trim(),
           bodyZh: String((s as { bodyZh?: string })?.bodyZh ?? "").trim(),
+          table: normTable((s as { table?: unknown }).table),
         }))
         .filter((s) => s.heading && s.body)
     : [];
@@ -298,8 +302,44 @@ function mergeNotes(a: Jot[], b: Jot[]) {
   return [...map.values()].sort((x, y) => x.at - y.at).slice(-40);
 }
 
+function normTable(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as {
+    leftHead?: unknown;
+    leftHeadZh?: unknown;
+    rightHead?: unknown;
+    rightHeadZh?: unknown;
+    rows?: unknown;
+  };
+  const rows = Array.isArray(t.rows)
+    ? t.rows
+        .map((row) => {
+          if (!row || typeof row !== "object") return null;
+          const r = row as { left?: unknown; leftZh?: unknown; right?: unknown; rightZh?: unknown };
+          const left = String(r.left ?? "").trim();
+          const right = String(r.right ?? "").trim();
+          if (!left || !right) return null;
+          return {
+            left,
+            leftZh: String(r.leftZh ?? "").trim(),
+            right,
+            rightZh: String(r.rightZh ?? "").trim(),
+          };
+        })
+        .filter((row): row is { left: string; leftZh: string; right: string; rightZh: string } => Boolean(row))
+    : [];
+  if (rows.length < 2) return null;
+  return {
+    leftHead: String(t.leftHead ?? "").trim() || "This side",
+    leftHeadZh: String(t.leftHeadZh ?? "").trim(),
+    rightHead: String(t.rightHead ?? "").trim() || "That side",
+    rightHeadZh: String(t.rightHeadZh ?? "").trim(),
+    rows: rows.slice(0, 6),
+  };
+}
+
 function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
-  const newer = (b.updatedAt ?? 0) >= (a.updatedAt ?? 0) ? b : a;
+  const newer = newerSession(a, b);
   const older = newer === b ? a : b;
   return {
     ...newer,
@@ -323,16 +363,6 @@ function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
     starred: newer.starred,
     starredAt: newer.starred ? (newer.starredAt ?? older.starredAt) : null,
   };
-}
-
-/** Pins first (newest pin on top). Unpinned stay in class time — newest class first. */
-export function sortSessions(list: ClassSession[]) {
-  return [...list].sort((x, y) => {
-    const star = Number(Boolean(y.starred)) - Number(Boolean(x.starred));
-    if (star) return star;
-    if (x.starred && y.starred) return (y.starredAt ?? 0) - (x.starredAt ?? 0);
-    return y.startedAt - x.startedAt;
-  });
 }
 
 function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
@@ -683,15 +713,7 @@ export const useCapcom = create<AppState>((set, get) => {
     },
     starSession: (id) => {
       const sessions = sortSessions(
-        get().sessions.map((s) => {
-          if (s.id !== id) return s;
-          const starred = !s.starred;
-          return {
-            ...s,
-            starred,
-            starredAt: starred ? Date.now() : null,
-          };
-        }),
+        get().sessions.map((s) => (s.id === id ? toggleStar(s) : s)),
       );
       persistSessions(sessions);
       set({ sessions });
