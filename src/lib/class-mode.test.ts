@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   coachMinGapMs,
   isSpeakMode,
+  isStudyAppendix,
   isStudyCard,
   parseClassMode,
+  recapAppendixCopy,
   topicBeatLabel,
 } from "./class-mode.ts";
 
@@ -39,5 +41,13 @@ describe("class mode", () => {
       true,
     );
     assert.equal(isStudyCard({ options: [{ label: "同意" }] }), false);
+  });
+
+  it("names the listen recap appendix 课中剖析", () => {
+    assert.equal(isStudyAppendix("listen", []), true);
+    assert.equal(isStudyAppendix("interactive", [{ mode: "listen" }]), true);
+    assert.equal(isStudyAppendix("interactive", [{ options: [{ label: "同意" }] }]), false);
+    assert.match(recapAppendixCopy(true).heading, /课中剖析/);
+    assert.match(recapAppendixCopy(false).heading, /开口原件/);
   });
 });

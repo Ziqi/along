@@ -664,7 +664,13 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
         }
       : null,
   }));
-  const packet = { lines, topics, notes, coach: coachPayload };
+  const packet = {
+    lines,
+    topics,
+    notes,
+    coach: coachPayload,
+    mode: parseClassMode(session?.classMode ?? live.classMode),
+  };
   let lastErr = "纪要没写完，正在重写。";
   try {
     let essay: import("@/lib/types").ClassRecap | null = null;

@@ -3,6 +3,7 @@ import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
 import { resolveCoachSame } from "@/lib/coach-kit";
+import { parseClassMode } from "@/lib/class-mode";
 import type { RecapTable } from "@/lib/types";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
@@ -992,6 +993,7 @@ export const recapClass = createServerFn({ method: "POST" })
           aEn?: string;
         } | null;
       }[];
+      mode?: "interactive" | "audit" | "listen";
     }) => ({
       lines: Array.isArray(input?.lines)
         ? input.lines
@@ -1073,17 +1075,26 @@ export const recapClass = createServerFn({ method: "POST" })
                 : [],
             }
           : null,
+      mode: parseClassMode(input?.mode),
     }),
   )
   .handler(async ({ data }): Promise<RecapOk | ChatErr> => {
     if (data.lines.length < 2) return { ok: false, error: "实录太短" };
     const tape = compactTape(data.lines).slice(0, 36);
+    const listenOnly = data.mode === "listen";
     const packet = {
       transcript: tape,
       student_notes: data.notes,
       coach_and_deep: data.coach,
       topics: data.topics,
+      class_mode: data.mode,
     };
+    const listenNote = listenOnly
+      ? " This hour was listen-only (podcast / Coursera / recording). Do not write lines to say to a teacher. Coach cards are 这句 / 剖析 / 背景 and stay in a class-notes appendix, not a speaking appendix."
+      : "";
+    const listenStudy = listenOnly
+      ? " skills = sentence frames worth stealing later, not lines to say to a teacher."
+      : "";
     const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
     let parsed: Record<string, unknown> = {};
     let recap = assembleRecap(base, parsed);
@@ -1102,6 +1113,7 @@ export const recapClass = createServerFn({ method: "POST" })
     const contentSys =
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
+      listenNote +
       " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus 1. 2. 3. Contrast hours need a two-column table on that section. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
       ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"...","table":{"leftHead":"...","leftHeadZh":"...","rightHead":"...","rightHeadZh":"...","rows":[{"left":"...","leftZh":"...","right":"...","rightZh":"..."}]}}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. Omit table when the hour is not a contrast.';
     const userPacket = JSON.stringify(packet);
@@ -1176,7 +1188,8 @@ export const recapClass = createServerFn({ method: "POST" })
     }
     const studySys =
       "STUDY slot. You are the English teacher. YOU pick the words, the harder ones, and what to underline. 简体中文 in zh/useZh/exampleZh. Return ONLY JSON: {\"marks\":[\"...\"],\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
-      GOLD_STUDY;
+      GOLD_STUDY +
+      listenStudy;
     const studyUser = JSON.stringify({
       packet,
       recap: {

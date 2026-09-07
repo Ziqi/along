@@ -28,6 +28,35 @@ export function isStudyCard(card: { mode?: ClassMode; options?: { label?: string
   return (card.options ?? [])[0]?.label === "这句";
 }
 
+export function isStudyAppendix(
+  sessionMode: unknown,
+  pack: { mode?: ClassMode; options?: { label?: string }[] }[] = [],
+) {
+  return parseClassMode(sessionMode) === "listen" || (pack.length > 0 && pack.every(isStudyCard));
+}
+
+export function recapAppendixCopy(study: boolean) {
+  return study
+    ? {
+        part: "PART 3 · 附录 · 课中剖析",
+        heading: "Class notes · 课中剖析",
+        blurb: "课上留下的句子、剖析和背景，附在讲义后面。",
+        md: "## Appendix · 课中剖析",
+        htmlPart: "PART 3 · 课中剖析",
+        htmlHeading: "Class notes",
+        skills: "Frames · 带走的说法",
+      }
+    : {
+        part: "PART 3 · 附录 · 课中开口",
+        heading: "Speaking appendix · 开口原件",
+        blurb: "课上教练和 DeepSearch 的原件，附在讲义后面，方便对照开口。",
+        md: "## Appendix · 开口原件",
+        htmlPart: "PART 3 · 开口原件",
+        htmlHeading: "Speaking appendix",
+        skills: "Speaking moves · 开口建议",
+      };
+}
+
 export function topicBeatLabel(topic: string, cards: { id: string; topic: string }[], id: string) {
   const same = cards.filter((c) => c.topic === topic && topic);
   if (same.length < 2) return topic;
