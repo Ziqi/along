@@ -81,11 +81,6 @@ function MissionShellInner() {
         if (s.jotOpen) {
           s.setJotOpen(false);
           e.preventDefault();
-          return;
-        }
-        if (s.askOpen) {
-          s.setAskOpen(false);
-          e.preventDefault();
         }
       }
     }
@@ -103,12 +98,12 @@ function MissionShellInner() {
     <div className="app-shell flex h-dvh flex-col overflow-hidden bg-bg text-fg">
       <MissionBar onArm={arm} onSafe={safe} />
       {engineError ? (
-        <p className="shrink-0 border-b border-line px-4 py-2 text-xs text-hold md:px-6">
+        <p className="shrink-0 border-b border-line px-4 py-2 text-sm text-hold md:px-6">
           {engineError}
         </p>
       ) : null}
       {flash ? (
-        <p className="pointer-events-none fixed top-16 left-1/2 z-40 -translate-x-1/2 border border-line bg-elevated px-3 py-1.5 text-xs text-fg">
+        <p className="pointer-events-none fixed top-16 left-1/2 z-40 -translate-x-1/2 border border-line bg-elevated px-3 py-1.5 text-sm text-fg">
           {flash}
         </p>
       ) : null}

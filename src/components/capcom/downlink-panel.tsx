@@ -21,10 +21,8 @@ export function DownlinkPanel() {
     <section className="hud-corners flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
       <span className="hud-corners-bl" />
       <span className="hud-corners-br" />
-      <header className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-xs font-medium">听课</h2>
-        </div>
+      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+        <h2 className="text-sm font-medium">听课</h2>
         <div className="meter" data-live={live} aria-hidden="true">
           <span />
           <span />
@@ -36,24 +34,24 @@ export function DownlinkPanel() {
 
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5"
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-5"
       >
         {empty ? (
           <Preflight />
         ) : (
-          <ol className="flex flex-col gap-5">
+          <ol className="flex flex-col gap-6">
             {captions.map((c) => (
               <li key={c.id} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-                <p className="font-mono text-xs tabular-nums text-dim">
+                <p className="pt-1 font-mono text-xs tabular-nums text-dim/70">
                   {formatClock(c.at)}
                 </p>
                 <div className="min-w-0">
-                  <p className="text-base leading-snug text-fg text-pretty">
+                  <p className="text-lg leading-[1.45] text-fg text-pretty">
                     {c.en}
                   </p>
                   <p
                     className={
-                      "mt-1 text-sm leading-snug text-pretty " +
+                      "mt-1 text-base leading-snug text-pretty " +
                       (c.pending || !/[\u4e00-\u9fff]/.test(c.zh)
                         ? "text-dim"
                         : c.error
@@ -72,8 +70,8 @@ export function DownlinkPanel() {
             ))}
             {interim ? (
               <li className="grid grid-cols-[auto_1fr] gap-x-4">
-                <p className="font-mono text-xs tabular-nums text-dim">--:--:--</p>
-                <p className="stream-caret text-base leading-snug text-fg/80">
+                <p className="font-mono text-xs tabular-nums text-dim/70">--:--:--</p>
+                <p className="stream-caret text-lg leading-[1.45] text-fg/80">
                   {interim}
                 </p>
               </li>
@@ -88,11 +86,11 @@ export function DownlinkPanel() {
 function Preflight() {
   return (
     <div className="flex flex-col gap-3 py-1">
-      <p className="text-sm leading-relaxed text-muted text-pretty">
-        点「开始听」先选互动、旁听或只听，再开一堂。暂停不会结课。结课立刻进纪要。
+      <p className="text-base leading-relaxed text-muted text-pretty">
+        点「开始听」，先选互动、旁听或只听。麦克风开了，完整一句才会上屏。
       </p>
-      <p className="text-sm leading-relaxed text-muted text-pretty">
-        左边听懂这一句，右边教练跟着写。教练点「记」也进纪要。
+      <p className="text-base leading-relaxed text-muted text-pretty">
+        暂停不停课。结课立刻进纪要。想换课型，先结课再开一堂。
       </p>
     </div>
   );

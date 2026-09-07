@@ -598,59 +598,6 @@ export const expandTopic = createServerFn({ method: "POST" })
     return { ok: true as const, ...body, draft: false, ms: body.latencyMs };
   });
 
-export const askTopic = createServerFn({ method: "POST" })
-  .validator(
-    (input: {
-      q: string;
-      history: { q: string; zh: string; en: string }[];
-      recent: string[];
-      topic: string;
-    }) => ({
-      q: String(input?.q ?? "")
-        .trim()
-        .slice(0, 500),
-      history: Array.isArray(input?.history)
-        ? input.history.slice(-8).map((h) => ({
-            q: String(h?.q ?? "").slice(0, 220),
-            zh: String(h?.zh ?? "").slice(0, 360),
-            en: String(h?.en ?? "").slice(0, 360),
-          }))
-        : [],
-      recent: Array.isArray(input?.recent)
-        ? input.recent.map((s) => String(s).slice(0, 180)).slice(-8)
-        : [],
-      topic: String(input?.topic ?? "")
-        .trim()
-        .slice(0, 80),
-    }),
-  )
-  .handler(async ({ data }): Promise<
-    | { ok: true; zh: string; en: string; ms: number }
-    | ChatErr
-  > => {
-    if (!data.q) return { ok: false, error: "empty" };
-    const result = await chat46low({
-      system:
-        'Classroom thinking partner. Intermediate student in mainland China, English class. ALL zh MUST be 简体中文, never 繁體. Answer the question they actually asked — a definition, a how-to-say, a comparison, a stance — do NOT force a generic 4-sentence discussion template. Return ONLY JSON: {"zh":"...","en":"..."}. zh=简体中文 that answers the question first (what it is / the point / a reason), then one way to use it in class. 3-8 short sentences. en=spoken classroom English on THE SAME POINT, 3-8 sentences they can say; not a clone of zh. If they wrote 我想说…, en is that line plus a follow-up. class_so_far and topic are context only — never ignore the question. No markdown.',
-      user: JSON.stringify({
-        question: data.q,
-        thread: data.history,
-        class_so_far: data.recent,
-        current_topic: data.topic || null,
-      }),
-      maxTokens: 900,
-      timeoutMs: 12000,
-    });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    return {
-      ok: true,
-      zh: pick(parsed, "zh") || result.text.trim(),
-      en: pick(parsed, "en"),
-      ms: result.ms,
-    };
-  });
-
 export const quickTranslate = createServerFn({ method: "POST" })
   .validator((input: { text: string }) => ({
     text: String(input?.text ?? "")

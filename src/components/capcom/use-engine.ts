@@ -3,7 +3,6 @@ import { SpeechController, speechSupported } from "@/lib/speech-controller";
 import { micErrorCode, micSupported, requestMic, SttController } from "@/lib/stt-controller";
 import { useCapcom } from "@/lib/store";
 import {
-  askTopic,
   expandTopic,
   liveCoach,
   liveTranslate,
@@ -29,7 +28,6 @@ import {
 } from "@/lib/live-queue";
 
 let coachGen = 0;
-let askGen = 0;
 let recapGen = 0;
 const essayGens = new Map<string, number>();
 const essayInflight = new Set<string>();
@@ -401,42 +399,6 @@ export async function requestEssay(coachId?: string) {
     }
     const next = essayQueue.shift();
     if (next) void requestEssay(next);
-  }
-}
-
-export async function requestAsk(q: string) {
-  const topic = q.trim();
-  if (!topic) return;
-  const store = useCapcom.getState();
-  const thread = store.askThreads.find((t) => t.id === store.askActiveId);
-  const gen = ++askGen;
-  store.setAskPending(true);
-  try {
-    const result = await askTopic({
-      data: {
-        q: topic,
-        history: (thread?.turns ?? []).map((t) => ({
-          q: t.q,
-          zh: t.zh,
-          en: t.en,
-        })),
-        recent: store.captions.slice(-8).map((c) => c.en),
-        topic: store.coach?.topic ?? "",
-      },
-    });
-    if (gen !== askGen) return;
-    if (!result.ok) {
-      useCapcom.getState().setAskError(result.error);
-      return;
-    }
-    useCapcom.getState().pushAskTurn({
-      q: topic,
-      zh: result.zh,
-      en: result.en,
-      latencyMs: result.ms,
-    });
-  } catch {
-    if (gen === askGen) useCapcom.getState().setAskError("对话暂时中断，再试一次。");
   }
 }
 

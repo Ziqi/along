@@ -38,22 +38,22 @@ export function isStudyAppendix(
 export function recapAppendixCopy(study: boolean) {
   return study
     ? {
-        part: "PART 3 · 附录 · 课中剖析",
-        heading: "Class notes · 课中剖析",
+        part: "课中剖析",
+        heading: "课中剖析",
         blurb: "课上留下的句子、剖析和背景，附在讲义后面。",
-        md: "## Appendix · 课中剖析",
-        htmlPart: "PART 3 · 课中剖析",
-        htmlHeading: "Class notes",
-        skills: "Frames · 带走的说法",
+        md: "## 课中剖析",
+        htmlPart: "课中剖析",
+        htmlHeading: "课中剖析",
+        skills: "带走的说法",
       }
     : {
-        part: "PART 3 · 附录 · 课中开口",
-        heading: "Speaking appendix · 开口原件",
+        part: "课中开口",
+        heading: "开口原件",
         blurb: "课上教练和 DeepSearch 的原件，附在讲义后面，方便对照开口。",
-        md: "## Appendix · 开口原件",
-        htmlPart: "PART 3 · 开口原件",
-        htmlHeading: "Speaking appendix",
-        skills: "Speaking moves · 开口建议",
+        md: "## 开口原件",
+        htmlPart: "课中开口",
+        htmlHeading: "开口原件",
+        skills: "开口建议",
       };
 }
 

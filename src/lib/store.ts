@@ -1,7 +1,5 @@
 import { create } from "zustand";
 import type {
-  AskThread,
-  AskTurn,
   Bay,
   Caption,
   ClassRecap,
@@ -13,8 +11,6 @@ import type {
   RecapOutline,
   RecapStudy,
   TopicEssay,
-  TxPad,
-  TxTurn,
   View,
 } from "@/lib/types";
 import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions, removedIds, writeLocalSessions } from "@/lib/persist";
@@ -65,18 +61,6 @@ function shouldMerge(prev: string, next: string) {
   if (!/[.!?]$/.test(prev) && prev.length < 140) return true;
   return false;
 }
-
-const emptyAsk = (): AskThread => ({
-  id: idOf("ask"),
-  title: "1",
-  turns: [],
-});
-
-const emptyTx = (): TxPad => ({
-  id: idOf("tx"),
-  title: "1",
-  turns: [],
-});
 
 let persistReady = typeof window === "undefined";
 let persistQueue: ClassSession[] | null = null;
@@ -407,14 +391,6 @@ type AppState = {
   recapError: string | null;
   flash: string | null;
   jotOpen: boolean;
-  askThreads: AskThread[];
-  askActiveId: string;
-  askPending: boolean;
-  askError: string | null;
-  askOpen: boolean;
-  txPads: TxPad[];
-  txActiveId: string;
-  txPending: boolean;
   intent: string;
   engineError: string | null;
   seq: number;
@@ -467,16 +443,6 @@ type AppState = {
   ping: (msg: string) => void;
   setJotOpen: (on: boolean) => void;
   hydrateSessions: () => void;
-  setAskActive: (id: string) => void;
-  newAskThread: () => void;
-  pushAskTurn: (turn: Omit<AskTurn, "id">) => void;
-  setAskPending: (on: boolean) => void;
-  setAskError: (msg: string | null) => void;
-  setAskOpen: (on: boolean) => void;
-  setTxActive: (id: string) => void;
-  newTxPad: () => void;
-  pushTxTurn: (turn: Omit<TxTurn, "id">) => void;
-  setTxPending: (on: boolean) => void;
   setEngineError: (msg: string | null) => void;
   armClock: () => void;
   resetHud: () => void;
@@ -484,8 +450,6 @@ type AppState = {
 };
 
 export const useCapcom = create<AppState>((set, get) => {
-  const firstAsk = emptyAsk();
-  const firstTx = emptyTx();
   return {
     captions: [],
     interim: "",
@@ -515,14 +479,6 @@ export const useCapcom = create<AppState>((set, get) => {
     recapError: null,
     flash: null,
     jotOpen: false,
-    askThreads: [firstAsk],
-    askActiveId: firstAsk.id,
-    askPending: false,
-    askError: null,
-    askOpen: false,
-    txPads: [firstTx],
-    txActiveId: firstTx.id,
-    txPending: false,
     intent: "",
     engineError: null,
     seq: 0,
@@ -764,13 +720,12 @@ export const useCapcom = create<AppState>((set, get) => {
     goHome: () => {
       const open = get().sessions.some((s) => s.id === get().liveId && !s.endedAt);
       if (open) {
-        set({ view: "live", bay: null, askOpen: false, jotOpen: false });
+        set({ view: "live", bay: null, jotOpen: false });
         return;
       }
       set({
         view: "live",
         bay: null,
-        askOpen: false,
         jotOpen: false,
         captions: [],
         interim: "",
@@ -858,8 +813,7 @@ export const useCapcom = create<AppState>((set, get) => {
       if (!hit) return;
       set({ sessionId: id, jots: hit.notes, recapError: null });
     },
-    setBay: (bay) =>
-      set({ bay, askOpen: bay ? false : get().askOpen }),
+    setBay: (bay) => set({ bay }),
     setView: (view) => set({ view }),
     setRecap: (recap, sessionId) => {
       const sid = sessionId ?? get().sessionId;
@@ -1077,57 +1031,6 @@ export const useCapcom = create<AppState>((set, get) => {
         }
       })();
     },
-    setAskActive: (id) => set({ askActiveId: id, askError: null }),
-    newAskThread: () => {
-      const cur = get().askThreads.find((t) => t.id === get().askActiveId);
-      if (cur && cur.turns.length === 0) return;
-      const next = emptyAsk();
-      set({
-        askThreads: [next, ...get().askThreads].slice(0, 6),
-        askActiveId: next.id,
-        askError: null,
-      });
-    },
-    pushAskTurn: (turn) => {
-      const id = idOf("at");
-      set({
-        askPending: false,
-        askError: null,
-        askThreads: get().askThreads.map((t) => {
-          if (t.id !== get().askActiveId) return t;
-          const title =
-            t.turns.length === 0 ? turn.q.replace(/\s+/g, " ").slice(0, 18) : t.title;
-          return { ...t, title, turns: [...t.turns, { ...turn, id }].slice(-20) };
-        }),
-      });
-    },
-    setAskPending: (on) =>
-      set({ askPending: on, askError: on ? null : get().askError }),
-    setAskError: (msg) => set({ askError: msg, askPending: false }),
-    setAskOpen: (on) => set({ askOpen: on, bay: on ? null : get().bay }),
-    setTxActive: (id) => set({ txActiveId: id }),
-    newTxPad: () => {
-      const cur = get().txPads.find((t) => t.id === get().txActiveId);
-      if (cur && cur.turns.length === 0) return;
-      const next = emptyTx();
-      set({
-        txPads: [next, ...get().txPads].slice(0, 6),
-        txActiveId: next.id,
-      });
-    },
-    pushTxTurn: (turn) => {
-      const id = idOf("tt");
-      set({
-        txPending: false,
-        txPads: get().txPads.map((t) => {
-          if (t.id !== get().txActiveId) return t;
-          const title =
-            t.turns.length === 0 ? turn.src.replace(/\s+/g, " ").slice(0, 16) : t.title;
-          return { ...t, title, turns: [...t.turns, { ...turn, id }].slice(-24) };
-        }),
-      });
-    },
-    setTxPending: (on) => set({ txPending: on }),
     setEngineError: (msg) => set({ engineError: msg }),
     armClock: () => {
       if (!get().startedAt) set({ startedAt: Date.now() });
@@ -1154,8 +1057,6 @@ export const useCapcom = create<AppState>((set, get) => {
         listening: false,
       }),
     clear: (opts) => {
-      const ask = emptyAsk();
-      const tx = emptyTx();
       const now = Date.now();
       const liveId = get().liveId;
       const sessions = get().sessions.map((s) =>
@@ -1180,14 +1081,6 @@ export const useCapcom = create<AppState>((set, get) => {
         bay: opts?.keepBay ? get().bay : null,
         recapPending: opts?.keepBay ? get().recapPending : false,
         recapError: opts?.keepBay ? get().recapError : null,
-        askThreads: [ask],
-        askActiveId: ask.id,
-        askPending: false,
-        askError: null,
-        askOpen: false,
-        txPads: [tx],
-        txActiveId: tx.id,
-        txPending: false,
         seq: 0,
         startedAt: null,
         lastLatency: null,

@@ -11,7 +11,7 @@
   --color-go: #2f8a42;
   --color-hold: #a67a28;
   --color-abort: #b54438;
-  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --radius-xs: 2px;
   --radius-sm: 4px;
@@ -20,9 +20,9 @@
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.125rem;
-  --text-xl: 1.35rem;
+  --text-xl: 1.25rem;
   --text-2xl: 1.75rem;
-  --text-3xl: 2.25rem;
+  --text-3xl: 2rem;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-micro: 80ms;
@@ -241,6 +241,19 @@
 .recap-paper {
   background: var(--color-elevated);
   box-shadow: 0 0 0 1px var(--color-line);
+  font-family: "Noto Sans SC", "IBM Plex Sans", system-ui, sans-serif;
+}
+
+.recap-paper textarea,
+.field-box {
+  border: 1px solid var(--color-line);
+  background: var(--color-elevated);
+}
+
+.recap-paper textarea:focus,
+.field-box:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-fg) 18%, transparent);
+  outline-offset: 1px;
 }
 
 @media print {
