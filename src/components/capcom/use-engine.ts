@@ -14,6 +14,7 @@ import {
 } from "@/lib/capcom-ai";
 import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isFilled, packCoach } from "@/lib/recap-kit";
+import { shouldAskCoach, shouldKeepCoachCard } from "@/lib/coach-kit";
 
 let coachGen = 0;
 let askGen = 0;
@@ -28,33 +29,6 @@ let coachTimer: number | null = null;
 let liveRecapTimer: number | null = null;
 let liveRecapGen = 0;
 const transBatch: { id: string; en: string }[] = [];
-
-const STOP = new Set(
-  "the a an and or but if so to of in on at for from with as is are was were be it this that you we they i he she my our not just about".split(
-    " ",
-  ),
-);
-
-function contentTokens(lines: string[]) {
-  const bag: string[] = [];
-  for (const line of lines) {
-    for (const w of line.toLowerCase().match(/[a-z][a-z']{2,}/g) ?? []) {
-      if (!STOP.has(w)) bag.push(w);
-    }
-  }
-  return bag;
-}
-
-function lexicalShift(recent: string[]) {
-  const last = contentTokens(recent.slice(-4));
-  const prev = contentTokens(recent.slice(-12, -4));
-  if (last.length < 6 || prev.length < 6) return false;
-  const a = new Set(last);
-  const b = new Set(prev);
-  let hit = 0;
-  for (const w of a) if (b.has(w)) hit += 1;
-  return hit / Math.min(a.size, b.size) < 0.3;
-}
 
 export function abortLive() {
   coachGen += 1;
@@ -173,20 +147,14 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
   const last = store.captions.at(-1)?.en ?? "";
   if (!last && !intent) return;
   if (!store.autoCoach && source === "auto") return;
-  if (source === "auto") {
-    const words = last.split(/\s+/).filter(Boolean);
-    const isQ =
-      /[?？]$/.test(last) ||
-      /^(wh(at|y|o|ere|en|ich)|how|do |does |did |is |are |can |could |would |will |should )/i.test(
-        last,
-      );
-    if (words.length < 6 && !isQ) return;
-    const prev = store.coach;
-    const shift = lexicalShift(store.captions.slice(-12).map((c) => c.en));
-    if (prev) {
-      if (prev.prompt === last && Date.now() - prev.at < 12000) return;
-      if (!isQ && !shift && Date.now() - prev.at < 8000) return;
-    }
+  if (
+    source === "auto" &&
+    !shouldAskCoach({
+      last,
+      prev: store.coach ? { prompt: store.coach.prompt, at: store.coach.at } : null,
+    })
+  ) {
+    return;
   }
   const gen = ++coachGen;
   store.setCoachPending(true);
@@ -216,11 +184,14 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
     }
     const prev = useCapcom.getState().coach;
     if (
-      source === "auto" &&
-      result.same &&
-      prev &&
-      result.move !== "answer" &&
-      Date.now() - prev.at < 22000
+      !shouldKeepCoachCard({
+        source,
+        lastHeard: last,
+        prev: prev
+          ? { prompt: prev.prompt, options: prev.options, at: prev.at }
+          : null,
+        options: result.options,
+      })
     ) {
       useCapcom.getState().setCoachPending(false);
       return;

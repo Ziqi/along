@@ -3,6 +3,7 @@ import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { looksLikeSpacexPacket, spacexContentJson } from "@/lib/recap-spacex";
 import { extractJsonObject } from "@/lib/json-object";
+import { resolveCoachSame } from "@/lib/coach-kit";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
 const FLASH = "grok-4.20-0309-non-reasoning";
@@ -339,7 +340,7 @@ const TRANS_SYS =
   'Translate classroom English into 简体中文. Return ONLY JSON: {"zh":"..."}. zh MUST include Chinese characters. Spoken, complete. NEVER copy the English. No pinyin.';
 
 const COACH_SYS =
-  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY if last_heard is still the same beat and is NOT a question. If last_heard is a question or a new angle, same=false and name a specific topic for THIS beat (≤6 English words; may be a sub-topic of prev). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer: 答/答/答 — agree, contrast, example. join: 接话, 追问, 例子. extras: 延展, 追深. en=12-22 words. zh≤24 chars 简体. keys=2-4 words. NEVER repeat last_heard. No markdown.';
+  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY means keep the previous topic title — still return a full new 3+2. same=false if last_heard is a question or a new angle; name a specific topic for THIS beat (≤6 English words; may be a sub-topic of prev). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer: 答/答/答 — agree, contrast, example. join: 接话, 追问, 例子. extras: 延展, 追深. en=12-22 words. zh≤24 chars 简体. keys=2-4 words. NEVER repeat last_heard. No markdown.';
 
 export const liveTranslate = createServerFn({ method: "POST" })
   .validator((input: { lines: { id: string; en: string }[] }) => ({
@@ -444,12 +445,11 @@ export const liveCoach = createServerFn({ method: "POST" })
     if (!result.ok) return result;
     const parsed = extractJsonObject(result.text);
     const move = pick(parsed, "move") === "join" ? "join" : "answer";
-    const same =
-      move !== "answer" &&
-      (parsed?.same === true ||
-        parsed?.same === "true" ||
-        (Boolean(data.prevTopic) &&
-          pick(parsed, "topic").toLowerCase() === data.prevTopic.toLowerCase()));
+    const same = resolveCoachSame({
+      modelSame: parsed?.same,
+      move,
+      lastHeard: data.last,
+    });
     return {
       ok: true,
       same,
