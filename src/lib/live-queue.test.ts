@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  COACH_FALLBACK_MS,
+  COACH_PRIMARY_MS,
+  COACH_TIMEOUT_MS,
   hasZh,
   keepLatestByCaptionOrder,
   mergeTranslateQueue,
@@ -50,5 +53,11 @@ describe("live translate queue", () => {
       withDeadline(new Promise(() => {}), 20),
       /deadline/,
     );
+  });
+
+  it("gives the coach enough time for the first model and the fallback", () => {
+    assert.ok(COACH_TIMEOUT_MS >= COACH_PRIMARY_MS + COACH_FALLBACK_MS);
+    assert.ok(COACH_PRIMARY_MS >= 8000);
+    assert.ok(COACH_FALLBACK_MS >= 8000);
   });
 });

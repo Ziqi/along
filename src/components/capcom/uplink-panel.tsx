@@ -3,7 +3,7 @@ import { Check, Copy, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
 import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
-import { requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
+import { requestCoach, requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { essayOf } from "@/lib/recap-kit";
 import {
@@ -12,6 +12,7 @@ import {
   parseClassMode,
   topicBeatLabel,
 } from "@/lib/class-mode";
+import { coachEmptyCopy, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
 
 function cardHasDeep(
   id: string | null,
@@ -76,21 +77,15 @@ export function UplinkPanel() {
     setActiveId(latest.id);
   }, [latest?.id, stayOnCard, followLatest]);
 
-  const headerStatus = !autoCoach
-    ? "已暂停"
-    : pending
-      ? latest
-        ? "写…"
-        : "跟听中"
-      : error
-        ? "这轮慢了，正在重写"
-        : latest
-          ? "跟上了"
-          : captions.length
-            ? "跟听中"
-            : "待命";
-
-  const empty = coaches.length === 0 && !error;
+  const phase = coachUiPhase({
+    autoCoach,
+    pending,
+    error,
+    hasCard: Boolean(latest),
+    hasCaptions: captions.length > 0,
+  });
+  const headerStatus = coachHeaderLabel(phase);
+  const canRewrite = Boolean(error && !pending && (latest || captions.length));
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
@@ -170,20 +165,24 @@ export function UplinkPanel() {
       ) : null}
 
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
-        {empty ? (
+        {!latest && phase === "failed" ? (
+          <div className="flex h-full min-h-24 flex-col gap-3">
+            <p className="max-w-sm text-base leading-relaxed text-abort text-pretty">{error}</p>
+            {canRewrite ? (
+              <Button type="button" variant="ghost" size="lg" className="self-start" onClick={() => void requestCoach()}>
+                重写
+              </Button>
+            ) : null}
+          </div>
+        ) : !latest ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
             <p className="max-w-sm text-base leading-relaxed text-muted text-pretty">
-              {!liveId
+              {!liveId && phase === "idle"
                 ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。上课不能改课型。"
-                : mode === "listen"
-                  ? "只听。落下值得留的一句，就写这句、剖析、这一拍的背景。点上方主题可跳回。"
-                  : mode === "audit"
-                    ? "旁听。你若要接，给同意、对比、例子。问句则直接答、补一层、举个例。"
-                    : "互动。讨论给同意、对比、例子。问句给直接答、补一层、举个例。"}
+                : coachEmptyCopy(phase, mode)}
             </p>
+            {error ? <p className="max-w-sm text-sm text-muted text-pretty">{error}</p> : null}
           </div>
-        ) : error && !latest ? (
-          <p className="text-base text-abort">{error}</p>
         ) : (
           <ol className="flex flex-col gap-5">
             {coaches.map((card) => {
@@ -236,7 +235,17 @@ export function UplinkPanel() {
               );
             })}
             {pending ? (
-              <li className="text-xs text-dim">写…</li>
+              <li className="text-xs text-dim">{phase === "retrying" ? "正在重写…" : "写…"}</li>
+            ) : null}
+            {phase === "failed" && error ? (
+              <li className="flex flex-col items-start gap-2">
+                <p className="text-sm text-abort">{error}</p>
+                {canRewrite ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void requestCoach()}>
+                    重写
+                  </Button>
+                ) : null}
+              </li>
             ) : null}
           </ol>
         )}

@@ -78,3 +78,71 @@ export function shouldRescueCoach(input: {
     : now - input.lastCaptionAt;
   return silentFor >= 16000;
 }
+
+export type CoachUiPhase =
+  | "paused"
+  | "writing"
+  | "retrying"
+  | "failed"
+  | "ready"
+  | "following"
+  | "idle";
+
+export function coachUiPhase(input: {
+  autoCoach: boolean;
+  pending: boolean;
+  error: string | null;
+  hasCard: boolean;
+  hasCaptions: boolean;
+}): CoachUiPhase {
+  if (!input.autoCoach) return "paused";
+  if (input.pending && input.error) return "retrying";
+  if (input.pending) return "writing";
+  if (input.error) return "failed";
+  if (input.hasCard) return "ready";
+  if (input.hasCaptions) return "following";
+  return "idle";
+}
+
+export function coachHeaderLabel(phase: CoachUiPhase) {
+  if (phase === "paused") return "已暂停";
+  if (phase === "writing") return "在写";
+  if (phase === "retrying") return "正在重写";
+  if (phase === "failed") return "没写出来";
+  if (phase === "ready") return "跟上了";
+  if (phase === "following") return "跟听中";
+  return "待命";
+}
+
+export function coachEmptyCopy(
+  phase: CoachUiPhase,
+  mode: "interactive" | "audit" | "listen",
+) {
+  if (phase === "writing") {
+    if (mode === "listen") return "正在写这一拍：这句、剖析、背景。";
+    if (mode === "audit")
+      return "正在写。旁听会写成「若要开口」：同意、对比、例子；问句则直接答、补一层、举个例。";
+    return "正在写：同意、对比、例子；问句则直接答、补一层、举个例。";
+  }
+  if (phase === "retrying") return "上一拍慢了，正在重写。先别空着等。";
+  if (mode === "listen") return "只听。落下值得留的一句，就写这句、剖析、这一拍的背景。点上方主题可跳回。";
+  if (mode === "audit")
+    return "旁听。你若要接，给同意、对比、例子。问句则直接答、补一层、举个例。";
+  return "互动。讨论给同意、对比、例子。问句给直接答、补一层、举个例。";
+}
+
+export function humanCoachError(err: string, phase: "retrying" | "failed" = "failed") {
+  const t = err.trim();
+  const retrying = phase === "retrying";
+  if (!t || t === "timeout" || t === "deadline") {
+    return retrying ? "这轮慢了，正在重写" : "这轮慢了，点重写再试。";
+  }
+  if (t === "AI 暂不可用") {
+    return retrying ? "教练这会儿连不上，正在重写" : "教练这会儿连不上，点重写再试。";
+  }
+  if (/429/.test(t)) {
+    return retrying ? "写得太勤了，正在重写" : "写得太勤了，过几秒再点重写。";
+  }
+  if (t === "empty") return "再听一句完整的，我再写。";
+  return t;
+}
