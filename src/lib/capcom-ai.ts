@@ -2,8 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
-import { resolveCoachSame } from "@/lib/coach-kit";
+import { isHeardQuestion, resolveCoachSame } from "@/lib/coach-kit";
 import { parseClassMode } from "@/lib/class-mode";
+import { COACH_FALLBACK_MS, COACH_PRIMARY_MS } from "@/lib/live-queue";
 import type { RecapTable } from "@/lib/types";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
@@ -277,6 +278,9 @@ async function chat46low(params: {
   user: string;
   maxTokens: number;
   timeoutMs?: number;
+  fallbackTimeoutMs?: number;
+  skipFallback?: boolean;
+  json?: boolean;
 }): Promise<{ ok: true; text: string; ms: number } | ChatErr> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) return { ok: false, error: "AI 暂不可用" };
@@ -295,20 +299,32 @@ async function chat46low(params: {
         Authorization: `Bearer ${apiKey}`,
       },
       signal: ac.signal,
-      body: JSON.stringify({
-        model: "grok-4.6",
-        temperature: 0.3,
-        max_tokens: params.maxTokens,
-        reasoning_effort: "low",
-        messages,
-      }),
+      body: JSON.stringify(
+        chatPayload("grok-4.6", {
+          messages,
+          maxTokens: params.maxTokens,
+          temperature: 0.3,
+          json: params.json,
+          reasoning: "low",
+        }),
+      ),
     });
     clearTimeout(timer);
     if (res.ok) return readChat(res, started);
+    if (params.skipFallback) return { ok: false, error: `xAI 错误 ${res.status}` };
   } catch {
     clearTimeout(timer);
+    if (params.skipFallback) return { ok: false, error: "timeout" };
   }
-  return chatFlash({ ...params, temperature: 0.3 });
+  if (params.skipFallback) return { ok: false, error: "timeout" };
+  return chatFlash({
+    system: params.system,
+    user: params.user,
+    maxTokens: params.maxTokens,
+    temperature: 0.3,
+    timeoutMs: params.fallbackTimeoutMs ?? 10000,
+    json: params.json,
+  });
 }
 
 export const mintSttSecret = createServerFn({ method: "POST" }).handler(
@@ -448,46 +464,43 @@ export const liveCoach = createServerFn({ method: "POST" })
     | ChatErr
   > => {
     if (!data.last && !data.intent) return { ok: false, error: "empty" };
-    const result = await chat46low({
-      system: coachSystem(data.mode),
-      user: JSON.stringify({
-        last_heard: data.last || null,
-        recent_class: data.recent,
-        student_intent: data.intent || null,
-        prev_topic: data.prevTopic || null,
-        prev_topic_zh: data.prevTopicZh || null,
-        student_notes: data.notes.length ? data.notes : null,
-        class_mode: data.mode,
-      }),
+    const system = coachSystem(data.mode);
+    const user = JSON.stringify({
+      last_heard: data.last || null,
+      recent_class: data.recent,
+      student_intent: data.intent || null,
+      prev_topic: data.prevTopic || null,
+      prev_topic_zh: data.prevTopicZh || null,
+      student_notes: data.notes.length ? data.notes : null,
+      class_mode: data.mode,
+    });
+    const first = await chat46low({
+      system,
+      user,
       maxTokens: 700,
-      timeoutMs: 8000,
+      timeoutMs: COACH_PRIMARY_MS,
+      skipFallback: true,
+      json: true,
     });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    const move = pick(parsed, "move") === "join" ? "join" : "answer";
-    const same = resolveCoachSame({
-      modelSame: parsed?.same,
-      move,
-      lastHeard: data.last,
+    let packed = first.ok
+      ? readCoachPack(extractJsonObject(first.text), data, first.ms)
+      : null;
+    if (packed?.options.length) return packed;
+
+    const fallback = await chatFlash({
+      system,
+      user,
+      maxTokens: 700,
+      timeoutMs: COACH_FALLBACK_MS,
+      temperature: 0.3,
+      json: true,
     });
-    return {
-      ok: true,
-      same,
-      topic: same && data.prevTopic ? data.prevTopic : pick(parsed, "topic"),
-      topicZh: same && data.prevTopicZh ? data.prevTopicZh : pick(parsed, "topicZh"),
-      briefZh: pick(parsed, "briefZh"),
-      briefEn: pick(parsed, "briefEn"),
-      move,
-      options: parseCoachOptions(parsed?.options, move, 3, data.mode),
-      extras:
-        data.mode === "listen"
-          ? []
-          : parseCoachOptions(parsed?.extras, "join", 2, data.mode).map((o, i) => ({
-              ...o,
-              label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
-            })),
-      ms: result.ms,
-    };
+    if (fallback.ok) {
+      packed = readCoachPack(extractJsonObject(fallback.text), data, fallback.ms);
+      if (packed.options.length) return packed;
+    }
+    if (!first.ok && !fallback.ok) return fallback;
+    return { ok: false, error: "教练没给出三条，再听一句。" };
   });
 
 export const expandTopic = createServerFn({ method: "POST" })
@@ -598,59 +611,6 @@ export const expandTopic = createServerFn({ method: "POST" })
     return { ok: true as const, ...body, draft: false, ms: body.latencyMs };
   });
 
-export const askTopic = createServerFn({ method: "POST" })
-  .validator(
-    (input: {
-      q: string;
-      history: { q: string; zh: string; en: string }[];
-      recent: string[];
-      topic: string;
-    }) => ({
-      q: String(input?.q ?? "")
-        .trim()
-        .slice(0, 500),
-      history: Array.isArray(input?.history)
-        ? input.history.slice(-8).map((h) => ({
-            q: String(h?.q ?? "").slice(0, 220),
-            zh: String(h?.zh ?? "").slice(0, 360),
-            en: String(h?.en ?? "").slice(0, 360),
-          }))
-        : [],
-      recent: Array.isArray(input?.recent)
-        ? input.recent.map((s) => String(s).slice(0, 180)).slice(-8)
-        : [],
-      topic: String(input?.topic ?? "")
-        .trim()
-        .slice(0, 80),
-    }),
-  )
-  .handler(async ({ data }): Promise<
-    | { ok: true; zh: string; en: string; ms: number }
-    | ChatErr
-  > => {
-    if (!data.q) return { ok: false, error: "empty" };
-    const result = await chat46low({
-      system:
-        'Classroom thinking partner. Intermediate student in mainland China, English class. ALL zh MUST be 简体中文, never 繁體. Answer the question they actually asked — a definition, a how-to-say, a comparison, a stance — do NOT force a generic 4-sentence discussion template. Return ONLY JSON: {"zh":"...","en":"..."}. zh=简体中文 that answers the question first (what it is / the point / a reason), then one way to use it in class. 3-8 short sentences. en=spoken classroom English on THE SAME POINT, 3-8 sentences they can say; not a clone of zh. If they wrote 我想说…, en is that line plus a follow-up. class_so_far and topic are context only — never ignore the question. No markdown.',
-      user: JSON.stringify({
-        question: data.q,
-        thread: data.history,
-        class_so_far: data.recent,
-        current_topic: data.topic || null,
-      }),
-      maxTokens: 900,
-      timeoutMs: 12000,
-    });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    return {
-      ok: true,
-      zh: pick(parsed, "zh") || result.text.trim(),
-      en: pick(parsed, "en"),
-      ms: result.ms,
-    };
-  });
-
 export const quickTranslate = createServerFn({ method: "POST" })
   .validator((input: { text: string }) => ({
     text: String(input?.text ?? "")
@@ -721,6 +681,43 @@ function parseKeys(v: unknown, en: string): string[] {
     .slice(0, 3);
 }
 
+function readCoachPack(
+  parsed: Record<string, unknown> | null,
+  data: {
+    last: string;
+    prevTopic: string;
+    prevTopicZh: string;
+    mode: string;
+  },
+  ms: number,
+) {
+  const move: "answer" | "join" =
+    pick(parsed, "move") === "answer" || isHeardQuestion(data.last) ? "answer" : "join";
+  const same = resolveCoachSame({
+    modelSame: parsed?.same,
+    move,
+    lastHeard: data.last,
+  });
+  return {
+    ok: true as const,
+    same,
+    topic: same && data.prevTopic ? data.prevTopic : pick(parsed, "topic"),
+    topicZh: same && data.prevTopicZh ? data.prevTopicZh : pick(parsed, "topicZh"),
+    briefZh: pick(parsed, "briefZh"),
+    briefEn: pick(parsed, "briefEn"),
+    move,
+    options: parseCoachOptions(parsed?.options, move, 3, data.mode),
+    extras:
+      data.mode === "listen"
+        ? []
+        : parseCoachOptions(parsed?.extras, "join", 2, data.mode).map((o, i) => ({
+            ...o,
+            label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
+          })),
+    ms,
+  };
+}
+
 function parseCoachOptions(
   v: unknown,
   move: "answer" | "join",
@@ -738,6 +735,18 @@ function parseCoachOptions(
   const out: { label: string; en: string; zh: string; keys: string[] }[] = [];
   if (Array.isArray(v)) {
     for (const it of v) {
+      if (typeof it === "string") {
+        const en = it.trim();
+        if (!en) continue;
+        out.push({
+          label: fallback[out.length] ?? "答",
+          en,
+          zh: "",
+          keys: parseKeys(undefined, en),
+        });
+        if (out.length === limit) break;
+        continue;
+      }
       if (!it || typeof it !== "object") continue;
       const row = it as { label?: unknown; en?: unknown; zh?: unknown; keys?: unknown };
       const en = typeof row.en === "string" ? row.en.trim() : "";

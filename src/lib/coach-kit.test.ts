@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  coachEmptyCopy,
+  coachHeaderLabel,
+  coachUiPhase,
+  humanCoachError,
   isHeardQuestion,
   resolveCoachSame,
   shouldAskCoach,
@@ -156,5 +160,59 @@ describe("coach same / keep", () => {
       }),
       false,
     );
+  });
+});
+
+describe("coach pane copy", () => {
+  it("does not call a failed write 正在重写 unless it is actually writing", () => {
+    assert.equal(
+      coachHeaderLabel(
+        coachUiPhase({
+          autoCoach: true,
+          pending: false,
+          error: "这轮慢了，点重写再试。",
+          hasCard: false,
+          hasCaptions: true,
+        }),
+      ),
+      "没写出来",
+    );
+    assert.equal(
+      coachHeaderLabel(
+        coachUiPhase({
+          autoCoach: true,
+          pending: true,
+          error: "这轮慢了，正在重写",
+          hasCard: false,
+          hasCaptions: true,
+        }),
+      ),
+      "正在重写",
+    );
+    assert.equal(
+      coachHeaderLabel(
+        coachUiPhase({
+          autoCoach: true,
+          pending: true,
+          error: null,
+          hasCard: false,
+          hasCaptions: true,
+        }),
+      ),
+      "在写",
+    );
+  });
+
+  it("keeps audit empty copy honest while writing or idle", () => {
+    assert.match(coachEmptyCopy("writing", "audit"), /若要开口/);
+    assert.match(coachEmptyCopy("retrying", "audit"), /正在重写/);
+    assert.match(coachEmptyCopy("idle", "audit"), /旁听/);
+    assert.equal(coachEmptyCopy("idle", "audit").includes("正在写"), false);
+  });
+
+  it("turns raw timeouts into something a student can act on", () => {
+    assert.equal(humanCoachError("deadline", "retrying"), "这轮慢了，正在重写");
+    assert.equal(humanCoachError("timeout", "failed"), "这轮慢了，点重写再试。");
+    assert.match(humanCoachError("AI 暂不可用"), /连不上/);
   });
 });

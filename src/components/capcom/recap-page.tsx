@@ -7,7 +7,7 @@ import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { splitProse } from "@/lib/recap-kit";
 import { recapStageView, type RecapStage } from "@/lib/recap-stage";
 import type { ClassSession, RecapCoach, RecapPair, RecapStudy, RecapTable } from "@/lib/types";
-import { isStudyAppendix, isStudyCard, recapAppendixCopy } from "@/lib/class-mode";
+import { isStudyAppendix, isStudyCard, modeLabel, parseClassMode, recapAppendixCopy } from "@/lib/class-mode";
 import { formatDayTime } from "@/lib/utils";
 import { SignedOut } from "@/lib/auth/gates";
 
@@ -112,7 +112,7 @@ export function RecapPage() {
                   <div
                     className={
                       "flex items-start gap-1 px-2 py-2.5 " +
-                      (s.id === session?.id ? "bg-elevated" : "")
+                      (s.id === session?.id ? "bg-elevated" : "hover:bg-surface")
                     }
                   >
                     <button
@@ -124,12 +124,14 @@ export function RecapPage() {
                       }}
                       className="min-w-0 flex-1 px-1 py-0.5 text-left"
                     >
-                      <span className="block truncate text-base font-medium leading-snug text-fg">
-                        {s.title}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-dim">
+                      <span className="block text-xs text-dim">
                         {formatDayTime(s.startedAt)}
-                        {s.id === liveId && !s.endedAt ? " · live" : ""}
+                        {" · "}
+                        {modeLabel(parseClassMode(s.classMode))}
+                        {s.id === liveId && !s.endedAt ? " · 进行中" : ""}
+                      </span>
+                      <span className="mt-1 block truncate text-base font-medium leading-snug text-fg">
+                        {s.title}
                       </span>
                       {s.sourceTitle ? (
                         <span className="mt-0.5 block truncate text-xs text-dim">
@@ -186,16 +188,16 @@ export function RecapPage() {
       </aside>
 
       <article className="recap-sheet min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="recap-paper mx-auto flex max-w-[40rem] flex-col gap-10 px-6 py-12 md:px-8 md:py-16">
+        <div className="recap-paper mx-auto flex max-w-[42rem] flex-col gap-12 px-6 py-12 md:px-8 md:py-16">
           {!session ? (
             <p className="text-base text-muted">结课之后，左边课表会列出各堂。</p>
           ) : (
             <>
               <header className="flex flex-col gap-4">
                 <div className="recap-chrome flex items-center justify-between gap-3">
-                  <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                    ALONG · 讲义
-                    {living ? " · live" : ""}
+                  <p className="text-sm text-muted">
+                    讲义
+                    {living ? " · 进行中" : ""}
                     {recap?.draft ? " · 未完稿" : ""}
                   </p>
                   <div className="flex items-center gap-1">
@@ -219,8 +221,10 @@ export function RecapPage() {
                     </Button>
                   </div>
                 </div>
-                <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
+                <p className="text-sm text-muted">
                   {formatDayTime(session.startedAt)}
+                  {" · "}
+                  {modeLabel(parseClassMode(session.classMode))}
                   {session.sourceTitle ? ` · ${session.sourceTitle}` : ""}
                 </p>
                 <textarea
@@ -234,7 +238,7 @@ export function RecapPage() {
                       e.currentTarget.blur();
                     }
                   }}
-                  className="w-full resize-none bg-transparent text-3xl font-medium leading-tight tracking-tight text-fg text-balance focus:outline-none md:text-4xl"
+                  className="w-full resize-none px-3 py-2 text-[2rem] font-medium leading-tight tracking-tight text-fg text-balance"
                   aria-label="纪要标题"
                 />
                 <div className="recap-tools flex flex-wrap items-center gap-2">
@@ -272,7 +276,7 @@ export function RecapPage() {
                   ) : (
                     <>
                       <details className="recap-menu relative" onToggle={closeOtherMenus}>
-                        <summary className="cursor-pointer px-2 py-1 text-xs text-muted hover:text-fg">
+                        <summary className="cursor-pointer px-2 py-1 text-sm text-muted hover:text-fg">
                           整理
                         </summary>
                         <div className="absolute left-0 top-full z-20 mt-1 flex min-w-40 flex-col border border-line bg-elevated p-1">
@@ -301,16 +305,6 @@ export function RecapPage() {
                             variant="quiet"
                             size="sm"
                             className="h-8 justify-start px-2"
-                            onClick={() => setMode("drill")}
-                            disabled={!stats.cards}
-                          >
-                            复习
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="sm"
-                            className="h-8 justify-start px-2"
                             onClick={() => removeSession(session.id)}
                           >
                             删除
@@ -318,7 +312,7 @@ export function RecapPage() {
                         </div>
                       </details>
                       <details className="recap-menu relative" onToggle={closeOtherMenus}>
-                        <summary className="cursor-pointer px-2 py-1 text-xs text-muted hover:text-fg">
+                        <summary className="cursor-pointer px-2 py-1 text-sm text-muted hover:text-fg">
                           导出
                         </summary>
                         <div className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col border border-line bg-elevated p-1">
@@ -356,6 +350,16 @@ export function RecapPage() {
                           </label>
                         </div>
                       </details>
+                      <Button
+                        type="button"
+                        variant="quiet"
+                        size="sm"
+                        className="h-7 min-h-7 px-2"
+                        onClick={() => setMode("drill")}
+                        disabled={!stats.cards}
+                      >
+                        复习
+                      </Button>
                     </>
                   )}
                 </div>
@@ -378,9 +382,7 @@ export function RecapPage() {
                   ) : null}
 
                   {recap?.lede || sections.length || takeaways.length ? (
-                    <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                      PART 1 · 讲义 · 本堂内容
-                    </p>
+                    <p className="text-sm text-muted">本堂内容</p>
                   ) : null}
 
                   {recap?.lede || editing ? (
@@ -417,7 +419,7 @@ export function RecapPage() {
 
                   {takeaways.length ? (
                     <section className="flex flex-col gap-2">
-                      <h2 className="text-xl font-medium tracking-tight">Takeaways · 要点</h2>
+                      <h2 className="text-xl font-medium tracking-tight">要点</h2>
                       <ol className="list-decimal space-y-2 pl-5">
                         {takeaways.map((t) => (
                           <li key={t.en} className="pl-1">
@@ -505,11 +507,11 @@ export function RecapPage() {
                     </p>
                   ) : living && !recap && !pending ? (
                     <p className="text-base leading-relaxed text-muted">
-                      After a few lines, the outline lands here. You can jot a point now.
+                      听进几句之后，提纲会落在这里。现在也可以先补一条随手记。
                     </p>
                   ) : null}
 
-                  {topics.length && !sections.length ? <PairList kicker="Topics · 主题" items={topics} /> : null}
+                  {topics.length && !sections.length ? <PairList kicker="主题" items={topics} /> : null}
 
                   {words.length ||
                   collos.length ||
@@ -519,40 +521,38 @@ export function RecapPage() {
                   skills.length ? (
                     <section className="flex flex-col gap-8 border-t border-line pt-8">
                       <div>
-                        <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                          PART 2 · 讲义 · 语言点
-                        </p>
-                        <h2 className="mt-2 text-xl font-medium tracking-tight">Language · 语言点</h2>
+                        <p className="text-sm text-muted">语言点</p>
+                        <h2 className="mt-2 text-xl font-medium tracking-tight">语言点</h2>
                         <p className="mt-1 text-sm text-muted">
-                          老师读完整堂课之后选出的词、搭配、句式。划线也由这份讲义决定。每条都有用法和中文。
+                          读完整堂课之后选出的词、搭配、句式。划线也由这份讲义决定。每条都有用法和中文。
                         </p>
                       </div>
                       <StudyCards
-                        kicker="Words · 单词"
+                        kicker="单词"
                         items={words}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { words: next })}
                       />
                       <StudyCards
-                        kicker="Collocations · 搭配"
+                        kicker="搭配"
                         items={collos}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { collos: next })}
                       />
                       <StudyCards
-                        kicker="Patterns · 句式"
+                        kicker="句式"
                         items={patterns}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { patterns: next })}
                       />
                       <StudyCards
-                        kicker="Grammar · 语法"
+                        kicker="语法"
                         items={grammar}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { grammar: next })}
                       />
                       <StudyCards
-                        kicker="Key sentences · 好例句"
+                        kicker="好例句"
                         items={lines}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { lines: next })}
@@ -580,7 +580,7 @@ export function RecapPage() {
                   {coachPack.length ? (
                     <section className="flex flex-col gap-8 border-t border-line pt-8">
                       <div>
-                        <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
+                        <p className="text-sm text-muted">
                           {appendix.part}
                         </p>
                         <h2 className="mt-2 text-xl font-medium tracking-tight">
@@ -589,7 +589,7 @@ export function RecapPage() {
                         <p className="mt-1 text-sm text-muted">{appendix.blurb}</p>
                       </div>
                       {coachPack.map((card, i) => (
-                        <CoachPackCard key={`${card.topic}-${i}`} card={card} n={i + 1} terms={marks} />
+                        <CoachPackCard key={`${card.topic}-${i}`} card={card} terms={marks} />
                       ))}
                     </section>
                   ) : null}
@@ -647,19 +647,16 @@ function EditText({
 
 function CoachPackCard({
   card,
-  n,
   terms,
 }: {
   card: RecapCoach;
-  n: number;
   terms?: string[];
 }) {
   return (
     <article className="flex flex-col gap-3 border border-line bg-elevated px-4 py-4">
       <header className="flex flex-col gap-1">
-        <p className="font-mono text-[10px] tracking-[0.18em] text-dim">
-          {String(n).padStart(2, "0")} ·{" "}
-          {isStudyCard(card) ? "析" : card.move === "answer" ? "答" : "接"}
+        <p className="text-sm text-muted">
+          {isStudyCard(card) ? "剖析" : card.move === "answer" ? "回答" : "开口"}
         </p>
         <h3 className="text-lg font-medium tracking-tight">{card.topic}</h3>
         {card.topicZh ? <p className="text-sm text-muted">{card.topicZh}</p> : null}
@@ -698,7 +695,7 @@ function CoachPackCard({
       ) : null}
       {card.deep ? (
         <div className="flex flex-col gap-3 border-t border-line pt-4">
-          <p className="font-mono text-[10px] tracking-[0.18em] text-dim">DeepSearch</p>
+          <p className="text-sm text-muted">DeepSearch</p>
           <h4 className="text-base font-medium">{card.deep.title}</h4>
           {card.deep.viewEn ? (
             <p className="text-base leading-relaxed text-pretty">
@@ -908,8 +905,8 @@ function PairList({ kicker, items }: { kicker: string; items: RecapPair[] }) {
       <h2 className="text-xl font-medium tracking-tight">{kicker}</h2>
       <table className="w-full border-collapse text-left">
         <thead>
-          <tr className="border-b border-line text-[10px] tracking-[0.14em] text-dim">
-            <th className="py-2 pr-3 font-normal">English</th>
+          <tr className="border-b border-line text-sm text-muted">
+            <th className="py-2 pr-3 font-normal">英文</th>
             <th className="py-2 font-normal">中文</th>
           </tr>
         </thead>
@@ -965,7 +962,7 @@ function StudyCards({
                   className="text-sm text-muted"
                   onSave={(v) => patch(i, "zh", v)}
                 />
-                <p className="font-mono text-[10px] tracking-[0.14em] text-dim">用法</p>
+                <p className="text-xs text-dim">用法</p>
                 <EditText value={it.use} rows={2} className="text-sm" onSave={(v) => patch(i, "use", v)} />
                 <EditText
                   value={it.useZh}
@@ -973,7 +970,7 @@ function StudyCards({
                   className="text-sm text-muted"
                   onSave={(v) => patch(i, "useZh", v)}
                 />
-                <p className="font-mono text-[10px] tracking-[0.14em] text-dim">例句</p>
+                <p className="text-xs text-dim">例句</p>
                 <EditText
                   value={it.example}
                   rows={2}
@@ -993,14 +990,14 @@ function StudyCards({
                 {it.zh ? <p className="text-sm leading-snug text-muted">{it.zh}</p> : null}
                 {it.use || it.useZh ? (
                   <div>
-                    <p className="font-mono text-[10px] tracking-[0.14em] text-dim">用法</p>
+                    <p className="text-xs text-dim">用法</p>
                     {it.use ? <p className="mt-1 text-sm leading-relaxed text-fg">{it.use}</p> : null}
                     {it.useZh ? <p className="text-sm leading-relaxed text-muted">{it.useZh}</p> : null}
                   </div>
                 ) : null}
                 {it.example || it.exampleZh ? (
                   <div>
-                    <p className="font-mono text-[10px] tracking-[0.14em] text-dim">例句</p>
+                    <p className="text-xs text-dim">例句</p>
                     {it.example ? (
                       <p className="mt-1 text-sm leading-relaxed text-fg text-pretty">
                         <StarEn text={it.example} />
@@ -1026,9 +1023,9 @@ function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
   return (
     <details className="border-t border-line pt-8">
       <summary className="cursor-pointer text-xl font-medium tracking-tight">
-        Appendix · Transcript
+        课堂实录
       </summary>
-      <p className="mt-2 text-sm text-muted">Optional in download. English first.</p>
+      <p className="mt-2 text-sm text-muted">下载时可勾选带上。英文在前。</p>
       <ul className="mt-4 flex max-h-72 flex-col gap-3 overflow-y-auto">
         {shown.map((l, i) => (
           <li key={`${i}-${l.en.slice(0, 24)}`}>
@@ -1036,7 +1033,7 @@ function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
             {l.zh ? (
               <p className="mt-0.5 text-sm leading-snug text-muted text-pretty">{l.zh}</p>
             ) : (
-              <p className="mt-0.5 text-xs text-dim">translating…</p>
+              <p className="mt-0.5 text-xs text-dim">译…</p>
             )}
           </li>
         ))}
@@ -1050,6 +1047,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
   const removeJot = useCapcom((s) => s.removeJot);
   const setSession = useCapcom((s) => s.setSession);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [notesOpen, setNotesOpen] = useState(true);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -1061,9 +1059,14 @@ function NotesEditor({ session }: { session: ClassSession }) {
   }
 
   return (
-    <details className="recap-notes border-t border-line pt-8">
+    <details
+      className="recap-notes border-t border-line pt-8"
+      open={notesOpen}
+      onToggle={(e) => setNotesOpen(e.currentTarget.open)}
+    >
       <summary className="cursor-pointer text-xl font-medium tracking-tight">
         课堂随手记
+        <span className="ml-2 text-sm font-normal text-muted">可补</span>
       </summary>
       <div className="mt-4 flex flex-col gap-4">
       {session.notes.length ? (
@@ -1071,21 +1074,21 @@ function NotesEditor({ session }: { session: ClassSession }) {
           {session.notes.map((j) => (
             <li key={j.id} className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
-                <p className="font-mono text-[10px] text-dim">{formatDayTime(j.at)}</p>
+                <p className="text-xs text-dim">{formatDayTime(j.at)}</p>
                 <textarea
                   key={`${j.id}-en-${j.en}`}
                   defaultValue={j.en}
                   rows={2}
                   onBlur={(e) => patchJot(j.id, { en: e.target.value, pending: false })}
-                  className="mt-1 w-full resize-none bg-transparent text-base leading-snug text-fg focus:outline-none"
-                  placeholder="English"
+                  className="mt-1 w-full resize-none px-2 py-1.5 text-base leading-snug text-fg"
+                  placeholder="英文"
                 />
                 <textarea
                   key={`${j.id}-zh-${j.zh}`}
                   defaultValue={j.zh}
                   rows={2}
                   onBlur={(e) => patchJot(j.id, { zh: e.target.value, pending: false })}
-                  className="w-full resize-none bg-transparent text-sm leading-relaxed text-muted focus:outline-none"
+                  className="mt-1 w-full resize-none px-2 py-1.5 text-sm leading-relaxed text-muted"
                   placeholder="中文"
                 />
               </div>

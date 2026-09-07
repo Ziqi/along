@@ -17,7 +17,6 @@ type Props = {
 export function MissionBar({ onArm, onSafe }: Props) {
   const mic = useCapcom((s) => s.mic);
   const listening = useCapcom((s) => s.listening);
-  const lastLatency = useCapcom((s) => s.lastLatency);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
   const view = useCapcom((s) => s.view);
@@ -35,7 +34,6 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const [theme, setTheme] = useState<Theme>("day");
   const [more, setMore] = useState(false);
   const [pick, setPick] = useState(false);
-  const [switchMode, setSwitchMode] = useState(false);
   const { isPending } = useCurrentUserState();
   const liveMode = parseClassMode(
     sessions.find((s) => s.id === liveId && !s.endedAt)?.classMode ?? classMode,
@@ -78,23 +76,9 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const extras = (
     <>
       {openClass && !reading ? (
-        <Button
-          type="button"
-          variant="quiet"
-          size="lg"
-          className="max-md:w-full max-md:justify-start"
-          onClick={() => {
-            setSwitchMode(true);
-            setMore(false);
-          }}
-        >
-          {modeLabel(liveMode)}
-        </Button>
-      ) : null}
-      {openClass && !reading ? (
         <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { setJotOpen(true); setMore(false); }}>
           <PenLine className="size-3.5" />
-          记
+          记要点
         </Button>
       ) : null}
       {reading ? (
@@ -149,7 +133,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
   );
 
   return (
-    <header className="mission-bar flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-line px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-4 md:px-6 md:py-3">
+    <header className="mission-bar flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-3 py-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-5 md:px-6 md:py-3">
       <button
         type="button"
         onClick={goHome}
@@ -160,27 +144,16 @@ export function MissionBar({ onArm, onSafe }: Props) {
         <h1 className="text-base font-medium tracking-[0.22em] text-fg md:text-lg">
           ALONG
         </h1>
-        <p className="hidden text-xs text-muted sm:block">跟课</p>
+        <p className="hidden text-sm text-muted sm:block">跟课</p>
       </button>
-      <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+      <div className="flex min-w-0 items-center gap-2.5 text-sm">
         <span className="go-dot" data-live={live} data-hold={mic === "denied"} />
-        {live ? <span className="text-fg">听课中</span> : null}
-        {arming ? <span className="text-fg">正在开麦…</span> : null}
-        {paused ? <span>已暂停</span> : null}
-        {atHome ? <span className="hidden sm:inline">首页</span> : null}
+        {live ? <span className="font-medium text-fg">听课中</span> : null}
+        {arming ? <span className="font-medium text-fg">正在开麦…</span> : null}
+        {paused ? <span className="text-muted">已暂停</span> : null}
+        {atHome ? <span className="hidden text-muted sm:inline">首页</span> : null}
         {openClass && !reading ? (
-          <button
-            type="button"
-            className="hidden text-xs text-muted hover:text-fg sm:inline"
-            onClick={() => setSwitchMode((v) => !v)}
-          >
-            {modeLabel(liveMode)}
-          </button>
-        ) : null}
-        {lastLatency != null ? (
-          <span className="hidden font-mono tabular-nums text-dim sm:inline">
-            {lastLatency} 毫秒
-          </span>
+          <span className="text-muted">这堂是{modeLabel(liveMode)}</span>
         ) : null}
       </div>
 
@@ -190,12 +163,12 @@ export function MissionBar({ onArm, onSafe }: Props) {
         ) : (
           <>
             <SignedIn>
-              <span className="hidden sm:inline">
+              <span className="hidden opacity-70 sm:inline">
                 <UserButton />
               </span>
             </SignedIn>
             <SignedOut>
-              <a href="/login" className="text-xs text-muted hover:text-fg">
+              <a href="/login" className="hidden text-sm text-dim hover:text-muted sm:inline">
                 登录
               </a>
             </SignedOut>
@@ -207,7 +180,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
             variant="quiet"
             size="icon"
             aria-label={theme === "night" ? "白天" : "夜间"}
-            className="size-9 min-h-9 min-w-9"
+            className="size-9 min-h-9 min-w-9 text-dim hover:text-fg"
             onClick={toggleTheme}
           >
             {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -215,7 +188,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
           {openClass && !reading ? (
             <Button type="button" variant="quiet" size="lg" onClick={() => setJotOpen(true)}>
               <PenLine className="size-3.5" />
-              记
+              记要点
             </Button>
           ) : null}
           {reading ? (
@@ -256,19 +229,14 @@ export function MissionBar({ onArm, onSafe }: Props) {
           </div>
         ) : null}
       </div>
-      {pick || switchMode ? (
+      {pick ? (
         <ModeSheet
-          title={pick ? "这堂怎么听" : "换成哪种课"}
           onPick={(mode) => {
             setClassMode(mode);
             setPick(false);
-            setSwitchMode(false);
-            if (pick) onArm(mode);
+            onArm(mode);
           }}
-          onClose={() => {
-            setPick(false);
-            setSwitchMode(false);
-          }}
+          onClose={() => setPick(false)}
         />
       ) : null}
     </header>
@@ -276,19 +244,19 @@ export function MissionBar({ onArm, onSafe }: Props) {
 }
 
 function ModeSheet({
-  title,
   onPick,
   onClose,
 }: {
-  title: string;
   onPick: (mode: ClassMode) => void;
   onClose: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/30 p-3 sm:items-center">
       <div className="w-full max-w-md border border-line bg-elevated p-4 shadow-lg">
-        <p className="text-base font-medium tracking-tight">{title}</p>
-        <p className="mt-1 text-sm text-muted">教练按这个跟。点错了顶栏还能改。</p>
+        <p className="text-lg font-medium tracking-tight">这堂怎么听</p>
+        <p className="mt-1 text-sm text-muted">
+          先选一种。上课不能改。想换课型，先结课再开一堂。
+        </p>
         <ul className="mt-4 flex flex-col gap-2">
           {CLASS_MODES.map((m) => (
             <li key={m.id}>
@@ -297,7 +265,7 @@ function ModeSheet({
                 className="flex w-full flex-col items-start border border-line bg-surface px-3 py-3 text-left hover:bg-elevated"
                 onClick={() => onPick(m.id)}
               >
-                <span className="text-sm font-medium text-fg">{m.label}</span>
+                <span className="text-base font-medium text-fg">{m.label}</span>
                 <span className="mt-0.5 text-sm text-muted">{m.hint}</span>
               </button>
             </li>

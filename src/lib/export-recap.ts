@@ -51,7 +51,7 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
     lines.push("");
   }
   if ((recap?.takeaways ?? []).length) {
-    lines.push("## Takeaways · 要点");
+    lines.push("## 要点");
     lines.push("");
     recap!.takeaways.forEach((t, i) => {
       lines.push(`${i + 1}. ${mdStars(t.en)}`);
@@ -82,13 +82,13 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
       (recap?.lines.length ?? 0) >
     0;
   if (hasStudy) {
-    lines.push("## Language · 语言点");
+    lines.push("## 语言点");
     lines.push("");
-    lines.push(...dumpStudyMd("Words · 单词", recap?.words ?? []));
-    lines.push(...dumpStudyMd("Collocations · 搭配", recap?.collos ?? []));
-    lines.push(...dumpStudyMd("Patterns · 句式", recap?.patterns ?? []));
-    lines.push(...dumpStudyMd("Grammar · 语法", recap?.grammar ?? []));
-    lines.push(...dumpStudyMd("Key sentences · 好例句", recap?.lines ?? []));
+    lines.push(...dumpStudyMd("单词", recap?.words ?? []));
+    lines.push(...dumpStudyMd("搭配", recap?.collos ?? []));
+    lines.push(...dumpStudyMd("句式", recap?.patterns ?? []));
+    lines.push(...dumpStudyMd("语法", recap?.grammar ?? []));
+    lines.push(...dumpStudyMd("好例句", recap?.lines ?? []));
   }
   const appendix = recapAppendixCopy(isStudyAppendix(session.classMode, recap?.coachPack ?? []));
   if ((recap?.skills ?? []).length) {
@@ -122,7 +122,7 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
     }
   }
   if (session.notes.length) {
-    lines.push("## Notes");
+    lines.push("## 课堂随手记");
     lines.push("");
     for (const n of session.notes) {
       lines.push(`- ${n.en}${n.zh ? ` — ${n.zh}` : ""}`);
@@ -130,7 +130,7 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
     lines.push("");
   }
   if (opts?.tape && session.transcript.length) {
-    lines.push("## Appendix · Transcript");
+    lines.push("## 课堂实录");
     lines.push("");
     for (const t of session.transcript) {
       lines.push(`- ${t.en}${t.zh ? ` — ${t.zh}` : ""}`);
@@ -211,16 +211,16 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
     )
     .join("");
   const notes = session.notes.length
-    ? `<h2>Notes</h2><ul>${session.notes.map((n) => `<li>${esc(n.en)}${n.zh ? ` — ${esc(n.zh)}` : ""}</li>`).join("")}</ul>`
+    ? `<h2>课堂随手记</h2><ul>${session.notes.map((n) => `<li>${esc(n.en)}${n.zh ? ` — ${esc(n.zh)}` : ""}</li>`).join("")}</ul>`
     : "";
   const tape =
     opts?.tape && session.transcript.length
-      ? `<h2>Appendix · Transcript</h2><ol>${session.transcript.map((t) => `<li><p>${esc(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
+      ? `<h2>课堂实录</h2><ol>${session.transcript.map((t) => `<li><p>${esc(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
       : "";
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${esc(session.title)}</title>
 <style>
   @page { margin: 16mm; }
-  body{font:16px/1.6 "IBM Plex Sans",Georgia,serif;color:#1c1b17;max-width:40rem;margin:0 auto;padding:1.5rem}
+  body{font:16px/1.6 "IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:#1c1b17;max-width:42rem;margin:0 auto;padding:1.5rem}
   h1{font-size:1.8rem;font-weight:500;letter-spacing:-.02em;margin:0 0 .25rem}
   h2{font-size:1.2rem;font-weight:500;margin:1.6rem 0 .4rem}
   h3{font-size:1rem;font-weight:500;margin:1.2rem 0 .4rem}
@@ -229,7 +229,7 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   li{margin:.25rem 0}
   .zh{color:#5c5850;font-size:.92rem}
   .meta{color:#8a857a;font-size:.75rem;letter-spacing:.12em;text-transform:uppercase}
-  .part{color:#8a857a;font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;margin:2rem 0 .2rem}
+  .part{color:#8a857a;font-size:.85rem;margin:2rem 0 .2rem}
   .cards{display:block}
   .card{break-inside:avoid;border-top:1px solid #d8d0c3;padding:.7rem 0}
   table.contrast{width:100%;border-collapse:collapse;margin:0.8rem 0 1rem;font-size:0.92rem}
@@ -241,18 +241,18 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
 </style></head><body>
 <p class="meta">${esc(formatDayTime(session.startedAt))}</p>
 <h1>${esc(session.title)}</h1>
-${recap?.lede || recap?.sections.length ? `<p class="part">PART 1 · 本堂内容</p>` : ""}
+${recap?.lede || recap?.sections.length ? `<p class="part">本堂内容</p>` : ""}
 ${recap?.lede ? `<p>${stars(recap.lede)}</p>` : ""}
 ${recap?.ledeZh ? `<p class="zh">${esc(recap.ledeZh)}</p>` : ""}
 ${
   (recap?.takeaways ?? []).length
-    ? `<h2>Takeaways · 要点</h2><ol>${recap!.takeaways.map((t) => `<li><p>${stars(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
+    ? `<h2>要点</h2><ol>${recap!.takeaways.map((t) => `<li><p>${stars(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
     : ""
 }
 ${sections}
 ${
   (recap?.words.length || recap?.collos.length || recap?.patterns.length || recap?.grammar.length || recap?.lines.length)
-    ? `<p class="part">PART 2 · 语言点</p><h2>Language · 语言点</h2>${studyCards("Words · 单词", recap?.words ?? [])}${studyCards("Collocations · 搭配", recap?.collos ?? [])}${studyCards("Patterns · 句式", recap?.patterns ?? [])}${studyCards("Grammar · 语法", recap?.grammar ?? [])}${studyCards("Key sentences · 好例句", recap?.lines ?? [])}`
+    ? `<p class="part">语言点</p><h2>语言点</h2>${studyCards("单词", recap?.words ?? [])}${studyCards("搭配", recap?.collos ?? [])}${studyCards("句式", recap?.patterns ?? [])}${studyCards("语法", recap?.grammar ?? [])}${studyCards("好例句", recap?.lines ?? [])}`
     : ""
 }
 ${

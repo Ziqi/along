@@ -70,33 +70,6 @@ export type TopicEssay = {
   draft?: boolean;
 };
 
-export type AskTurn = {
-  id: string;
-  q: string;
-  zh: string;
-  en: string;
-  latencyMs: number;
-};
-
-export type AskThread = {
-  id: string;
-  title: string;
-  turns: AskTurn[];
-};
-
-export type TxTurn = {
-  id: string;
-  src: string;
-  out: string;
-  dir: "zh-en" | "en-zh";
-};
-
-export type TxPad = {
-  id: string;
-  title: string;
-  turns: TxTurn[];
-};
-
 export type RecapPair = {
   en: string;
   zh: string;

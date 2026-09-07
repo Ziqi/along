@@ -3,7 +3,7 @@ import { Check, Copy, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
 import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
-import { requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
+import { requestCoach, requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { essayOf } from "@/lib/recap-kit";
 import {
@@ -12,6 +12,7 @@ import {
   parseClassMode,
   topicBeatLabel,
 } from "@/lib/class-mode";
+import { coachEmptyCopy, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
 
 function cardHasDeep(
   id: string | null,
@@ -76,36 +77,26 @@ export function UplinkPanel() {
     setActiveId(latest.id);
   }, [latest?.id, stayOnCard, followLatest]);
 
-  const headerStatus = !autoCoach
-    ? "已暂停"
-    : pending
-      ? latest
-        ? "写…"
-        : "跟听中"
-      : error
-        ? "这轮慢了，正在重写"
-        : latest
-          ? `${latest.latencyMs} 毫秒`
-          : captions.length
-            ? "跟听中"
-            : "待命";
-
-  const empty = coaches.length === 0 && !error;
+  const phase = coachUiPhase({
+    autoCoach,
+    pending,
+    error,
+    hasCard: Boolean(latest),
+    hasCaptions: captions.length > 0,
+  });
+  const headerStatus = coachHeaderLabel(phase);
+  const canRewrite = Boolean(error && !pending && (latest || captions.length));
 
   return (
-    <section className="hud-corners flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
-      <span className="hud-corners-bl" />
-      <span className="hud-corners-br" />
-      <header className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-xs font-medium">教练</h2>
-        </div>
+    <section className="flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
+      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+        <h2 className="text-sm font-medium">教练</h2>
         <div className="flex items-center gap-1">
           <Button
             type="button"
             variant="quiet"
             size="sm"
-            className="h-7 min-h-7 px-2"
+            className="h-8 min-h-8 px-2"
             onClick={() => setJotOpen(true)}
           >
             记要点
@@ -114,7 +105,7 @@ export function UplinkPanel() {
             type="button"
             variant="quiet"
             size="sm"
-            className="h-7 min-h-7 px-2"
+            className="h-8 min-h-8 px-2"
             onClick={() => setCoachLive(!autoCoach)}
           >
             {autoCoach ? <Pause className="size-3" /> : <Play className="size-3" />}
@@ -125,7 +116,7 @@ export function UplinkPanel() {
               type="button"
               variant="quiet"
               size="sm"
-              className="h-7 min-h-7 px-2"
+              className="h-8 min-h-8 px-2"
               onClick={() => {
                 if (latest) {
                   setFollowLatest(false);
@@ -138,13 +129,11 @@ export function UplinkPanel() {
               {essayPending ? "检索中" : "DeepSearch"}
             </Button>
           ) : null}
-          <p className="pl-1 text-[10px] tabular-nums text-dim">
-            {headerStatus}
-          </p>
+          <p className="pl-1 text-xs text-dim">{headerStatus}</p>
         </div>
       </header>
       {coaches.length ? (
-        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 py-1">
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
           {coaches.map((card, i) => {
             const deep = Boolean(essayOf(card, essays));
             const on = card.id === (activeId ?? latest?.id);
@@ -153,7 +142,7 @@ export function UplinkPanel() {
                 key={card.id}
                 type="button"
                 className={
-                  "flex shrink-0 items-center gap-1 px-2 py-1 text-xs " +
+                  "flex shrink-0 items-center gap-1 px-2 py-1 text-sm " +
                   (on ? "text-fg" : "text-muted hover:text-fg")
                 }
                 onClick={() => {
@@ -168,41 +157,42 @@ export function UplinkPanel() {
                 <span className="max-w-[9rem] truncate">
                   {topicBeatLabel(card.topic || `主题 ${i + 1}`, coaches, card.id)}
                 </span>
-                {deep ? <span className="text-[10px] text-dim">深</span> : null}
+                {deep ? <span className="text-xs text-dim">深</span> : null}
               </button>
             );
           })}
         </div>
       ) : null}
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 md:px-4">
-        {empty ? (
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
+        {!latest && phase === "failed" ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
-            <p className="text-[10px] tracking-[0.18em] text-dim">
-              {pending ? "跟听中" : captions.length ? "跟听中" : "待命"}
-            </p>
-            <p className="max-w-sm text-sm leading-relaxed text-muted text-pretty">
-              {!liveId
-                ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。"
-                : mode === "listen"
-                  ? "只听。落下值得留的一句，就写这句、剖析、这一拍的背景。点上方主题可跳回。"
-                  : mode === "audit"
-                    ? "旁听。你若要接，给同意、对比、例子。问句则直接答、补一层、举个例。"
-                    : "互动。讨论给同意、对比、例子。问句给直接答、补一层、举个例。"}
-            </p>
+            <p className="max-w-sm text-base leading-relaxed text-abort text-pretty">{error}</p>
+            {canRewrite ? (
+              <Button type="button" variant="ghost" size="lg" className="self-start" onClick={() => void requestCoach()}>
+                重写
+              </Button>
+            ) : null}
           </div>
-        ) : error && !latest ? (
-          <p className="text-sm text-abort">{error}</p>
+        ) : !latest ? (
+          <div className="flex h-full min-h-24 flex-col gap-3">
+            <p className="max-w-sm text-base leading-relaxed text-muted text-pretty">
+              {!liveId && phase === "idle"
+                ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。上课不能改课型。"
+                : coachEmptyCopy(phase, mode)}
+            </p>
+            {error ? <p className="max-w-sm text-sm text-muted text-pretty">{error}</p> : null}
+          </div>
         ) : (
-          <ol className="flex flex-col gap-4">
+          <ol className="flex flex-col gap-5">
             {coaches.map((card) => {
               const essay = essayOf(card, essays);
               const deepPending = Boolean(essay?.draft) || (essayPending && essayTarget === card.id);
               const deepErr = essayError && (essayTarget === card.id || !essayTarget);
               const ready = Boolean(essay && !essay.draft);
               return (
-                <li id={`coach-${card.id}`} key={card.id} className="border border-line">
-                  <div className="px-3 py-4 md:px-4">
+                <li id={`coach-${card.id}`} key={card.id} className="border border-line bg-elevated/40">
+                  <div className="px-4 py-5 md:px-5">
                     <CoachBlock
                       card={card}
                       classMode={mode}
@@ -222,7 +212,7 @@ export function UplinkPanel() {
                     />
                   </div>
                   {ready || deepPending || deepErr || essay?.draft ? (
-                    <div className="border-t border-line bg-elevated px-3 py-4 md:px-4">
+                    <div className="border-t border-line bg-elevated px-4 py-5 md:px-5">
                       {deepPending || essay?.draft ? (
                         <p className="text-sm text-muted">
                           {isSpeakMode(card.mode ?? mode)
@@ -245,7 +235,17 @@ export function UplinkPanel() {
               );
             })}
             {pending ? (
-              <li className="text-[10px] tracking-[0.18em] text-dim">写…</li>
+              <li className="text-xs text-dim">{phase === "retrying" ? "正在重写…" : "写…"}</li>
+            ) : null}
+            {phase === "failed" && error ? (
+              <li className="flex flex-col items-start gap-2">
+                <p className="text-sm text-abort">{error}</p>
+                {canRewrite ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void requestCoach()}>
+                    重写
+                  </Button>
+                ) : null}
+              </li>
             ) : null}
           </ol>
         )}
@@ -272,20 +272,20 @@ function CoachBlock({
   const study = isStudyCard(card);
   const audit = (card.mode ?? classMode) === "audit";
   const kicker = study
-    ? "这一拍 · 这句 + 剖析 + 背景"
+    ? "这一拍"
     : audit
       ? card.move === "answer"
         ? "若要开口 · 直接答 / 补一层 / 举个例"
         : "若要开口 · 同意 / 对比 / 例子"
       : card.move === "answer"
-        ? "主题 · 直接答 / 补一层 / 举个例"
-        : "主题 · 同意 / 对比 / 例子";
+        ? "直接答 / 补一层 / 举个例"
+        : "同意 / 对比 / 例子";
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[10px] text-dim">{kicker}</p>
-          <p className="mt-1 text-base font-medium tracking-tight text-fg">
+          <p className="text-sm text-muted">{kicker}</p>
+          <p className="mt-1 text-lg font-medium tracking-tight text-fg">
             {card.topic || "—"}
           </p>
           {card.topicZh ? (
@@ -296,7 +296,7 @@ function CoachBlock({
           type="button"
           variant="quiet"
           size="sm"
-          className="h-7 min-h-7 px-2"
+          className="h-8 min-h-8 px-2"
           onClick={onDeep}
           disabled={busy}
         >
@@ -305,7 +305,7 @@ function CoachBlock({
       </div>
       {card.briefZh || card.briefEn ? (
         <div>
-          <p className="text-[10px] text-dim">概括</p>
+          <p className="text-xs text-dim">概括</p>
           {card.briefEn ? (
             <p className="mt-1 text-sm leading-relaxed text-fg text-pretty">{card.briefEn}</p>
           ) : null}
@@ -314,16 +314,29 @@ function CoachBlock({
           ) : null}
         </div>
       ) : null}
-      <ol className="flex flex-col gap-3">
-        {card.options.map((opt, i) => (
-          <li key={`${card.id}-o-${i}`}>
-            <OptionRow n={i + 1} option={opt} onJot={() => onJot(opt.en)} />
-          </li>
-        ))}
-      </ol>
+      {study ? (
+        <div className="flex flex-col gap-5">
+          {card.options.map((opt, i) => (
+            <ListenBeat
+              key={`${card.id}-o-${i}`}
+              option={opt}
+              index={i}
+              onJot={() => onJot(opt.en)}
+            />
+          ))}
+        </div>
+      ) : (
+        <ol className="flex flex-col gap-3">
+          {card.options.map((opt, i) => (
+            <li key={`${card.id}-o-${i}`}>
+              <OptionRow n={i + 1} option={opt} onJot={() => onJot(opt.en)} />
+            </li>
+          ))}
+        </ol>
+      )}
       {card.extras?.length && !study ? (
-        <div className="flex flex-col gap-3 border-t border-line pt-3">
-          <p className="text-[10px] text-dim">扩展 · 把话题推远一点</p>
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <p className="text-sm text-muted">扩展 · 把话题推远一点</p>
           {card.extras.map((opt, i) => (
             <OptionRow
               key={`${card.id}-x-${i}`}
@@ -333,6 +346,61 @@ function CoachBlock({
             />
           ))}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function listenKind(label: string, index: number): "quote" | "note" | "aside" {
+  if (/背景/.test(label)) return "aside";
+  if (/这句/.test(label) || index === 0) return "quote";
+  return "note";
+}
+
+function ListenBeat({
+  option,
+  index,
+  onJot,
+}: {
+  option: CoachOption;
+  index: number;
+  onJot: () => void;
+}) {
+  const kind = listenKind(option.label, index);
+  return (
+    <div
+      className={
+        kind === "quote"
+          ? "border-l-2 border-fg/25 pl-4"
+          : kind === "aside"
+            ? "pl-1"
+            : "border-l border-line pl-4"
+      }
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted">{option.label}</p>
+        <LineActions text={option.en} onJot={onJot} />
+      </div>
+      <p
+        className={
+          kind === "quote"
+            ? "mt-1.5 text-pretty text-xl font-medium leading-snug tracking-tight text-fg"
+            : kind === "aside"
+              ? "mt-1 text-pretty text-sm leading-relaxed text-muted"
+              : "mt-1.5 text-pretty text-base leading-relaxed text-fg"
+        }
+      >
+        <MarkedEn text={option.en} keys={option.keys} />
+      </p>
+      {option.zh ? (
+        <p
+          className={
+            "mt-1 text-pretty " +
+            (kind === "aside" ? "text-sm text-dim" : "text-sm leading-relaxed text-muted")
+          }
+        >
+          {option.zh}
+        </p>
       ) : null}
     </div>
   );
@@ -349,17 +417,17 @@ function EssayBlock({
 }) {
   return (
     <article className="flex flex-col gap-4">
-      <p className="text-[10px] text-dim">
+      <p className="text-sm text-muted">
         {listen
-          ? `DeepSearch · 背景和资料 · ${essay.latencyMs} 毫秒`
-          : `DeepSearch · 事实 + 四十秒发言 · ${essay.latencyMs} 毫秒`}
+          ? `DeepSearch · 背景和资料`
+          : `DeepSearch · 事实 + 四十秒发言`}
       </p>
       {essay.title ? (
-        <h3 className="text-base font-medium tracking-tight">{essay.title}</h3>
+        <h3 className="text-lg font-medium tracking-tight">{essay.title}</h3>
       ) : null}
       {essay.contextEn ? (
         <div>
-          <p className="text-[10px] text-dim">背景</p>
+          <p className="text-sm text-muted">背景</p>
           <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-fg text-pretty">
             {essay.contextEn}
           </p>
@@ -437,7 +505,7 @@ function PairStack({
 }) {
   return (
     <div>
-      <p className="text-[10px] text-dim">{kicker}</p>
+      <p className="text-sm text-muted">{kicker}</p>
       <ol className="mt-1 list-decimal space-y-2 pl-5">
         {items.map((it) => (
           <li key={it.en} className="pl-1">
@@ -446,6 +514,41 @@ function PairStack({
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+function LineActions({ text, onJot }: { text: string; onJot?: () => void }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const id = window.setTimeout(() => setCopied(false), 1400);
+    return () => window.clearTimeout(id);
+  }, [copied]);
+  return (
+    <div className="flex items-center">
+      {onJot ? (
+        <Button type="button" variant="quiet" size="sm" className="h-8 min-h-8 px-2" onClick={onJot}>
+          记
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="quiet"
+        size="sm"
+        className="h-8 min-h-8 px-2"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+          } catch {
+            /* ignore */
+          }
+        }}
+      >
+        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {copied ? "已复制" : "复制"}
+      </Button>
     </div>
   );
 }
@@ -459,47 +562,13 @@ function OptionRow({
   option: CoachOption;
   onJot: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const id = window.setTimeout(() => setCopied(false), 1400);
-    return () => window.clearTimeout(id);
-  }, [copied]);
-
   return (
     <div className="flex gap-3">
-      <span className="mt-0.5 w-4 shrink-0 font-mono text-xs text-dim">{n}</span>
+      <span className="mt-1 w-4 shrink-0 font-mono text-sm text-dim">{n}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] text-dim">{option.label}</p>
-          <div className="flex items-center">
-            <Button
-              type="button"
-              variant="quiet"
-              size="sm"
-              className="h-7 min-h-7 px-2"
-              onClick={onJot}
-            >
-              记
-            </Button>
-            <Button
-              type="button"
-              variant="quiet"
-              size="sm"
-              className="h-7 min-h-7 px-2"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(option.en);
-                  setCopied(true);
-                } catch {
-                  /* ignore */
-                }
-              }}
-            >
-              {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-              {copied ? "已复制" : "复制"}
-            </Button>
-          </div>
+          <p className="text-sm text-muted">{option.label}</p>
+          <LineActions text={option.en} onJot={onJot} />
         </div>
         <p className="text-pretty text-base font-medium leading-snug tracking-tight text-fg">
           <MarkedEn text={option.en} keys={option.keys} />
@@ -521,47 +590,12 @@ function LineBlock({
   text: string;
   onJot?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const id = window.setTimeout(() => setCopied(false), 1400);
-    return () => window.clearTimeout(id);
-  }, [copied]);
   if (!text) return null;
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] text-dim">{kicker}</p>
-        <div className="flex items-center">
-          {onJot ? (
-            <Button
-              type="button"
-              variant="quiet"
-              size="sm"
-              className="h-7 min-h-7 px-2"
-              onClick={onJot}
-            >
-              记
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="quiet"
-            size="sm"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(text);
-                setCopied(true);
-              } catch {
-                /* ignore */
-              }
-            }}
-            className="h-7 min-h-7 px-2"
-          >
-            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-            {copied ? "已复制" : "复制"}
-          </Button>
-        </div>
+        <p className="text-sm text-muted">{kicker}</p>
+        <LineActions text={text} onJot={onJot} />
       </div>
       <p className="mt-1.5 text-pretty text-base font-medium leading-snug tracking-tight text-fg">
         {text}
