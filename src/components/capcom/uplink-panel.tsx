@@ -93,7 +93,9 @@ export function UplinkPanel() {
   const empty = coaches.length === 0 && !error;
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
+    <section className="hud-corners flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
+      <span className="hud-corners-bl" />
+      <span className="hud-corners-br" />
       <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
         <h2 className="text-sm font-medium">教练</h2>
         <div className="flex items-center gap-1">
