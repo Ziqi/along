@@ -21,6 +21,7 @@ import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
 import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
 import { newerSession, sortSessions, toggleStar } from "@/lib/session-order";
+import { COACH_KEEP } from "@/lib/live-queue";
 import { canAutoTitle, stampTitle, topicKey } from "@/lib/utils";
 import type { RecapStage } from "@/lib/recap-stage";
 
@@ -596,10 +597,10 @@ export const useCapcom = create<AppState>((set, get) => {
     setIntent: (text) => set({ intent: text }),
     setCoach: (card) => {
       if (!card) {
-        set({ coach: null, coaches: [], coachError: null, coachPending: false });
+        set({ coach: null, coachError: null, coachPending: false });
         return;
       }
-      const coaches = [...get().coaches, card].slice(-20);
+      const coaches = [...get().coaches, card].slice(-COACH_KEEP);
       set({
         coaches,
         coach: card,

@@ -87,9 +87,7 @@ async function chatFlash(params: {
   ];
   const temperature = params.temperature ?? 0.15;
   const ac = new AbortController();
-  const timer = params.timeoutMs
-    ? setTimeout(() => ac.abort(), params.timeoutMs)
-    : null;
+  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 20000);
   try {
     let res: Response | null = null;
     for (const model of FLASH_MODELS) {
@@ -367,6 +365,8 @@ export const liveTranslate = createServerFn({ method: "POST" })
       user: line.en,
       maxTokens: 80,
       temperature: 0,
+      timeoutMs: 8000,
+      json: true,
     });
     if (!result.ok) return result;
     const parsed = extractJsonObject(result.text);
@@ -1183,7 +1183,7 @@ export const recapClass = createServerFn({ method: "POST" })
     if (!isStudyFilled(recap)) {
       const again = await chat46recap({
         system:
-          "Language points only. YOU are the teacher. Pick at least 4 real study items from THIS class — not think/like/good/people. Each row needs en, zh, use, useZh, example, exampleZh. Return ONLY JSON {marks,words,collos,patterns,grammar,lines,skills}.",
+          "Language points only. YOU are the teacher. Must include at least 3 words and 2 collocations from THIS class, plus patterns. Patterns-only is not enough. Not think/like/good/people. Each row needs en, zh, use, useZh, example, exampleZh. Return ONLY JSON {marks,words,collos,patterns,grammar,lines,skills}.",
         user: studyUser,
         maxTokens: 2800,
         timeoutMs: 24000,

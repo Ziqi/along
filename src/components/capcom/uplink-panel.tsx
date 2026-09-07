@@ -34,24 +34,34 @@ export function UplinkPanel() {
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const latest = coaches.at(-1) ?? null;
   const scroller = useRef<HTMLDivElement>(null);
-  const followLatest = useRef(true);
+  const [followLatest, setFollowLatest] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const stayOnCard =
     Boolean(activeId && activeId !== latest?.id) &&
-    (!followLatest.current ||
-      cardHasDeep(activeId, coaches, essays, essayPending, essayTarget));
+    (!followLatest || cardHasDeep(activeId, coaches, essays, essayPending, essayTarget));
 
   useEffect(() => {
     const el = scroller.current;
-    if (!el || stayOnCard) return;
+    if (!el) return;
+    const onScroll = () => {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+      setFollowLatest(nearBottom);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || stayOnCard || !followLatest) return;
     el.scrollTop = el.scrollHeight;
-  }, [coaches.length, stayOnCard]);
+  }, [coaches.length, stayOnCard, followLatest]);
 
   useEffect(() => {
     if (!latest) return;
-    if (stayOnCard) return;
+    if (stayOnCard || !followLatest) return;
     setActiveId(latest.id);
-  }, [latest?.id, stayOnCard]);
+  }, [latest?.id, stayOnCard, followLatest]);
 
   const headerStatus = pending
     ? "写…"
@@ -97,7 +107,7 @@ export function UplinkPanel() {
               className="h-7 min-h-7 px-2"
               onClick={() => {
                 if (latest) {
-                  followLatest.current = false;
+                  setFollowLatest(false);
                   setActiveId(latest.id);
                 }
                 void requestEssay(latest?.id);
@@ -126,7 +136,7 @@ export function UplinkPanel() {
                   (on ? "text-fg" : "text-muted hover:text-fg")
                 }
                 onClick={() => {
-                  followLatest.current = card.id === latest?.id;
+                  setFollowLatest(card.id === latest?.id);
                   setActiveId(card.id);
                   document.getElementById(`coach-${card.id}`)?.scrollIntoView({
                     block: "start",
@@ -169,7 +179,7 @@ export function UplinkPanel() {
                       deepPending={deepPending}
                       busy={deepPending}
                       onDeep={() => {
-                        followLatest.current = false;
+                        setFollowLatest(false);
                         setActiveId(card.id);
                         void requestEssay(card.id);
                       }}

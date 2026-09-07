@@ -64,7 +64,13 @@ export class SttController {
   private ws: WebSocket | null = null;
   private proc: ScriptProcessorNode | null = null;
   private ready = false;
+  private connecting = false;
   private mint: () => Promise<string>;
+  private onVis = () => {
+    if (typeof document === "undefined" || document.hidden || !this.wanted) return;
+    if (this.ws?.readyState === WebSocket.OPEN && this.ready) return;
+    void this.connect().catch(() => this.handlers.onError("stt"));
+  };
 
   constructor(handlers: SpeechHandlers, mint: () => Promise<string>) {
     this.handlers = handlers;
@@ -73,6 +79,10 @@ export class SttController {
 
   async start(stream?: MediaStream) {
     this.wanted = true;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.onVis);
+      document.addEventListener("visibilitychange", this.onVis);
+    }
     try {
       this.stream =
         stream ??
@@ -109,6 +119,9 @@ export class SttController {
   }
 
   private async connect() {
+    if (this.connecting) return;
+    this.connecting = true;
+    try {
     const token = await Promise.race([
       this.mint(),
       sleep(8000).then(() => {
@@ -183,6 +196,9 @@ export class SttController {
     window.setTimeout(() => {
       if (this.wanted && !this.ready) this.handlers.onError("stt");
     }, 6000);
+    } finally {
+      this.connecting = false;
+    }
   }
 
   private async armMic() {
@@ -213,6 +229,10 @@ export class SttController {
 
   private tearDown() {
     this.ready = false;
+    this.connecting = false;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.onVis);
+    }
     try {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: "audio.done" }));

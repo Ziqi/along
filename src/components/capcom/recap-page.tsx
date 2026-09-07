@@ -592,7 +592,7 @@ export function RecapPage() {
                     </section>
                   ) : null}
 
-                  <NotesEditor session={session} />
+                  {session.notes.length ? <NotesEditor session={session} /> : null}
 
                   <LiveTape
                     lines={
@@ -1059,7 +1059,9 @@ function NotesEditor({ session }: { session: ClassSession }) {
 
   return (
     <details className="recap-notes border-t border-line pt-8">
-      <summary className="cursor-pointer text-xl font-medium tracking-tight">Notes · 要点</summary>
+      <summary className="cursor-pointer text-xl font-medium tracking-tight">
+        课堂随手记
+      </summary>
       <div className="mt-4 flex flex-col gap-4">
       {session.notes.length ? (
         <ul className="flex flex-col gap-5">

@@ -15,6 +15,17 @@ import {
 import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
 import { shouldAskCoach, shouldKeepCoachCard } from "@/lib/coach-kit";
+import {
+  COACH_TIMEOUT_MS,
+  TRANS_CAP,
+  TRANS_KEEP,
+  TRANS_TIMEOUT_MS,
+  TRANS_TRIES,
+  hasZh,
+  mergeTranslateQueue,
+  needsTranslate,
+  withDeadline,
+} from "@/lib/live-queue";
 
 let coachGen = 0;
 let askGen = 0;
@@ -52,6 +63,7 @@ export function abortLive() {
   transBatch.length = 0;
   transTries.clear();
   transBusy = 0;
+  coachInflight = false;
   recapGen += 1;
   const s = useCapcom.getState();
   s.setCoachPending(false);
@@ -93,19 +105,35 @@ export function ingest(en: string, src: "mic" | "hand" = "mic") {
 }
 
 let transBusy = 0;
+let coachInflight = false;
 const transTries = new Map<string, number>();
 
-function hasZh(s: string) {
-  return /[\u4e00-\u9fff]/.test(s);
+function trimTranslateQueue() {
+  const s = useCapcom.getState();
+  const pending = s.captions
+    .filter((c) => needsTranslate(c) && (transTries.get(c.id) ?? 0) < TRANS_TRIES)
+    .map((c) => ({ id: c.id, en: c.en }));
+  const next = mergeTranslateQueue(
+    transBatch,
+    pending,
+    s.captions.map((c) => c.id),
+    TRANS_KEEP,
+  );
+  transBatch.length = 0;
+  transBatch.push(...next);
 }
 
 async function flushTranslate() {
-  if (transBusy >= 3) return;
-  const line = transBatch.shift();
+  if (transBusy >= TRANS_CAP) return;
+  trimTranslateQueue();
+  const line = transBatch.pop();
   if (!line) return;
   transBusy += 1;
   try {
-    const result = await liveTranslate({ data: { lines: [line] } });
+    const result = await withDeadline(
+      liveTranslate({ data: { lines: [line] } }),
+      TRANS_TIMEOUT_MS,
+    );
     const s = useCapcom.getState();
     const zh = result.ok ? (result.items[0]?.zh ?? "") : "";
     if (hasZh(zh)) {
@@ -114,11 +142,14 @@ async function flushTranslate() {
     } else {
       const n = (transTries.get(line.id) ?? 0) + 1;
       transTries.set(line.id, n);
-      if (n < 4) transBatch.push(line);
+      if (n < TRANS_TRIES) transBatch.push(line);
       else s.markError(line.id, "未译");
     }
   } catch {
-    transBatch.push(line);
+    const n = (transTries.get(line.id) ?? 0) + 1;
+    transTries.set(line.id, n);
+    if (n < TRANS_TRIES) transBatch.push(line);
+    else useCapcom.getState().markError(line.id, "未译");
   } finally {
     transBusy = Math.max(0, transBusy - 1);
   }
@@ -126,19 +157,9 @@ async function flushTranslate() {
 }
 
 export function retryPendingZh() {
-  const s = useCapcom.getState();
-  for (const c of s.captions) {
-    if (!c.en) continue;
-    if (!/[a-zA-Z\u4e00-\u9fff]{3,}/.test(c.en)) continue;
-    if (hasZh(c.zh) && !c.pending) continue;
-    if ((transTries.get(c.id) ?? 0) >= 4) continue;
-    if (!transBatch.some((b) => b.id === c.id)) transBatch.push({ id: c.id, en: c.en });
-  }
-  if (!transBatch.length || transBusy >= 3) {
-    if (transBatch.length && transBusy < 3) void flushTranslate();
-    return;
-  }
-  void flushTranslate();
+  trimTranslateQueue();
+  const slots = Math.max(0, TRANS_CAP - transBusy);
+  for (let i = 0; i < slots; i += 1) void flushTranslate();
 }
 
 async function flushCoach(source: "auto" | "intent", spoken?: string) {
@@ -156,19 +177,24 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
   ) {
     return;
   }
+  if (coachInflight && source === "auto") return;
   const gen = ++coachGen;
+  coachInflight = true;
   store.setCoachPending(true);
   try {
-    const result = await liveCoach({
-      data: {
-        last,
-        recent: store.captions.slice(-24).map((c) => c.en),
-        intent,
-        prevTopic: store.coach?.topic ?? "",
-        prevTopicZh: store.coach?.topicZh ?? "",
-        notes: store.jots.map((j) => j.en || j.zh).filter(Boolean),
-      },
-    });
+    const result = await withDeadline(
+      liveCoach({
+        data: {
+          last,
+          recent: store.captions.slice(-24).map((c) => c.en),
+          intent,
+          prevTopic: store.coach?.topic ?? "",
+          prevTopicZh: store.coach?.topicZh ?? "",
+          notes: store.jots.map((j) => j.en || j.zh).filter(Boolean),
+        },
+      }),
+      COACH_TIMEOUT_MS,
+    );
     if (gen !== coachGen) return;
     if (!useCapcom.getState().liveId) {
       useCapcom.getState().setCoachPending(false);
@@ -212,7 +238,9 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
       at: Date.now(),
     });
   } catch {
-    if (gen === coachGen) useCapcom.getState().setCoachError("教练暂时没写出来。");
+    if (gen === coachGen) useCapcom.getState().setCoachError("教练这轮没跟上，下句会再写。");
+  } finally {
+    if (gen === coachGen) coachInflight = false;
   }
 }
 

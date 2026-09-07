@@ -9,6 +9,7 @@ import {
   isEssayFilled,
   isFilled,
   isStudyFilled,
+  lexiconReady,
   mergeAiJson,
   packCoach,
   pickRicherJson,
@@ -243,7 +244,15 @@ describe("handout gate and document close", () => {
     };
     assert.equal(isEssayFilled(ready), true);
     assert.equal(isStudyFilled(ready), true);
+    assert.equal(lexiconReady(ready), true);
     assert.equal(isFilled(ready), true);
+
+    const patternsOnly = {
+      ...essayOnly(),
+      patterns: [studyRow("even though"), studyRow("wait times"), studyRow("in contrast"), studyRow("for example")],
+    };
+    assert.equal(isStudyFilled(patternsOnly), false);
+    assert.equal(lexiconReady(patternsOnly), false);
   });
 
   it("polishBody keeps a three-paragraph body plus numbered points", () => {
@@ -404,10 +413,20 @@ describe("DeepSearch keyed by coach card id", () => {
     assert.equal(essayOf(b, essays)?.title, "Second search");
   });
 
-  it("falls back to the old topic key when the card has no id entry yet", () => {
+  it("does not share DeepSearch across cards with the same topic", () => {
     const card = coachCard("coach-new", "Quarterly pressure");
     const essays = { "quarterly pressure": deepEssay("Legacy shared") };
-    assert.equal(essayOf(card, essays)?.title, "Legacy shared");
+    assert.equal(essayOf(card, essays), undefined);
+  });
+
+  it("keeps the newest coach cards when packing a long hour", () => {
+    const cards = Array.from({ length: 24 }, (_, i) =>
+      coachCard(`coach-${i}`, i < 4 ? "Early topic" : `Beat ${i}`),
+    );
+    const packed = packCoach(cards, {});
+    assert.equal(packed.length, 20);
+    assert.equal(packed[0]?.topic, "Beat 4");
+    assert.equal(packed.at(-1)?.topic, "Beat 23");
   });
 
   it("packs two same-topic cards with their own DeepSearch", () => {
