@@ -117,7 +117,7 @@ export class SttController {
     ]);
     if (!this.wanted) return;
     const qs =
-      "sample_rate=16000&encoding=pcm&interim_results=true&language=en&smart_turn=0.42&smart_turn_timeout=1400&endpointing=420";
+      "sample_rate=16000&encoding=pcm&interim_results=true&language=en&format=true&smart_turn=0.42&smart_turn_timeout=1400&endpointing=420";
     const ws = new WebSocket(`wss://api.x.ai/v1/stt?${qs}`, [
       `xai-client-secret.${token}`,
     ]);

@@ -36,7 +36,7 @@ Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, a
 
 - 听一段再出卡片。问句三条回复；讨论接话 / 追问 / 例子，外加两条延展。
 - 可单独暂停、恢复。点过的主题可从顶部游标跳回。
-- **DeepSearch** 挂在该主题下面：事实 + 一段能讲四十秒的话。快写和检索并行，大约十秒；可同时开两路。
+- **DeepSearch** 挂在该主题下面：先联网找名字 / 数字 / 年份，再用 grok-4.6 根据这些事实写一段能讲四十秒的话。搜不到就说没检索到，不编。可同时开两路。
 - **记 / N**：弹出要点框，写入当前纪要。
 
 ### 纪要
@@ -61,13 +61,13 @@ Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, a
 
 ## 模型
 
-| 能力 | 模型 |
+| 能力 | 型号 |
 |---|---|
-| 听写 | xAI STT Streaming |
-| 字幕翻译、课上提纲、纪要填空 | grok-4.20-non-reasoning（Flash） |
-| 教练、AI 对话 | grok-4.6 low；超时退 Flash |
-| DeepSearch | Flash 与联网检索并行 |
-| 纪要正文 | Flash 与 grok-4.6 并行，装配器收口 |
+| 听写 | xAI 流式听写（grok-stt）。英文字幕就是听写结果，不经过 4.6。 |
+| 字幕翻译、课上提纲、纪要补中文 | `grok-4.20-0309-non-reasoning`（代码里绰号 Flash = 最快聊天模型，不是另一家产品）；不行再试 `grok-4.20-non-reasoning`，再不行 `grok-4.3` |
+| 教练、AI 对话 | `grok-4.6`（low）；超时才退到最快聊天模型 |
+| DeepSearch | 检索：最快聊天模型 + `web_search`。四十秒发言：`grok-4.6` 只根据检索到的事实写，不再联网。没事实就失败。 |
+| 纪要正文 | 最快聊天模型与 `grok-4.6` 并行，装配器收口 |
 
 ---
 

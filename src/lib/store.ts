@@ -569,6 +569,10 @@ export const useCapcom = create<AppState>((set, get) => {
         if (key) essays[key] = essay;
         if (card?.id) essays[card.id] = essay;
         else if (coachId) essays[coachId] = essay;
+      } else {
+        if (key) delete essays[key];
+        if (card?.id) delete essays[card.id];
+        if (coachId) delete essays[coachId];
       }
       set({
         essay,

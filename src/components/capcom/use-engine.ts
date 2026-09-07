@@ -313,7 +313,9 @@ export async function requestEssay(coachId?: string) {
     });
     if (essayGens.get(id) !== gen) return;
     if (!result.ok) {
-      useCapcom.getState().setEssayError(result.error);
+      const live = useCapcom.getState();
+      live.setEssay(null, card?.id);
+      live.setEssayError(result.error === "empty" ? "没检索到，再点一次。" : result.error);
       return;
     }
     useCapcom.getState().setEssay(

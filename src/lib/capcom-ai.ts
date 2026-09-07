@@ -1,11 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
-import { assembleEssay, heuristicEssay } from "@/lib/essay-kit";
+import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { looksLikeSpacexPacket, spacexContentJson } from "@/lib/recap-spacex";
 import { extractJsonObject } from "@/lib/json-object";
 
-const FLASH = "grok-4.20-non-reasoning";
+/** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
+const FLASH = "grok-4.20-0309-non-reasoning";
+const FLASH_ALIAS = "grok-4.20-non-reasoning";
 const FLASH_FALLBACK = "grok-4.3";
+const FLASH_MODELS = [FLASH, FLASH_ALIAS, FLASH_FALLBACK] as const;
 
 type ChatErr = { ok: false; error: string };
 
@@ -87,28 +90,28 @@ async function chatFlash(params: {
     ? setTimeout(() => ac.abort(), params.timeoutMs)
     : null;
   try {
-    const first = await postChat(
-      chatPayload(FLASH, { messages, maxTokens: params.maxTokens, temperature, json: params.json }),
-      ac.signal,
-    );
-    if (!first.ok) return first;
-    let res = first.res!;
-    if (res.status === 400 || res.status === 404) {
-      const retry = await postChat(
-        chatPayload(FLASH, { messages, maxTokens: params.maxTokens, temperature }),
+    let res: Response | null = null;
+    for (const model of FLASH_MODELS) {
+      const first = await postChat(
+        chatPayload(model, { messages, maxTokens: params.maxTokens, temperature, json: params.json }),
         ac.signal,
       );
-      if (retry.ok && retry.res && retry.res.status !== 400 && retry.res.status !== 404) {
-        res = retry.res;
-      } else {
-        const fb = await postChat(
-          chatPayload(FLASH_FALLBACK, { messages, maxTokens: params.maxTokens, temperature }),
+      if (!first.ok) return first;
+      res = first.res!;
+      if (res.status === 400 || res.status === 404) {
+        const retry = await postChat(
+          chatPayload(model, { messages, maxTokens: params.maxTokens, temperature }),
           ac.signal,
         );
-        if (!fb.ok) return fb;
-        res = fb.res!;
+        if (retry.ok && retry.res && retry.res.status !== 400 && retry.res.status !== 404) {
+          res = retry.res;
+          break;
+        }
+        continue;
       }
+      break;
     }
+    if (!res) return { ok: false, error: "AI 暂不可用" };
     return await readChat(res, started);
   } catch {
     return { ok: false, error: "timeout" };
@@ -195,7 +198,7 @@ async function extractResponsesText(body: unknown) {
   return bits.join("\n").trim();
 }
 
-/** Real DeepSearch: web_search when available, then grok-4.6. */
+/** Web search with the fastest chat model. grok-4.6 does not browse. */
 async function chatDeepSearch(params: {
   system: string;
   user: string;
@@ -206,36 +209,67 @@ async function chatDeepSearch(params: {
   if (!apiKey) return { ok: false, error: "AI 暂不可用" };
   const started = Date.now();
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 10000);
+  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 15000);
   try {
-    const res = await fetch("https://api.x.ai/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      signal: ac.signal,
-      body: JSON.stringify({
-        model: "grok-4.6",
-        tools: [{ type: "web_search" }],
-        instructions: params.system,
-        input: params.user,
-        max_output_tokens: Math.min(params.maxTokens, 1400),
-      }),
-    });
-    if (res.ok) {
+    for (const model of FLASH_MODELS) {
+      const res = await fetch("https://api.x.ai/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: ac.signal,
+        body: JSON.stringify({
+          model,
+          tools: [{ type: "web_search" }],
+          instructions: params.system,
+          input: params.user,
+          max_output_tokens: Math.min(params.maxTokens, 900),
+        }),
+      });
+      if (res.status === 400 || res.status === 404) continue;
+      if (!res.ok) continue;
       const body = await res.json();
       const text = await extractResponsesText(body);
       if (text) {
+        const parsed = extractJsonObject(text) ?? { raw: text };
+        const cites = extractCitations(body);
+        if (cites.length && (!Array.isArray(parsed.sources) || !(parsed.sources as unknown[]).length)) {
+          parsed.sources = cites;
+        }
         clearTimeout(timer);
-        return { ok: true, text, ms: Date.now() - started };
+        return { ok: true, text: JSON.stringify(parsed), ms: Date.now() - started };
       }
     }
   } catch {
-    /* timed out or failed — caller already has flash */
+    /* timed out or failed — caller must not invent facts */
   }
   clearTimeout(timer);
-  return { ok: false, error: "search-timeout" };
+  return { ok: false, error: "没检索到，再点一次。" };
+}
+
+function extractCitations(body: unknown): { en: string; zh: string }[] {
+  if (!body || typeof body !== "object") return [];
+  const urls: string[] = [];
+  const walk = (node: unknown) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node !== "object") return;
+    const rec = node as { type?: string; url?: unknown; annotations?: unknown; content?: unknown };
+    if (typeof rec.url === "string" && /^https?:\/\//.test(rec.url)) urls.push(rec.url);
+    if (Array.isArray(rec.annotations)) walk(rec.annotations);
+    if (rec.content) walk(rec.content);
+    if (rec.type === "url_citation" || rec.type === "citation") {
+      const extra = rec as { title?: unknown };
+      if (typeof extra.title === "string" && extra.title.trim()) urls.push(extra.title.trim());
+    }
+  };
+  walk((body as { output?: unknown }).output);
+  walk((body as { citations?: unknown }).citations);
+  return [...new Set(urls)].slice(0, 4).map((en) => ({ en, zh: "" }));
 }
 
 async function chat46low(params: {
@@ -489,38 +523,49 @@ export const expandTopic = createServerFn({ method: "POST" })
       recent: data.recent,
       options: data.options,
     });
-    const sys =
-      'You are DeepSearch for an English class in mainland China, NOT the live coach. The coach already gave 3 short lines to say NOW — listed in live_options. NEVER repeat or paraphrase those lines. ALL Chinese MUST be 简体中文. Return ONLY JSON: {"title":"...","contextEn":"...","contextZh":"...","viewEn":"...","viewZh":"...","facts":[{"en":"...","zh":"..."}],"angles":[{"en":"...","zh":"..."}],"qEn":"...","qZh":"...","aEn":"...","aZh":"...","say":"...","frames":[{"en":"...","zh":"..."}],"terms":[{"en":"...","zh":"..."}],"sources":[{"en":"...","zh":"..."}]}. Search = 3 facts with names/numbers/years. Deep = viewEn 40-70 words AND aEn 70-110 words (40-second talk). Fill En + 简体. No markdown.';
-    const user = JSON.stringify({
+    const searchUser = JSON.stringify({
       topic: data.topic || null,
-      move: data.move || null,
-      live_options: data.options,
       last_heard: data.lastHeard || null,
       recent_class: data.recent,
+      live_options: data.options,
     });
-    const flashP = chatFlash({
-      system: sys,
-      user,
-      maxTokens: 1400,
-      temperature: 0.25,
-      timeoutMs: 8000,
+    const web = await chatDeepSearch({
+      system:
+        'You retrieve classroom facts. Use web_search. NEVER invent names, numbers, or years. NEVER write aEn or viewEn. NEVER copy live_options. ALL zh MUST be 简体中文. Return ONLY JSON: {"title":"...","facts":[{"en":"...","zh":"..."}],"sources":[{"en":"...","zh":"..."}]}. Give 3 facts with names/numbers/years. If search finds nothing, return {"title":"...","facts":[],"sources":[]}.',
+      user: searchUser,
+      maxTokens: 900,
+      timeoutMs: 15000,
     });
-    const webP = chatDeepSearch({
-      system: sys,
-      user,
-      maxTokens: 1400,
-      timeoutMs: 10000,
+    const found = web.ok ? extractJsonObject(web.text) : null;
+    const facts = searchFacts(found);
+    if (!facts.length) {
+      return { ok: false, error: "没检索到，再点一次。" };
+    }
+    const talk = await chat46low({
+      system:
+        'Write a 40-second English-class talk FROM THESE FACTS ONLY. Do not invent names or numbers. Do not search the web. Do not copy live_options. ALL zh MUST be 简体中文. Return ONLY JSON: {"viewEn":"...","viewZh":"...","aEn":"...","aZh":"...","angles":[{"en":"...","zh":"..."}],"qEn":"...","qZh":"...","say":"...","frames":[{"en":"...","zh":"..."}],"terms":[{"en":"...","zh":"..."}]}. viewEn=40-70 words. aEn=70-110 words they can say.',
+      user: JSON.stringify({
+        topic: data.topic || null,
+        facts,
+        sources: found?.sources ?? [],
+        live_options: data.options,
+      }),
+      maxTokens: 900,
+      timeoutMs: 12000,
     });
-    const [flash, web] = await Promise.all([flashP, webP]);
-    const fromWeb = web.ok ? extractJsonObject(web.text) : null;
-    const fromFlash = flash.ok ? extractJsonObject(flash.text) : null;
-    const webHas =
-      fromWeb &&
-      (Array.isArray(fromWeb.facts) && (fromWeb.facts as unknown[]).length >= 1 ||
-        String(fromWeb.aEn ?? "").length > 60);
-    const parsed = webHas ? { ...fromFlash, ...fromWeb } : fromFlash;
-    const body = assembleEssay(draft, parsed, Math.max(flash.ok ? flash.ms : 0, web.ok ? web.ms : 0));
-    return { ok: true as const, ...body, draft: Boolean(body.draft), ms: body.latencyMs };
+    const spoken = talk.ok ? extractJsonObject(talk.text) : null;
+    const parsed: Record<string, unknown> = {
+      ...(found ?? {}),
+      ...(spoken ?? {}),
+      facts: found?.facts ?? facts,
+      sources: found?.sources ?? [],
+      title: (found?.title as string) || data.topic,
+    };
+    const body = assembleEssay(draft, parsed, (web.ok ? web.ms : 0) + (talk.ok ? talk.ms : 0));
+    if (body.draft) {
+      return { ok: false, error: "没检索到，再点一次。" };
+    }
+    return { ok: true as const, ...body, draft: false, ms: body.latencyMs };
   });
 
 export const askTopic = createServerFn({ method: "POST" })

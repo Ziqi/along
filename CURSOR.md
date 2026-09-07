@@ -87,11 +87,11 @@ scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 
 | 能力 | 模型 |
 |---|---|
-| 听写 | xAI Speech-to-Text Streaming |
-| 字幕翻译、课上提纲、纪要补中文 | `grok-4.20-non-reasoning`（Flash），fallback `grok-4.3` |
-| 教练、AI 对话 | `grok-4.6` `reasoning_effort: low`，超时退 Flash |
-| DeepSearch | Flash 与 `web_search` 并行，约 10s；每卡独立，最多 2 路 |
-| 纪要正文 | Flash 与 grok-4.6 **并行**写内容 → 不够再 slim 一次 → 过关才写语言点 |
+| 听写 | xAI Speech-to-Text Streaming。英文字幕不经过 4.6。 |
+| 字幕翻译、课上提纲、纪要补中文 | `grok-4.20-0309-non-reasoning`（仓库绰号 Flash = 最快聊天模型），再试 `grok-4.20-non-reasoning`，再 `grok-4.3` |
+| 教练、AI 对话 | `grok-4.6` `reasoning_effort: low`，超时退最快聊天模型 |
+| DeepSearch | 最快模型 + `web_search` 检索事实；有事实后 4.6 只根据事实写四十秒（不联网）。没事实就失败，不许编。最多 2 路 |
+| 纪要正文 | 最快模型与 grok-4.6 **并行**写内容 → 不够再 slim 一次 → 过关才写语言点 |
 
 ---
 
@@ -172,7 +172,7 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 ### P2 — DeepSearch
 
-曾 2 分钟 + 全局锁卡死。现 Flash∥web_search，每卡 gen，最多 2 路。不要再串 grok-4.6 当主路径。深要深在事实、数字、能讲四十秒的段落，不要重复教练 1.2.3。
+曾 2 分钟 + 全局锁卡死。现最快模型 + `web_search` 检索，有事实后 4.6 写四十秒（不联网）。每卡 gen，最多 2 路。不要用 4.6 当搜索引擎，也不要用没检索到的议论充完稿。深要深在事实、数字、能讲四十秒的段落，不要重复教练 1.2.3。
 
 ### P2 — 听写变慢 / 翻译掉队
 

@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-09-07 DeepSearch 先检索再写
+
+- 「Flash」是代码绰号，指最快聊天模型 `grok-4.20-0309-non-reasoning`，不是另一家产品。
+- 教练仍用 grok-4.6。DeepSearch 检索改用最快模型 + 网页搜索；有事实后 4.6 只根据这些事实写四十秒发言，不再联网。
+- 搜不到就报「没检索到」，不许用编出来的段落充完稿。
+
+---
+
 ## 2026-09-07 Cursor · SpaceX 讲义
 
 现场卡死点：`recapClass` 对「Long-Term Vision vs Quarterly Pressure」交不出导语和段落。失败不再拿目录充数之后，只剩红字。
@@ -98,11 +106,11 @@
 
 | 能力 | 模型 |
 |---|---|
-| 听写 | xAI STT Streaming |
-| 字幕翻译、课上提纲、纪要填空 | grok-4.20-non-reasoning（Flash） |
-| 教练、AI 对话 | grok-4.6 low；超时退 Flash |
-| DeepSearch | Flash 出稿 + 联网检索并行，约 10s |
-| 纪要正文 | Flash 与 grok-4.6 并行，装配器收口 |
+| 听写 | xAI 流式听写。英文字幕不经过 4.6。 |
+| 字幕翻译、课上提纲 | `grok-4.20-0309-non-reasoning`（绰号 Flash） |
+| 教练、AI 对话 | `grok-4.6` low |
+| DeepSearch | 最快模型检索；4.6 只根据事实写发言 |
+| 纪要正文 | 最快模型与 grok-4.6 并行 |
 
 ---
 

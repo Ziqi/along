@@ -56,6 +56,10 @@ export function heuristicEssay(bits: EssayBits): TopicEssay {
   };
 }
 
+export function searchFacts(parsed: Record<string, unknown> | null) {
+  return list(parsed?.facts, 4);
+}
+
 export function assembleEssay(
   draft: TopicEssay,
   parsed: Record<string, unknown> | null,
@@ -68,7 +72,7 @@ export function assembleEssay(
   const facts = list(parsed?.facts, 4);
   const aEn = str("aEn");
   const viewEn = str("viewEn");
-  const filled = Boolean(facts.length >= 2 || (aEn.length > 80 && viewEn));
+  const filled = facts.length >= 1 && Boolean(aEn.length > 40 || viewEn);
   return {
     title: str("title") || draft.title,
     contextEn: str("contextEn"),
