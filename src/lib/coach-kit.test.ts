@@ -213,6 +213,7 @@ describe("coach pane copy", () => {
   it("turns raw timeouts into something a student can act on", () => {
     assert.equal(humanCoachError("deadline", "retrying"), "这轮慢了，正在重写");
     assert.equal(humanCoachError("timeout", "failed"), "这轮慢了，点重写再试。");
-    assert.match(humanCoachError("AI 暂不可用"), /连不上/);
+    assert.match(humanCoachError("AI 暂不可用"), /没接到模型/);
+    assert.equal(humanCoachError("AI 暂不可用").includes("连不上"), false);
   });
 });

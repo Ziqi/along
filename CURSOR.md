@@ -61,6 +61,8 @@ src/lib/essay-kit.ts             DeepSearch 装配
 src/lib/speech-controller.ts     麦克风 + 流式 STT
 src/lib/stt-controller.ts
 src/lib/class-mode.ts            课型、旁听间隔、课中剖析标题
+src/lib/coach-kit.ts             跟听间隔、是否留卡、教练栏文案
+src/lib/coach-assemble.ts        教练装配器：三种课型盖章三条名字，不编开口
 src/components/capcom/use-engine.ts   听课生命周期 + requestRecap + 翻译队列 + 卡住重写
 src/components/capcom/mission-shell.tsx  听课 | 教练两栏
 src/components/capcom/recap-page.tsx  纪要页 UI

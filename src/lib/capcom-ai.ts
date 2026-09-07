@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
-import { isHeardQuestion, resolveCoachSame } from "@/lib/coach-kit";
+import { assembleCoach } from "@/lib/coach-assemble";
 import { parseClassMode } from "@/lib/class-mode";
 import { COACH_FALLBACK_MS, COACH_PRIMARY_MS } from "@/lib/live-queue";
 import type { RecapTable } from "@/lib/types";
@@ -483,9 +483,16 @@ export const liveCoach = createServerFn({ method: "POST" })
       json: true,
     });
     let packed = first.ok
-      ? readCoachPack(extractJsonObject(first.text), data, first.ms)
+      ? assembleCoach({
+          parsed: extractJsonObject(first.text),
+          last: data.last,
+          prevTopic: data.prevTopic,
+          prevTopicZh: data.prevTopicZh,
+          mode: data.mode,
+          ms: first.ms,
+        })
       : null;
-    if (packed?.options.length) return packed;
+    if (packed?.ok) return packed;
 
     const fallback = await chatFlash({
       system,
@@ -496,11 +503,18 @@ export const liveCoach = createServerFn({ method: "POST" })
       json: true,
     });
     if (fallback.ok) {
-      packed = readCoachPack(extractJsonObject(fallback.text), data, fallback.ms);
-      if (packed.options.length) return packed;
+      packed = assembleCoach({
+        parsed: extractJsonObject(fallback.text),
+        last: data.last,
+        prevTopic: data.prevTopic,
+        prevTopicZh: data.prevTopicZh,
+        mode: data.mode,
+        ms: fallback.ms,
+      });
+      if (packed.ok) return packed;
     }
     if (!first.ok && !fallback.ok) return fallback;
-    return { ok: false, error: "教练没给出三条，再听一句。" };
+    return packed && !packed.ok ? packed : { ok: false, error: "教练没给出三条，再听一句。" };
   });
 
 export const expandTopic = createServerFn({ method: "POST" })
@@ -634,136 +648,6 @@ export const quickTranslate = createServerFn({ method: "POST" })
     if (!result.ok) return result;
     return { ok: true, out: result.text.trim(), dir, ms: result.ms };
   });
-
-function parseKeys(v: unknown, en: string): string[] {
-  const out: string[] = [];
-  if (Array.isArray(v)) {
-    for (const it of v) {
-      const w = String(it ?? "").trim();
-      if (w.length > 1 && en.toLowerCase().includes(w.toLowerCase())) out.push(w);
-      if (out.length === 4) break;
-    }
-  }
-  if (out.length) return out;
-  const stop = new Set([
-    "that",
-    "this",
-    "with",
-    "from",
-    "have",
-    "would",
-    "could",
-    "should",
-    "about",
-    "there",
-    "their",
-    "what",
-    "when",
-    "your",
-    "will",
-    "just",
-    "them",
-    "they",
-    "then",
-    "than",
-    "also",
-    "into",
-    "more",
-    "some",
-    "been",
-    "being",
-    "because",
-  ]);
-  return en
-    .replace(/[^A-Za-z' ]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 5 && !stop.has(w.toLowerCase()))
-    .slice(0, 3);
-}
-
-function readCoachPack(
-  parsed: Record<string, unknown> | null,
-  data: {
-    last: string;
-    prevTopic: string;
-    prevTopicZh: string;
-    mode: string;
-  },
-  ms: number,
-) {
-  const move: "answer" | "join" =
-    pick(parsed, "move") === "answer" || isHeardQuestion(data.last) ? "answer" : "join";
-  const same = resolveCoachSame({
-    modelSame: parsed?.same,
-    move,
-    lastHeard: data.last,
-  });
-  return {
-    ok: true as const,
-    same,
-    topic: same && data.prevTopic ? data.prevTopic : pick(parsed, "topic"),
-    topicZh: same && data.prevTopicZh ? data.prevTopicZh : pick(parsed, "topicZh"),
-    briefZh: pick(parsed, "briefZh"),
-    briefEn: pick(parsed, "briefEn"),
-    move,
-    options: parseCoachOptions(parsed?.options, move, 3, data.mode),
-    extras:
-      data.mode === "listen"
-        ? []
-        : parseCoachOptions(parsed?.extras, "join", 2, data.mode).map((o, i) => ({
-            ...o,
-            label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
-          })),
-    ms,
-  };
-}
-
-function parseCoachOptions(
-  v: unknown,
-  move: "answer" | "join",
-  limit = 3,
-  mode = "interactive",
-): { label: string; en: string; zh: string; keys: string[] }[] {
-  const fallback =
-    limit === 2
-      ? ["延展", "追深"]
-      : mode === "listen"
-        ? ["这句", "剖析", "背景"]
-        : move === "join"
-          ? ["同意", "对比", "例子"]
-          : ["直接答", "补一层", "举个例"];
-  const out: { label: string; en: string; zh: string; keys: string[] }[] = [];
-  if (Array.isArray(v)) {
-    for (const it of v) {
-      if (typeof it === "string") {
-        const en = it.trim();
-        if (!en) continue;
-        out.push({
-          label: fallback[out.length] ?? "答",
-          en,
-          zh: "",
-          keys: parseKeys(undefined, en),
-        });
-        if (out.length === limit) break;
-        continue;
-      }
-      if (!it || typeof it !== "object") continue;
-      const row = it as { label?: unknown; en?: unknown; zh?: unknown; keys?: unknown };
-      const en = typeof row.en === "string" ? row.en.trim() : "";
-      if (!en) continue;
-      const zh = typeof row.zh === "string" ? row.zh.trim() : "";
-      const label =
-        mode === "listen" && limit !== 2
-          ? fallback[out.length] ?? "这句"
-          : typeof row.label === "string" && row.label.trim()
-            ? row.label.trim().slice(0, 6)
-            : fallback[out.length] ?? "答";
-      out.push({ label, en, zh, keys: parseKeys(row.keys, en) });
-      if (out.length === limit) break;
-    }
-  }
-  return out;
-}
 
 function parseTerms(v: unknown, n = 4): { en: string; zh: string }[] {
   if (!Array.isArray(v)) return [];

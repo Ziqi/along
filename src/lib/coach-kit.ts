@@ -138,7 +138,7 @@ export function humanCoachError(err: string, phase: "retrying" | "failed" = "fai
     return retrying ? "这轮慢了，正在重写" : "这轮慢了，点重写再试。";
   }
   if (t === "AI 暂不可用") {
-    return retrying ? "教练这会儿连不上，正在重写" : "教练这会儿连不上，点重写再试。";
+    return retrying ? "教练没接到模型，正在重写" : "教练没接到模型，点重写再试。";
   }
   if (/429/.test(t)) {
     return retrying ? "写得太勤了，正在重写" : "写得太勤了，过几秒再点重写。";
