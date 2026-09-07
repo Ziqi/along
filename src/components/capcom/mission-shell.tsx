@@ -5,7 +5,6 @@ import { RecapPage } from "@/components/capcom/recap-page";
 import { JotPad } from "@/components/capcom/jot-pad";
 import {
   arm,
-  ingest,
   safe,
   useCapcomEngine,
 } from "@/components/capcom/use-engine";
@@ -27,7 +26,7 @@ class ShellCatch extends Component<{ children: ReactNode }, { err: string | null
     if (this.state.err) {
       return (
         <div className="flex min-h-dvh flex-col gap-3 bg-bg p-6 text-fg">
-          <p className="text-base">页面出错了，刷新即可。左侧仍可手写上课。</p>
+          <p className="text-base">页面出错了，刷新即可。</p>
           <p className="text-sm text-muted">{this.state.err}</p>
           <button
             type="button"
@@ -136,7 +135,7 @@ function MissionShellInner() {
           ))}
         </nav>
         <div className={(tab === "down" ? "flex " : "hidden lg:flex ") + "min-h-0 min-w-0 flex-1 flex-col"}>
-          <DownlinkPanel onInject={(t) => ingest(t, "hand")} />
+          <DownlinkPanel />
         </div>
         <div className={(tab === "up" ? "flex " : "hidden lg:flex ") + "min-h-0 min-w-0 flex-1 flex-col"}>
           <UplinkPanel />

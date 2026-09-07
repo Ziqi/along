@@ -1,19 +1,12 @@
-import { useEffect, useRef, type FormEvent } from "react";
-import { ArrowUp } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef } from "react";
 import { formatClock } from "@/lib/utils";
 import { useCapcom } from "@/lib/store";
 
-type Props = {
-  onInject: (text: string) => void;
-};
-
-export function DownlinkPanel({ onInject }: Props) {
+export function DownlinkPanel() {
   const captions = useCapcom((s) => s.captions);
   const interim = useCapcom((s) => s.interim);
   const mic = useCapcom((s) => s.mic);
   const scroller = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const live = mic === "live";
 
   useEffect(() => {
@@ -21,16 +14,6 @@ export function DownlinkPanel({ onInject }: Props) {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [captions, interim]);
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    const el = inputRef.current;
-    if (!el) return;
-    const v = el.value.trim();
-    if (!v) return;
-    onInject(v);
-    el.value = "";
-  }
 
   const empty = captions.length === 0 && !interim;
 
@@ -98,25 +81,6 @@ export function DownlinkPanel({ onInject }: Props) {
           </ol>
         )}
       </div>
-
-      <form
-        onSubmit={submit}
-        className="flex items-center gap-2 border-t border-line p-3"
-      >
-        <label className="sr-only" htmlFor="feed-input">
-          写入课堂上的一句英文
-        </label>
-        <input
-          id="feed-input"
-          ref={inputRef}
-          className="h-11 min-h-11 min-w-0 flex-1 bg-transparent px-3 text-sm text-fg placeholder:text-dim focus:outline-none"
-          placeholder="手写课堂上的一句英文"
-          autoComplete="off"
-        />
-        <Button type="submit" variant="ghost" size="icon" aria-label="送入">
-          <ArrowUp className="size-4" />
-        </Button>
-      </form>
     </section>
   );
 }

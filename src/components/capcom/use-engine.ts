@@ -81,9 +81,9 @@ export function goHomeSafe() {
   s.goHome();
 }
 
-export function ingest(en: string, src: "mic" | "hand" = "mic") {
+export function ingest(en: string) {
   const store = useCapcom.getState();
-  if (src === "mic" && !store.listening) return;
+  if (!store.listening) return;
   const id = store.pushFinal(en);
   if (!id) return;
   store.armClock();
@@ -792,18 +792,18 @@ function onListenError(code: string) {
     s.setMic("denied");
     s.setEngineError(
       framed
-        ? "这一页拦了麦克风。请在地址栏允许麦克风，或用系统浏览器打开本页。左侧仍可手写。"
-        : "麦克风被拒绝。点地址栏的锁允许麦克风，再点「开始听」。左侧仍可手写。",
+        ? "这一页拦了麦克风。请在地址栏允许麦克风，或用系统浏览器打开本页。"
+        : "麦克风被拒绝。点地址栏的锁允许麦克风，再点「开始听」。",
     );
     return;
   }
   if (code === "unsupported") {
     s.setMic("unsupported");
-    s.setEngineError("此浏览器不能听写。请用 Chrome / Safari，或在左侧手写。");
+    s.setEngineError("此浏览器不能听写。请用 Chrome / Safari。");
     return;
   }
   s.setMic("idle");
-  s.setEngineError("实时听写没接通。再点一次开始听，或在左侧手写。");
+  s.setEngineError("实时听写没接通。再点一次开始听。");
 }
 
 function onListenState(live: boolean) {
@@ -892,7 +892,7 @@ export function arm(mode?: ClassMode) {
   }
   store.setListening(false);
   store.setMic("unsupported");
-  store.setEngineError("此浏览器不能听写。请用 Chrome，或在左侧手写。");
+  store.setEngineError("此浏览器不能听写。请用 Chrome。");
 }
 
 export function useCapcomEngine() {
