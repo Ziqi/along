@@ -594,7 +594,7 @@ export function RecapPage() {
                     </section>
                   ) : null}
 
-                  {session.notes.length ? <NotesEditor session={session} /> : null}
+                  <NotesEditor session={session} />
 
                   <LiveTape
                     lines={

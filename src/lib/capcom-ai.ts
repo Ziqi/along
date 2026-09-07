@@ -744,9 +744,11 @@ function parseCoachOptions(
       if (!en) continue;
       const zh = typeof row.zh === "string" ? row.zh.trim() : "";
       const label =
-        typeof row.label === "string" && row.label.trim()
-          ? row.label.trim().slice(0, 6)
-          : fallback[out.length] ?? "答";
+        mode === "listen" && limit !== 2
+          ? fallback[out.length] ?? "这句"
+          : typeof row.label === "string" && row.label.trim()
+            ? row.label.trim().slice(0, 6)
+            : fallback[out.length] ?? "答";
       out.push({ label, en, zh, keys: parseKeys(row.keys, en) });
       if (out.length === limit) break;
     }

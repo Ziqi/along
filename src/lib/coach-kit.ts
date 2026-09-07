@@ -60,3 +60,21 @@ export function shouldKeepCoachCard(input: {
   const b = optionKey(input.options);
   return !(a && a === b);
 }
+
+export function shouldRescueCoach(input: {
+  autoCoach: boolean;
+  listening: boolean;
+  inflight: boolean;
+  lastCaptionAt: number | null;
+  lastCoachOkAt: number;
+  now?: number;
+}) {
+  if (!input.autoCoach || !input.listening || input.inflight) return false;
+  if (input.lastCaptionAt == null) return false;
+  const now = input.now ?? Date.now();
+  if (now - input.lastCaptionAt > 20000) return false;
+  const silentFor = input.lastCoachOkAt
+    ? now - input.lastCoachOkAt
+    : now - input.lastCaptionAt;
+  return silentFor >= 16000;
+}

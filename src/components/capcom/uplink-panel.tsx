@@ -233,6 +233,7 @@ export function UplinkPanel() {
                       {ready && essay ? (
                         <EssayBlock
                           essay={essay}
+                          listen={!isSpeakMode(card.mode ?? mode)}
                           onJot={(text) => void captureNote(text, "deep", { en: text })}
                         />
                       ) : deepErr && !ready ? (
@@ -339,14 +340,20 @@ function CoachBlock({
 
 function EssayBlock({
   essay,
+  listen,
   onJot,
 }: {
   essay: TopicEssay;
+  listen?: boolean;
   onJot: (text: string) => void;
 }) {
   return (
     <article className="flex flex-col gap-4">
-      <p className="text-[10px] text-dim">DeepSearch · 事实 + 四十秒发言 · {essay.latencyMs} 毫秒</p>
+      <p className="text-[10px] text-dim">
+        {listen
+          ? `DeepSearch · 背景和资料 · ${essay.latencyMs} 毫秒`
+          : `DeepSearch · 事实 + 四十秒发言 · ${essay.latencyMs} 毫秒`}
+      </p>
       {essay.title ? (
         <h3 className="text-base font-medium tracking-tight">{essay.title}</h3>
       ) : null}

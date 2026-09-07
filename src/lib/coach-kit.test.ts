@@ -5,6 +5,7 @@ import {
   resolveCoachSame,
   shouldAskCoach,
   shouldKeepCoachCard,
+  shouldRescueCoach,
 } from "./coach-kit.ts";
 
 const opts = (en: string) => [{ en }, { en: `${en} two` }, { en: `${en} three` }];
@@ -124,6 +125,36 @@ describe("coach same / keep", () => {
         now: 16_000,
       }),
       true,
+    );
+  });
+
+  it("rescues only when captions are still flowing and the last card is stale", () => {
+    const base = {
+      autoCoach: true,
+      listening: true,
+      inflight: false,
+      lastCaptionAt: 20_000,
+    };
+    assert.equal(
+      shouldRescueCoach({ ...base, lastCoachOkAt: 0, now: 36_000 }),
+      true,
+    );
+    assert.equal(
+      shouldRescueCoach({ ...base, lastCoachOkAt: 30_000, now: 36_000 }),
+      false,
+    );
+    assert.equal(
+      shouldRescueCoach({ ...base, lastCoachOkAt: 10_000, now: 42_000 }),
+      false,
+    );
+    assert.equal(
+      shouldRescueCoach({
+        ...base,
+        inflight: true,
+        lastCoachOkAt: 0,
+        now: 36_000,
+      }),
+      false,
     );
   });
 });

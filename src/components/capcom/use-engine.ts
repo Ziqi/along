@@ -14,7 +14,7 @@ import {
 } from "@/lib/capcom-ai";
 import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
-import { shouldAskCoach, shouldKeepCoachCard } from "@/lib/coach-kit";
+import { shouldAskCoach, shouldKeepCoachCard, shouldRescueCoach } from "@/lib/coach-kit";
 import { coachMinGapMs, parseClassMode, type ClassMode } from "@/lib/class-mode";
 import {
   COACH_TIMEOUT_MS,
@@ -241,6 +241,7 @@ async function flushCoach(
         options: result.options,
       })
     ) {
+      lastCoachOkAt = Date.now();
       useCapcom.getState().setCoachPending(false);
       return;
     }
@@ -276,14 +277,18 @@ async function flushCoach(
 
 function rescueCoach() {
   const s = useCapcom.getState();
-  if (!s.autoCoach || !s.listening) return;
   const last = s.captions.at(-1);
-  if (!last) return;
-  if (coachInflight) return;
-  const heardAgo = Date.now() - last.at;
-  if (heardAgo > 20000) return;
-  const silentFor = lastCoachOkAt ? Date.now() - lastCoachOkAt : heardAgo;
-  if (silentFor < 16000) return;
+  if (
+    !shouldRescueCoach({
+      autoCoach: s.autoCoach,
+      listening: s.listening,
+      inflight: coachInflight,
+      lastCaptionAt: last?.at ?? null,
+      lastCoachOkAt,
+    })
+  ) {
+    return;
+  }
   void flushCoach("auto", undefined, { rescue: true });
 }
 
