@@ -308,12 +308,13 @@ function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
   };
 }
 
-function sortSessions(list: ClassSession[]) {
+/** Pins first (newest pin on top). Unpinned stay in class time — newest class first. */
+export function sortSessions(list: ClassSession[]) {
   return [...list].sort((x, y) => {
     const star = Number(Boolean(y.starred)) - Number(Boolean(x.starred));
     if (star) return star;
     if (x.starred && y.starred) return (y.starredAt ?? 0) - (x.starredAt ?? 0);
-    return (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt);
+    return y.startedAt - x.startedAt;
   });
 }
 
@@ -670,7 +671,6 @@ export const useCapcom = create<AppState>((set, get) => {
             ...s,
             starred,
             starredAt: starred ? Date.now() : null,
-            updatedAt: Date.now(),
           };
         }),
       );

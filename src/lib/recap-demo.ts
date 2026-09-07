@@ -9,7 +9,7 @@ export function sampleSession(): ClassSession {
     title: "Money apps · 理财课",
     startedAt,
     endedAt: startedAt + 48 * 60 * 1000,
-    updatedAt: Date.now(),
+    updatedAt: startedAt + 48 * 60 * 1000,
     sourceId: null,
     sourceTitle: null,
     starred: false,

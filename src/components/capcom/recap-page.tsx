@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Trash2, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useCapcom } from "@/lib/store";
+import { sortSessions, useCapcom } from "@/lib/store";
 import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/components/capcom/use-engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { splitProse } from "@/lib/recap-kit";
@@ -43,16 +43,7 @@ export function RecapPage() {
   const inClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const canRun = (session?.transcript?.length ?? 0) >= 2 || captions.length >= 2;
   const stats = useMemo(() => tally(sessions), [sessions]);
-  const listed = useMemo(
-    () =>
-      [...sessions].sort((x, y) => {
-        const star = Number(Boolean(y.starred)) - Number(Boolean(x.starred));
-        if (star) return star;
-        if (x.starred && y.starred) return (y.starredAt ?? 0) - (x.starredAt ?? 0);
-        return (y.updatedAt ?? y.startedAt) - (x.updatedAt ?? x.startedAt);
-      }),
-    [sessions],
-  );
+  const listed = useMemo(() => sortSessions(sessions), [sessions]);
   const marks = useMemo(() => {
     const fromAi = recap?.marks ?? [];
     if (fromAi.length) {
