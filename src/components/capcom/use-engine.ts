@@ -13,7 +13,7 @@ import {
   quickTranslate,
 } from "@/lib/capcom-ai";
 import { heuristicEssay } from "@/lib/essay-kit";
-import { attachCoachPack, emptyRecap, isFilled, packCoach } from "@/lib/recap-kit";
+import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
 import { shouldAskCoach, shouldKeepCoachCard } from "@/lib/coach-kit";
 
 let coachGen = 0;
@@ -568,44 +568,42 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
   skeleton.coachPack = pack;
   live.setRecap(skeleton, sid);
   useCapcom.getState().setRecapPending(true);
+  const coachPayload = pack.map((c) => ({
+    topic: c.topic,
+    brief: c.briefEn,
+    briefZh: c.briefZh,
+    say: c.options.map((o) => o.en),
+    extras: c.extras.map((o) => o.en),
+    deep: c.deep
+      ? {
+          title: c.deep.title,
+          viewEn: c.deep.viewEn,
+          viewZh: c.deep.viewZh,
+          facts: c.deep.facts.map((f) => f.en),
+          terms: c.deep.terms.map((t) => t.en),
+          aEn: c.deep.aEn,
+        }
+      : null,
+  }));
+  const packet = { lines, topics, notes, coach: coachPayload };
   let lastErr = "纪要没写完，正在重写。";
   try {
+    let essay = null as ReturnType<typeof toRecap> | null;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (gen !== recapGen) return;
+      useCapcom.getState().setRecapStage(attempt ? "essay-retry" : "essay");
       try {
-        const result = await recapClass({
-          data: {
-            lines,
-            topics,
-            notes,
-            coach: pack.map((c) => ({
-              topic: c.topic,
-              brief: c.briefEn,
-              briefZh: c.briefZh,
-              say: c.options.map((o) => o.en),
-              extras: c.extras.map((o) => o.en),
-              deep: c.deep
-                ? {
-                    title: c.deep.title,
-                    viewEn: c.deep.viewEn,
-                    viewZh: c.deep.viewZh,
-                    facts: c.deep.facts.map((f) => f.en),
-                    terms: c.deep.terms.map((t) => t.en),
-                    aEn: c.deep.aEn,
-                  }
-                : null,
-            })),
-          },
-        });
+        const result = await recapClass({ data: { ...packet, phase: "essay" } });
         if (gen !== recapGen) return;
         if (result.ok) {
           const next = attachCoachPack(
             toRecap(result, session?.recap?.outline ?? skeleton.outline, pack),
             pack,
           );
-          if (isFilled(next)) {
-            useCapcom.getState().setRecap(next, sid);
-            return;
+          if (isEssayFilled(next)) {
+            useCapcom.getState().setRecap({ ...next, draft: true }, sid);
+            essay = next;
+            break;
           }
           lastErr = "正文太薄，正在重写。";
         } else {
@@ -615,10 +613,51 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
         lastErr = "纪要没写完，正在重写。";
       }
     }
+    if (!essay) {
+      if (gen === recapGen) useCapcom.getState().setRecapError(lastErr);
+      return;
+    }
+    if (gen !== recapGen) return;
+    useCapcom.getState().setRecapStage("study");
+    try {
+      const result = await recapClass({
+        data: {
+          ...packet,
+          phase: "study",
+          prior: {
+            title: essay.title,
+            lede: essay.lede,
+            ledeZh: essay.ledeZh,
+            sections: essay.sections,
+            outline: essay.outline,
+            topics: essay.topics,
+            takeaways: essay.takeaways,
+          },
+        },
+      });
+      if (gen !== recapGen) return;
+      if (result.ok) {
+        const next = attachCoachPack(
+          toRecap(result, essay.outline, pack),
+          pack,
+        );
+        useCapcom.getState().setRecap(next, sid);
+        if (!isFilled(next)) {
+          useCapcom.getState().setRecapError("语言点没写出来，再点一次整理。");
+        }
+        return;
+      }
+      lastErr = result.error;
+    } catch {
+      lastErr = "语言点没写完，再点一次整理。";
+    }
     if (gen !== recapGen) return;
     useCapcom.getState().setRecapError(lastErr);
   } finally {
-    if (gen === recapGen) useCapcom.getState().setRecapPending(false);
+    if (gen === recapGen) {
+      useCapcom.getState().setRecapPending(false);
+      useCapcom.getState().setRecapStage(null);
+    }
   }
 }
 

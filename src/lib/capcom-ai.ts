@@ -882,9 +882,58 @@ type RecapOk = {
   ms: number;
 };
 
+type RecapPrior = {
+  title: string;
+  lede: string;
+  ledeZh: string;
+  sections: { heading: string; headingZh: string; body: string; bodyZh: string }[];
+  outline: { heading: string; bullets: string[] }[];
+  topics: { en: string; zh: string }[];
+  takeaways: { en: string; zh: string }[];
+};
+
+function recapToOk(recap: {
+  title: string;
+  lede: string;
+  ledeZh: string;
+  sections: RecapOk["sections"];
+  outline: RecapOk["outline"];
+  topics: RecapOk["topics"];
+  takeaways: RecapOk["takeaways"];
+  words: RecapOk["words"];
+  collos: RecapOk["collos"];
+  patterns: RecapOk["patterns"];
+  grammar: RecapOk["grammar"];
+  lines: RecapOk["lines"];
+  skills: RecapOk["skills"];
+  marks: string[];
+  latencyMs: number;
+}): RecapOk {
+  return {
+    ok: true as const,
+    title: recap.title,
+    lede: recap.lede,
+    ledeZh: recap.ledeZh,
+    outline: recap.outline,
+    sections: recap.sections,
+    topics: recap.topics,
+    takeaways: recap.takeaways,
+    words: recap.words,
+    collos: recap.collos,
+    patterns: recap.patterns,
+    grammar: recap.grammar,
+    lines: recap.lines,
+    skills: recap.skills,
+    marks: recap.marks,
+    ms: recap.latencyMs,
+  };
+}
+
 export const recapClass = createServerFn({ method: "POST" })
   .validator(
     (input: {
+      phase?: "essay" | "study" | "all";
+      prior?: RecapPrior | null;
       lines: { en: string; zh: string }[];
       topics: string[];
       notes: string[];
@@ -946,6 +995,43 @@ export const recapClass = createServerFn({ method: "POST" })
               : null,
           }))
         : [],
+      phase: input?.phase === "essay" || input?.phase === "study" ? input.phase : "all",
+      prior:
+        input?.prior && typeof input.prior === "object"
+          ? {
+              title: String(input.prior.title ?? "").slice(0, 80),
+              lede: String(input.prior.lede ?? "").slice(0, 800),
+              ledeZh: String(input.prior.ledeZh ?? "").slice(0, 600),
+              sections: Array.isArray(input.prior.sections)
+                ? input.prior.sections.slice(0, 6).map((s) => ({
+                    heading: String(s?.heading ?? "").slice(0, 80),
+                    headingZh: String(s?.headingZh ?? "").slice(0, 80),
+                    body: String(s?.body ?? "").slice(0, 2400),
+                    bodyZh: String(s?.bodyZh ?? "").slice(0, 1800),
+                  }))
+                : [],
+              outline: Array.isArray(input.prior.outline)
+                ? input.prior.outline.slice(0, 6).map((o) => ({
+                    heading: String(o?.heading ?? "").slice(0, 80),
+                    bullets: Array.isArray(o?.bullets)
+                      ? o.bullets.map((b) => String(b).slice(0, 160)).slice(0, 4)
+                      : [],
+                  }))
+                : [],
+              topics: Array.isArray(input.prior.topics)
+                ? input.prior.topics.slice(0, 8).map((t) => ({
+                    en: String(t?.en ?? "").slice(0, 80),
+                    zh: String(t?.zh ?? "").slice(0, 40),
+                  }))
+                : [],
+              takeaways: Array.isArray(input.prior.takeaways)
+                ? input.prior.takeaways.slice(0, 6).map((t) => ({
+                    en: String(t?.en ?? "").slice(0, 220),
+                    zh: String(t?.zh ?? "").slice(0, 160),
+                  }))
+                : [],
+            }
+          : null,
     }),
   )
   .handler(async ({ data }): Promise<RecapOk | ChatErr> => {
@@ -958,6 +1044,20 @@ export const recapClass = createServerFn({ method: "POST" })
       topics: data.topics,
     };
     const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
+    let parsed: Record<string, unknown> = {};
+    let recap = assembleRecap(base, parsed);
+    if (data.phase === "study" && data.prior) {
+      parsed = {
+        title: data.prior.title,
+        lede: data.prior.lede,
+        ledeZh: data.prior.ledeZh,
+        sections: data.prior.sections,
+        outline: data.prior.outline,
+        topics: data.prior.topics,
+        takeaways: data.prior.takeaways,
+      };
+      recap = assembleRecap(base, parsed);
+    } else {
     const contentSys =
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
@@ -983,8 +1083,8 @@ export const recapClass = createServerFn({ method: "POST" })
     ]);
     const fromFlash = content.ok ? extractJsonObject(content.text) ?? {} : {};
     const fromGrok = grok.ok ? extractJsonObject(grok.text) ?? {} : {};
-    let parsed: Record<string, unknown> = pickRicherJson(fromFlash, mergeAiJson(fromFlash, fromGrok));
-    let recap = assembleRecap(base, parsed);
+    parsed = pickRicherJson(fromFlash, mergeAiJson(fromFlash, fromGrok));
+    recap = assembleRecap(base, parsed);
     recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
     if (!isEssayFilled(recap)) {
       const heads = (recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4).length
@@ -1029,6 +1129,13 @@ export const recapClass = createServerFn({ method: "POST" })
     }
     if (!isEssayFilled(recap)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
+    }
+    }
+    if (!isEssayFilled(recap)) {
+      return { ok: false, error: "纪要没写出来，再点一次整理。" };
+    }
+    if (data.phase === "essay") {
+      return recapToOk(recap);
     }
     const studySys =
       "STUDY slot. You are the English teacher. YOU pick the words, the harder ones, and what to underline. 简体中文 in zh/useZh/exampleZh. Return ONLY JSON: {\"marks\":[\"...\"],\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
@@ -1102,24 +1209,7 @@ export const recapClass = createServerFn({ method: "POST" })
         recap = applyZh(recap, map);
       }
     }
-    return {
-      ok: true as const,
-      title: recap.title,
-      lede: recap.lede,
-      ledeZh: recap.ledeZh,
-      outline: recap.outline,
-      sections: recap.sections,
-      topics: recap.topics,
-      takeaways: recap.takeaways,
-      words: recap.words,
-      collos: recap.collos,
-      patterns: recap.patterns,
-      grammar: recap.grammar,
-      lines: recap.lines,
-      skills: recap.skills,
-      marks: recap.marks,
-      ms: recap.latencyMs,
-    };
+    return recapToOk(recap);
   });
 
 export const liveOutline = createServerFn({ method: "POST" })

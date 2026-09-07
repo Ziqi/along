@@ -21,6 +21,7 @@ import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
 import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
 import { canAutoTitle, stampTitle, topicKey } from "@/lib/utils";
+import type { RecapStage } from "@/lib/recap-stage";
 
 let nid = 0;
 const idOf = (p: string) => {
@@ -367,6 +368,7 @@ type AppState = {
   bay: Bay;
   view: View;
   recapPending: boolean;
+  recapStage: RecapStage | null;
   recapError: string | null;
   flash: string | null;
   jotOpen: boolean;
@@ -423,6 +425,7 @@ type AppState = {
     },
   ) => void;
   setRecapPending: (on: boolean) => void;
+  setRecapStage: (stage: RecapStage | null) => void;
   setRecapError: (msg: string | null) => void;
   stashLive: () => void;
   ping: (msg: string) => void;
@@ -471,6 +474,7 @@ export const useCapcom = create<AppState>((set, get) => {
     bay: null,
     view: "live",
     recapPending: false,
+    recapStage: null,
     recapError: null,
     flash: null,
     jotOpen: false,
@@ -743,6 +747,7 @@ export const useCapcom = create<AppState>((set, get) => {
         startedAt: null,
         lastLatency: null,
         recapPending: false,
+        recapStage: null,
         recapError: null,
       });
     },
@@ -872,8 +877,13 @@ export const useCapcom = create<AppState>((set, get) => {
       set({ sessions });
     },
     setRecapPending: (on) =>
-      set({ recapPending: on, recapError: on ? null : get().recapError }),
-    setRecapError: (msg) => set({ recapError: msg, recapPending: false }),
+      set({
+        recapPending: on,
+        recapStage: on ? get().recapStage : null,
+        recapError: on ? null : get().recapError,
+      }),
+    setRecapStage: (stage) => set({ recapStage: stage }),
+    setRecapError: (msg) => set({ recapError: msg, recapPending: false, recapStage: null }),
     stashLive: () => {
       const sid = get().liveId;
       if (!sid) return;

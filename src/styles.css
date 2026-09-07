@@ -226,11 +226,21 @@
   }
 }
 
-.recap-menu > summary {
+.recap-menu > summary,
+.recap-notes > summary {
   list-style: none;
 }
-.recap-menu > summary::-webkit-details-marker {
+.recap-menu > summary::-webkit-details-marker,
+.recap-notes > summary::-webkit-details-marker {
   display: none;
+}
+
+.recap-sheet {
+  background: color-mix(in srgb, var(--color-bg) 88%, var(--color-elevated));
+}
+.recap-paper {
+  background: var(--color-elevated);
+  box-shadow: 0 0 0 1px var(--color-line);
 }
 
 @media print {
@@ -253,6 +263,11 @@
     color: #1c1b17 !important;
   }
   .recap-sheet {
+    max-width: none;
+    background: #fff !important;
+  }
+  .recap-paper {
+    box-shadow: none;
     max-width: none;
   }
 }

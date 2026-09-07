@@ -5,6 +5,7 @@ import { sortSessions, useCapcom } from "@/lib/store";
 import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/components/capcom/use-engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { splitProse } from "@/lib/recap-kit";
+import { recapStageView, type RecapStage } from "@/lib/recap-stage";
 import type { ClassSession, RecapCoach, RecapPair, RecapStudy } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
 import { SignedOut } from "@/lib/auth/gates";
@@ -18,6 +19,7 @@ export function RecapPage() {
   const removeSession = useCapcom((s) => s.removeSession);
   const starSession = useCapcom((s) => s.starSession);
   const pending = useCapcom((s) => s.recapPending);
+  const recapStage = useCapcom((s) => s.recapStage);
   const error = useCapcom((s) => s.recapError);
   const captions = useCapcom((s) => s.captions);
   const liveId = useCapcom((s) => s.liveId);
@@ -72,17 +74,15 @@ export function RecapPage() {
       {catalog ? (
         <button
           type="button"
-          className="fixed inset-0 z-20 bg-fg/20 md:hidden"
+          className="fixed inset-0 z-20 bg-fg/20"
           aria-label="关闭目录"
           onClick={() => setCatalog(false)}
         />
       ) : null}
       <aside
         className={
-          "recap-catalog flex w-[min(18rem,86vw)] shrink-0 flex-col border-r border-line bg-bg md:w-[min(18rem,42vw)] " +
-          (catalog
-            ? "fixed inset-y-0 left-0 z-30 md:static"
-            : "hidden md:flex")
+          "recap-catalog flex w-[min(18rem,86vw)] shrink-0 flex-col border-r border-line bg-bg " +
+          (catalog ? "fixed inset-y-0 left-0 z-30" : "hidden")
         }
       >
         <div className="flex h-10 items-center justify-between border-b border-line px-3">
@@ -178,25 +178,24 @@ export function RecapPage() {
       </aside>
 
       <article className="recap-sheet min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-8 md:px-10 md:py-12">
+        <div className="recap-paper mx-auto flex max-w-[40rem] flex-col gap-10 px-6 py-12 md:px-8 md:py-16">
           {!session ? (
-            <p className="text-base text-muted">结课之后，每一堂会成为左边的一条纪要。</p>
+            <p className="text-base text-muted">结课之后，点「目录」打开课表。</p>
           ) : (
             <>
-              <header className="flex flex-col gap-3">
+              <header className="flex flex-col gap-4">
                 <div className="recap-chrome flex items-center justify-between gap-3">
-                  <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
-                    {formatDayTime(session.startedAt)}
+                  <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
+                    ALONG · 讲义
                     {living ? " · live" : ""}
                     {recap?.draft ? " · 未完稿" : ""}
-                    {session.sourceTitle ? ` · from ${session.sourceTitle}` : ""}
                   </p>
                   <div className="flex items-center gap-1">
                     <Button
                       type="button"
                       variant="quiet"
                       size="sm"
-                      className="h-7 min-h-7 px-2 md:hidden"
+                      className="h-7 min-h-7 px-2"
                       onClick={() => setCatalog(true)}
                     >
                       目录
@@ -212,6 +211,10 @@ export function RecapPage() {
                     </Button>
                   </div>
                 </div>
+                <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
+                  {formatDayTime(session.startedAt)}
+                  {session.sourceTitle ? ` · ${session.sourceTitle}` : ""}
+                </p>
                 <textarea
                   key={`${session.id}-${session.title}`}
                   defaultValue={session.title}
@@ -223,7 +226,7 @@ export function RecapPage() {
                       e.currentTarget.blur();
                     }
                   }}
-                  className="w-full resize-none bg-transparent text-3xl font-medium leading-tight tracking-tight text-fg text-balance focus:outline-none"
+                  className="w-full resize-none bg-transparent text-3xl font-medium leading-tight tracking-tight text-fg text-balance focus:outline-none md:text-4xl"
                   aria-label="纪要标题"
                 />
                 <div className="recap-tools flex flex-wrap items-center gap-2">
@@ -359,7 +362,7 @@ export function RecapPage() {
                       {error} 点上面「整理本堂」。
                     </p>
                   ) : null}
-                  {pending ? <RecapProgress /> : null}
+                  {pending ? <RecapProgress stage={recapStage} /> : null}
                   {!pending && recap?.draft && !recap.lede && !sections.length ? (
                     <p className="text-base leading-relaxed text-muted">
                       目录不是讲义。正文失败会自动再写。不要停在这一页当完成稿。
@@ -781,37 +784,25 @@ function HighlightTerms({ text, terms }: { text: string; terms?: string[] }) {
   );
 }
 
-function RecapProgress() {
-  const [pct, setPct] = useState(4);
-  const [label, setLabel] = useState("读取本堂实录…");
-  useEffect(() => {
-    const t0 = Date.now();
-    const id = window.setInterval(() => {
-      const s = (Date.now() - t0) / 1000;
-      const p = Math.min(94, 100 * (1 - Math.exp(-s / 10)));
-      setPct(p);
-      setLabel(
-        s < 3
-          ? "装配本堂骨架…"
-          : s < 10
-            ? "4.6 在写正文和中文…"
-            : s < 18
-              ? "词表和句式在填…"
-              : "还在写，不会卡死，最多再等一会儿。",
-      );
-    }, 200);
-    return () => window.clearInterval(id);
-  }, []);
+function RecapProgress({ stage }: { stage: RecapStage | null }) {
+  const view = recapStageView(stage);
+  const pct = (view.step / view.of) * 100;
   return (
     <div className="flex flex-col gap-2 border border-line bg-elevated px-4 py-3">
       <div className="flex items-center justify-between gap-3 text-sm">
-        <p className="text-fg">{label}</p>
-        <p className="font-mono text-xs tabular-nums text-dim">{Math.round(pct)}%</p>
+        <p className="text-fg">{view.label}</p>
+        <p className="font-mono text-xs tabular-nums text-dim">
+          {view.step} / {view.of}
+        </p>
       </div>
       <div className="h-1.5 w-full bg-line">
         <div className="h-1.5 bg-fg transition-[width] duration-200" style={{ width: `${pct}%` }} />
       </div>
-      <p className="text-xs text-muted">先写导语和章节，再填词表。写不完会停，再点一次「整理本堂」。</p>
+      <p className="text-xs text-muted">
+        {stage === "study"
+          ? "正文已经铺在下面。语言点写完会接在后面。"
+          : "先写导语和章节。写出来会先落在这张纸上，再填词表。"}
+      </p>
     </div>
   );
 }
@@ -1017,8 +1008,9 @@ function NotesEditor({ session }: { session: ClassSession }) {
   }
 
   return (
-    <section className="flex flex-col gap-4 border-t border-line pt-8">
-      <h2 className="text-xl font-medium tracking-tight">Notes</h2>
+    <details className="recap-notes border-t border-line pt-8">
+      <summary className="cursor-pointer text-xl font-medium tracking-tight">Notes · 要点</summary>
+      <div className="mt-4 flex flex-col gap-4">
       {session.notes.length ? (
         <ul className="flex flex-col gap-5">
           {session.notes.map((j) => (
@@ -1078,7 +1070,8 @@ function NotesEditor({ session }: { session: ClassSession }) {
           记入纪要
         </Button>
       </form>
-    </section>
+      </div>
+    </details>
   );
 }
 
