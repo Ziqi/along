@@ -3,6 +3,7 @@ import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
 import { resolveCoachSame } from "@/lib/coach-kit";
+import { parseClassMode } from "@/lib/class-mode";
 import type { RecapTable } from "@/lib/types";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
@@ -337,8 +338,21 @@ const pick = (parsed: Record<string, unknown> | null, key: string) => {
 const TRANS_SYS =
   'Translate classroom English into 简体中文. Return ONLY JSON: {"zh":"..."}. zh MUST include Chinese characters. Spoken, complete. NEVER copy the English. No pinyin.';
 
-const COACH_SYS =
-  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY means keep the previous topic title — still return a full new 3+2. same=false if last_heard is a question or a new angle; name a specific topic for THIS beat (≤6 English words; may be a sub-topic of prev). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer: 答/答/答 — agree, contrast, example. join: 接话, 追问, 例子. extras: 延展, 追深. en=12-22 words. zh≤24 chars 简体. keys=2-4 words. NEVER repeat last_heard. No markdown.';
+const COACH_SPEAK =
+  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY means keep the previous topic title — still return a full new 3+2. same=false if last_heard is a question or a new angle; name a specific topic for THIS beat (≤6 English words). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer labels: 直接答, 补一层, 举个例. join labels: 同意, 对比, 例子. extras: 延展, 追深. en=12-22 words. zh≤24 chars 简体. keys=2-4 words. NEVER repeat last_heard. No markdown.';
+
+const COACH_AUDIT =
+  COACH_SPEAK +
+  " class_mode=audit. The student is mostly listening and may jump in. Write as if they might speak, not as if they must answer now. Keep the same 3 labels.";
+
+const COACH_LISTEN =
+  'English-class listener notes. Intermediate student in mainland China. ALL zh MUST be 简体中文. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"join","options":[3],"extras":[]}. Each option: {"label":"...","en":"...","zh":"...","keys":["..."]}. This is a podcast / Coursera / recording. NEVER write turns to say to a teacher. NEVER use 同意/对比/例子 or 直接答. options MUST be exactly: 1 label 这句 = the sentence worth stealing (or a tight half-sentence), 2 label 剖析 = why the pattern/tone/collocation is good (en 12-22 words), 3 label 背景 = what this beat is about (en 12-22 words), not an encyclopedia. same=true only keeps the topic title. extras must be []. No markdown.';
+
+function coachSystem(mode: string) {
+  if (mode === "listen") return COACH_LISTEN;
+  if (mode === "audit") return COACH_AUDIT;
+  return COACH_SPEAK;
+}
 
 export const liveTranslate = createServerFn({ method: "POST" })
   .validator((input: { lines: { id: string; en: string }[] }) => ({
@@ -392,6 +406,7 @@ export const liveCoach = createServerFn({ method: "POST" })
       prevTopic?: string;
       prevTopicZh?: string;
       notes?: string[];
+      mode?: string;
     }) => ({
       last: String(input?.last ?? "")
         .trim()
@@ -411,6 +426,10 @@ export const liveCoach = createServerFn({ method: "POST" })
       notes: Array.isArray(input?.notes)
         ? input.notes.map((s) => String(s).slice(0, 120)).filter(Boolean).slice(-8)
         : [],
+      mode:
+        input?.mode === "audit" || input?.mode === "listen" || input?.mode === "interactive"
+          ? input.mode
+          : "interactive",
     }),
   )
   .handler(async ({ data }): Promise<
@@ -430,7 +449,7 @@ export const liveCoach = createServerFn({ method: "POST" })
   > => {
     if (!data.last && !data.intent) return { ok: false, error: "empty" };
     const result = await chat46low({
-      system: COACH_SYS,
+      system: coachSystem(data.mode),
       user: JSON.stringify({
         last_heard: data.last || null,
         recent_class: data.recent,
@@ -438,6 +457,7 @@ export const liveCoach = createServerFn({ method: "POST" })
         prev_topic: data.prevTopic || null,
         prev_topic_zh: data.prevTopicZh || null,
         student_notes: data.notes.length ? data.notes : null,
+        class_mode: data.mode,
       }),
       maxTokens: 700,
       timeoutMs: 8000,
@@ -458,11 +478,14 @@ export const liveCoach = createServerFn({ method: "POST" })
       briefZh: pick(parsed, "briefZh"),
       briefEn: pick(parsed, "briefEn"),
       move,
-      options: parseCoachOptions(parsed?.options, move, 3),
-      extras: parseCoachOptions(parsed?.extras, "join", 2).map((o, i) => ({
-        ...o,
-        label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
-      })),
+      options: parseCoachOptions(parsed?.options, move, 3, data.mode),
+      extras:
+        data.mode === "listen"
+          ? []
+          : parseCoachOptions(parsed?.extras, "join", 2, data.mode).map((o, i) => ({
+              ...o,
+              label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
+            })),
       ms: result.ms,
     };
   });
@@ -475,6 +498,7 @@ export const expandTopic = createServerFn({ method: "POST" })
       topic: string;
       move: string;
       options: string[];
+      mode?: string;
     }) => ({
       lastHeard: String(input?.lastHeard ?? "")
         .trim()
@@ -489,6 +513,10 @@ export const expandTopic = createServerFn({ method: "POST" })
       options: Array.isArray(input?.options)
         ? input.options.map((s) => String(s).slice(0, 180)).slice(0, 3)
         : [],
+      mode:
+        input?.mode === "audit" || input?.mode === "listen" || input?.mode === "interactive"
+          ? input.mode
+          : "interactive",
     }),
   )
   .handler(async ({ data }): Promise<
@@ -543,7 +571,9 @@ export const expandTopic = createServerFn({ method: "POST" })
     }
     const talk = await chat46low({
       system:
-        'Write a 40-second English-class talk FROM THESE FACTS ONLY. Do not invent names or numbers. Do not search the web. Do not copy live_options. ALL zh MUST be 简体中文. Return ONLY JSON: {"viewEn":"...","viewZh":"...","aEn":"...","aZh":"...","angles":[{"en":"...","zh":"..."}],"qEn":"...","qZh":"...","say":"...","frames":[{"en":"...","zh":"..."}],"terms":[{"en":"...","zh":"..."}]}. viewEn=40-70 words. aEn=70-110 words they can say.',
+        data.mode === "listen"
+          ? 'Write classroom background FROM THESE FACTS ONLY. Do not invent names or numbers. Do not search the web. Do not copy live_options. Do not write a speech to a teacher. ALL zh MUST be 简体中文. Return ONLY JSON: {"viewEn":"...","viewZh":"...","aEn":"","aZh":"","angles":[{"en":"...","zh":"..."}],"qEn":"","qZh":"","say":"","frames":[{"en":"...","zh":"..."}],"terms":[{"en":"...","zh":"..."}]}. viewEn=40-70 words of background. aEn must be empty.'
+          : 'Write a 40-second English-class talk FROM THESE FACTS ONLY. Do not invent names or numbers. Do not search the web. Do not copy live_options. ALL zh MUST be 简体中文. Return ONLY JSON: {"viewEn":"...","viewZh":"...","aEn":"...","aZh":"...","angles":[{"en":"...","zh":"..."}],"qEn":"...","qZh":"...","say":"...","frames":[{"en":"...","zh":"..."}],"terms":[{"en":"...","zh":"..."}]}. viewEn=40-70 words. aEn=70-110 words they can say.',
       user: JSON.stringify({
         topic: data.topic || null,
         facts,
@@ -695,13 +725,16 @@ function parseCoachOptions(
   v: unknown,
   move: "answer" | "join",
   limit = 3,
+  mode = "interactive",
 ): { label: string; en: string; zh: string; keys: string[] }[] {
   const fallback =
     limit === 2
       ? ["延展", "追深"]
-      : move === "join"
-        ? ["接话", "追问", "例子"]
-        : ["答", "答", "答"];
+      : mode === "listen"
+        ? ["这句", "剖析", "背景"]
+        : move === "join"
+          ? ["同意", "对比", "例子"]
+          : ["直接答", "补一层", "举个例"];
   const out: { label: string; en: string; zh: string; keys: string[] }[] = [];
   if (Array.isArray(v)) {
     for (const it of v) {
@@ -711,9 +744,11 @@ function parseCoachOptions(
       if (!en) continue;
       const zh = typeof row.zh === "string" ? row.zh.trim() : "";
       const label =
-        typeof row.label === "string" && row.label.trim()
-          ? row.label.trim().slice(0, 6)
-          : fallback[out.length] ?? "答";
+        mode === "listen" && limit !== 2
+          ? fallback[out.length] ?? "这句"
+          : typeof row.label === "string" && row.label.trim()
+            ? row.label.trim().slice(0, 6)
+            : fallback[out.length] ?? "答";
       out.push({ label, en, zh, keys: parseKeys(row.keys, en) });
       if (out.length === limit) break;
     }
@@ -960,6 +995,7 @@ export const recapClass = createServerFn({ method: "POST" })
           aEn?: string;
         } | null;
       }[];
+      mode?: "interactive" | "audit" | "listen";
     }) => ({
       lines: Array.isArray(input?.lines)
         ? input.lines
@@ -1041,17 +1077,26 @@ export const recapClass = createServerFn({ method: "POST" })
                 : [],
             }
           : null,
+      mode: parseClassMode(input?.mode),
     }),
   )
   .handler(async ({ data }): Promise<RecapOk | ChatErr> => {
     if (data.lines.length < 2) return { ok: false, error: "实录太短" };
     const tape = compactTape(data.lines).slice(0, 36);
+    const listenOnly = data.mode === "listen";
     const packet = {
       transcript: tape,
       student_notes: data.notes,
       coach_and_deep: data.coach,
       topics: data.topics,
+      class_mode: data.mode,
     };
+    const listenNote = listenOnly
+      ? " This hour was listen-only (podcast / Coursera / recording). Do not write lines to say to a teacher. Coach cards are 这句 / 剖析 / 背景 and stay in a class-notes appendix, not a speaking appendix."
+      : "";
+    const listenStudy = listenOnly
+      ? " skills = sentence frames worth stealing later, not lines to say to a teacher."
+      : "";
     const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
     let parsed: Record<string, unknown> = {};
     let recap = assembleRecap(base, parsed);
@@ -1070,6 +1115,7 @@ export const recapClass = createServerFn({ method: "POST" })
     const contentSys =
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
+      listenNote +
       " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus 1. 2. 3. Contrast hours need a two-column table on that section. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
       ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"...","table":{"leftHead":"...","leftHeadZh":"...","rightHead":"...","rightHeadZh":"...","rows":[{"left":"...","leftZh":"...","right":"...","rightZh":"..."}]}}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. Omit table when the hour is not a contrast.';
     const userPacket = JSON.stringify(packet);
@@ -1144,7 +1190,8 @@ export const recapClass = createServerFn({ method: "POST" })
     }
     const studySys =
       "STUDY slot. You are the English teacher. YOU pick the words, the harder ones, and what to underline. 简体中文 in zh/useZh/exampleZh. Return ONLY JSON: {\"marks\":[\"...\"],\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
-      GOLD_STUDY;
+      GOLD_STUDY +
+      listenStudy;
     const studyUser = JSON.stringify({
       packet,
       recap: {

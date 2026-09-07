@@ -7,6 +7,7 @@ export function sampleSession(): ClassSession {
   return {
     id: SAMPLE_ID,
     title: "Money apps · 理财课",
+    classMode: "interactive",
     startedAt,
     endedAt: startedAt + 48 * 60 * 1000,
     updatedAt: startedAt + 48 * 60 * 1000,

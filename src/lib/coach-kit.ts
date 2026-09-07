@@ -21,6 +21,7 @@ export function resolveCoachSame(input: {
 export function shouldAskCoach(input: {
   last: string;
   now?: number;
+  minGapMs?: number;
   prev: { prompt: string; at: number } | null;
 }) {
   const last = input.last.replace(/\s+/g, " ").trim();
@@ -31,7 +32,7 @@ export function shouldAskCoach(input: {
   if (!prev) return true;
   const now = input.now ?? Date.now();
   if (prev.prompt === last && now - prev.at < 12000) return false;
-  if (now - prev.at < 3000) return false;
+  if (now - prev.at < (input.minGapMs ?? 3000)) return false;
   return true;
 }
 
@@ -58,4 +59,22 @@ export function shouldKeepCoachCard(input: {
   const a = optionKey(prev.options);
   const b = optionKey(input.options);
   return !(a && a === b);
+}
+
+export function shouldRescueCoach(input: {
+  autoCoach: boolean;
+  listening: boolean;
+  inflight: boolean;
+  lastCaptionAt: number | null;
+  lastCoachOkAt: number;
+  now?: number;
+}) {
+  if (!input.autoCoach || !input.listening || input.inflight) return false;
+  if (input.lastCaptionAt == null) return false;
+  const now = input.now ?? Date.now();
+  if (now - input.lastCaptionAt > 20000) return false;
+  const silentFor = input.lastCoachOkAt
+    ? now - input.lastCoachOkAt
+    : now - input.lastCaptionAt;
+  return silentFor >= 16000;
 }

@@ -1,4 +1,5 @@
 import type { ClassSession, RecapStudy, RecapTable } from "@/lib/types";
+import { isStudyAppendix, recapAppendixCopy } from "@/lib/class-mode";
 import { splitProse } from "@/lib/recap-kit";
 import { formatDayTime } from "@/lib/utils";
 
@@ -89,8 +90,9 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
     lines.push(...dumpStudyMd("Grammar · 语法", recap?.grammar ?? []));
     lines.push(...dumpStudyMd("Key sentences · 好例句", recap?.lines ?? []));
   }
+  const appendix = recapAppendixCopy(isStudyAppendix(session.classMode, recap?.coachPack ?? []));
   if ((recap?.skills ?? []).length) {
-    lines.push("## Speaking moves · 开口建议");
+    lines.push(`## ${appendix.skills}`);
     lines.push("");
     recap!.skills.forEach((t, i) => {
       lines.push(`${i + 1}. ${t.en}`);
@@ -99,7 +101,7 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
     lines.push("");
   }
   if ((recap?.coachPack ?? []).length) {
-    lines.push("## Appendix · 开口原件");
+    lines.push(appendix.md);
     lines.push("");
     for (const c of recap!.coachPack) {
       lines.push(`### ${c.topic}${c.topicZh ? ` · ${c.topicZh}` : ""}`);
@@ -201,6 +203,7 @@ function studyCards(title: string, items: RecapStudy[]) {
 
 export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   const recap = session.recap;
+  const appendix = recapAppendixCopy(isStudyAppendix(session.classMode, recap?.coachPack ?? []));
   const sections = (recap?.sections ?? [])
     .map(
       (sec, i) =>
@@ -254,12 +257,12 @@ ${
 }
 ${
   (recap?.skills ?? []).length
-    ? `<h2>Speaking moves · 开口建议</h2><ol>${recap!.skills.map((t) => `<li><p>${esc(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
+    ? `<h2>${esc(appendix.skills)}</h2><ol>${recap!.skills.map((t) => `<li><p>${esc(t.en)}</p>${t.zh ? `<p class="zh">${esc(t.zh)}</p>` : ""}</li>`).join("")}</ol>`
     : ""
 }
 ${
   (recap?.coachPack ?? []).length
-    ? `<p class="part">PART 3 · 开口原件</p><h2>Speaking appendix</h2>${recap!.coachPack
+    ? `<p class="part">${esc(appendix.htmlPart)}</p><h2>${esc(appendix.htmlHeading)}</h2>${recap!.coachPack
         .map((c) => {
           const opts = c.options
             .map((o) => `<li><p>${esc(o.en)}</p>${o.zh ? `<p class="zh">${esc(o.zh)}</p>` : ""}</li>`)

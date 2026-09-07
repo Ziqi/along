@@ -554,6 +554,7 @@ export function spacexSession(): ClassSession {
   return {
     id: SPACEX_ID,
     title: SPACEX_TITLE,
+    classMode: "interactive",
     startedAt: STARTED,
     endedAt: STARTED + 52 * 60 * 1000,
     updatedAt: STARTED + 52 * 60 * 1000,

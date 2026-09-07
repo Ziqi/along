@@ -15,6 +15,10 @@ export type CoachOption = {
   keys: string[];
 };
 
+import type { ClassMode } from "./class-mode";
+
+export type { ClassMode };
+
 export type CoachCard = {
   id: string;
   topic: string;
@@ -22,6 +26,7 @@ export type CoachCard = {
   briefZh: string;
   briefEn: string;
   move: "answer" | "join";
+  mode?: ClassMode;
   options: CoachOption[];
   extras: CoachOption[];
   source: "auto" | "intent";
@@ -149,6 +154,7 @@ export type RecapCoach = {
   briefEn: string;
   briefZh: string;
   move: "answer" | "join";
+  mode?: ClassMode;
   options: CoachOption[];
   extras: CoachOption[];
   deep: RecapDeep | null;
@@ -183,6 +189,7 @@ export type ClassRecap = {
 export type ClassSession = {
   id: string;
   title: string;
+  classMode?: ClassMode;
   startedAt: number;
   endedAt: number | null;
   updatedAt: number;

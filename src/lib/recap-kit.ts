@@ -529,6 +529,7 @@ export function packCoach(
       briefEn: c.briefEn,
       briefZh: c.briefZh,
       move: c.move,
+      mode: c.mode,
       options: c.options.slice(0, 3),
       extras: c.extras.slice(0, 2),
       deep,

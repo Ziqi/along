@@ -5,6 +5,7 @@ import {
   resolveCoachSame,
   shouldAskCoach,
   shouldKeepCoachCard,
+  shouldRescueCoach,
 } from "./coach-kit.ts";
 
 const opts = (en: string) => [{ en }, { en: `${en} two` }, { en: `${en} three` }];
@@ -47,6 +48,13 @@ describe("coach same / keep", () => {
       }),
       true,
     );
+  });
+
+  it("uses a wider gap in audit so a busy room does not flood cards", () => {
+    const prev = { prompt: "The quarter missed again this morning.", at: 10_000 };
+    const last = "Retail investors sold on the first miss and walked.";
+    assert.equal(shouldAskCoach({ last, prev, now: 14_000, minGapMs: 5500 }), false);
+    assert.equal(shouldAskCoach({ last, prev, now: 16_000, minGapMs: 5500 }), true);
   });
 
   it("asks again on a new line; skips the same line within 12s", () => {
@@ -117,6 +125,36 @@ describe("coach same / keep", () => {
         now: 16_000,
       }),
       true,
+    );
+  });
+
+  it("rescues only when captions are still flowing and the last card is stale", () => {
+    const base = {
+      autoCoach: true,
+      listening: true,
+      inflight: false,
+      lastCaptionAt: 20_000,
+    };
+    assert.equal(
+      shouldRescueCoach({ ...base, lastCoachOkAt: 0, now: 36_000 }),
+      true,
+    );
+    assert.equal(
+      shouldRescueCoach({ ...base, lastCoachOkAt: 30_000, now: 36_000 }),
+      false,
+    );
+    assert.equal(
+      shouldRescueCoach({ ...base, lastCoachOkAt: 10_000, now: 42_000 }),
+      false,
+    );
+    assert.equal(
+      shouldRescueCoach({
+        ...base,
+        inflight: true,
+        lastCoachOkAt: 0,
+        now: 36_000,
+      }),
+      false,
     );
   });
 });

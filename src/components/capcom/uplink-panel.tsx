@@ -6,6 +6,12 @@ import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
 import { requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { essayOf } from "@/lib/recap-kit";
+import {
+  isSpeakMode,
+  isStudyCard,
+  parseClassMode,
+  topicBeatLabel,
+} from "@/lib/class-mode";
 
 function cardHasDeep(
   id: string | null,
@@ -31,14 +37,21 @@ export function UplinkPanel() {
   const essayError = useCapcom((s) => s.essayError);
   const captions = useCapcom((s) => s.captions);
   const autoCoach = useCapcom((s) => s.autoCoach);
+  const classMode = useCapcom((s) => s.classMode);
+  const liveId = useCapcom((s) => s.liveId);
+  const sessions = useCapcom((s) => s.sessions);
   const setJotOpen = useCapcom((s) => s.setJotOpen);
+  const mode = parseClassMode(
+    sessions.find((s) => s.id === liveId)?.classMode ?? classMode,
+  );
   const latest = coaches.at(-1) ?? null;
   const scroller = useRef<HTMLDivElement>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const stayOnCard =
-    Boolean(activeId && activeId !== latest?.id) &&
-    (!followLatest || cardHasDeep(activeId, coaches, essays, essayPending, essayTarget));
+    !followLatest ||
+    (Boolean(activeId && activeId !== latest?.id) &&
+      cardHasDeep(activeId, coaches, essays, essayPending, essayTarget));
 
   useEffect(() => {
     const el = scroller.current;
@@ -63,11 +76,19 @@ export function UplinkPanel() {
     setActiveId(latest.id);
   }, [latest?.id, stayOnCard, followLatest]);
 
-  const headerStatus = pending
-    ? "写…"
-    : latest
-      ? `${latest.latencyMs} 毫秒`
-      : "待命";
+  const headerStatus = !autoCoach
+    ? "已暂停"
+    : pending
+      ? latest
+        ? "写…"
+        : "跟听中"
+      : error
+        ? "这轮慢了，正在重写"
+        : latest
+          ? `${latest.latencyMs} 毫秒`
+          : captions.length
+            ? "跟听中"
+            : "待命";
 
   const empty = coaches.length === 0 && !error;
 
@@ -118,7 +139,7 @@ export function UplinkPanel() {
             </Button>
           ) : null}
           <p className="pl-1 text-[10px] tabular-nums text-dim">
-            {autoCoach ? headerStatus : "已暂停"}
+            {headerStatus}
           </p>
         </div>
       </header>
@@ -144,7 +165,9 @@ export function UplinkPanel() {
                   });
                 }}
               >
-                <span className="max-w-[9rem] truncate">{card.topic || `主题 ${i + 1}`}</span>
+                <span className="max-w-[9rem] truncate">
+                  {topicBeatLabel(card.topic || `主题 ${i + 1}`, coaches, card.id)}
+                </span>
                 {deep ? <span className="text-[10px] text-dim">深</span> : null}
               </button>
             );
@@ -156,10 +179,16 @@ export function UplinkPanel() {
         {empty ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
             <p className="text-[10px] tracking-[0.18em] text-dim">
-              {pending ? "写…" : "待命"}
+              {pending ? "跟听中" : captions.length ? "跟听中" : "待命"}
             </p>
             <p className="max-w-sm text-sm leading-relaxed text-muted text-pretty">
-              先概括主题，再给三条开口、两条扩展。问句三条回复；讨论接话、追问、例子。点上方主题可跳回。
+              {!liveId
+                ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。"
+                : mode === "listen"
+                  ? "只听。落下值得留的一句，就写这句、剖析、这一拍的背景。点上方主题可跳回。"
+                  : mode === "audit"
+                    ? "旁听。你若要接，给同意、对比、例子。问句则直接答、补一层、举个例。"
+                    : "互动。讨论给同意、对比、例子。问句给直接答、补一层、举个例。"}
             </p>
           </div>
         ) : error && !latest ? (
@@ -176,6 +205,7 @@ export function UplinkPanel() {
                   <div className="px-3 py-4 md:px-4">
                     <CoachBlock
                       card={card}
+                      classMode={mode}
                       deepPending={deepPending}
                       busy={deepPending}
                       onDeep={() => {
@@ -195,12 +225,15 @@ export function UplinkPanel() {
                     <div className="border-t border-line bg-elevated px-3 py-4 md:px-4">
                       {deepPending || essay?.draft ? (
                         <p className="text-sm text-muted">
-                          正在检索：事实、案例、一段能讲四十秒的话。不是把上面 1.2.3 再写长。
+                          {isSpeakMode(card.mode ?? mode)
+                            ? "正在检索：事实、案例、一段能讲四十秒的话。不是把上面三条再写长。"
+                            : "正在检索这一拍的背景和资料。不是把剖析再写长。"}
                         </p>
                       ) : null}
                       {ready && essay ? (
                         <EssayBlock
                           essay={essay}
+                          listen={!isSpeakMode(card.mode ?? mode)}
                           onJot={(text) => void captureNote(text, "deep", { en: text })}
                         />
                       ) : deepErr && !ready ? (
@@ -223,24 +256,35 @@ export function UplinkPanel() {
 
 function CoachBlock({
   card,
+  classMode,
   deepPending,
   busy,
   onDeep,
   onJot,
 }: {
   card: CoachCard;
+  classMode: ReturnType<typeof parseClassMode>;
   deepPending: boolean;
   busy: boolean;
   onDeep: () => void;
   onJot: (text: string) => void;
 }) {
+  const study = isStudyCard(card);
+  const audit = (card.mode ?? classMode) === "audit";
+  const kicker = study
+    ? "这一拍 · 这句 + 剖析 + 背景"
+    : audit
+      ? card.move === "answer"
+        ? "若要开口 · 直接答 / 补一层 / 举个例"
+        : "若要开口 · 同意 / 对比 / 例子"
+      : card.move === "answer"
+        ? "主题 · 直接答 / 补一层 / 举个例"
+        : "主题 · 同意 / 对比 / 例子";
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[10px] text-dim">
-            {card.move === "join" ? "主题 · 概括 + 三条参与 + 两条扩展" : "主题 · 概括 + 三条回复 + 两条扩展"}
-          </p>
+          <p className="text-[10px] text-dim">{kicker}</p>
           <p className="mt-1 text-base font-medium tracking-tight text-fg">
             {card.topic || "—"}
           </p>
@@ -277,7 +321,7 @@ function CoachBlock({
           </li>
         ))}
       </ol>
-      {card.extras?.length ? (
+      {card.extras?.length && !study ? (
         <div className="flex flex-col gap-3 border-t border-line pt-3">
           <p className="text-[10px] text-dim">扩展 · 把话题推远一点</p>
           {card.extras.map((opt, i) => (
@@ -296,14 +340,20 @@ function CoachBlock({
 
 function EssayBlock({
   essay,
+  listen,
   onJot,
 }: {
   essay: TopicEssay;
+  listen?: boolean;
   onJot: (text: string) => void;
 }) {
   return (
     <article className="flex flex-col gap-4">
-      <p className="text-[10px] text-dim">DeepSearch · 事实 + 四十秒发言 · {essay.latencyMs} 毫秒</p>
+      <p className="text-[10px] text-dim">
+        {listen
+          ? `DeepSearch · 背景和资料 · ${essay.latencyMs} 毫秒`
+          : `DeepSearch · 事实 + 四十秒发言 · ${essay.latencyMs} 毫秒`}
+      </p>
       {essay.title ? (
         <h3 className="text-base font-medium tracking-tight">{essay.title}</h3>
       ) : null}
