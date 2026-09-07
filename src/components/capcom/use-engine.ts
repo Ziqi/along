@@ -15,6 +15,7 @@ import {
 import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
 import { shouldAskCoach, shouldKeepCoachCard } from "@/lib/coach-kit";
+import { coachMinGapMs, parseClassMode, type ClassMode } from "@/lib/class-mode";
 import {
   COACH_TIMEOUT_MS,
   TRANS_CAP,
@@ -64,6 +65,8 @@ export function abortLive() {
   transTries.clear();
   transBusy = 0;
   coachInflight = false;
+  coachQueued = false;
+  lastCoachOkAt = 0;
   recapGen += 1;
   const s = useCapcom.getState();
   s.setCoachPending(false);
@@ -106,7 +109,15 @@ export function ingest(en: string, src: "mic" | "hand" = "mic") {
 
 let transBusy = 0;
 let coachInflight = false;
+let coachQueued = false;
+let lastCoachOkAt = 0;
 const transTries = new Map<string, number>();
+
+function liveMode(): ClassMode {
+  const s = useCapcom.getState();
+  const ses = s.sessions.find((x) => s.liveId && x.id === s.liveId);
+  return parseClassMode(ses?.classMode ?? s.classMode);
+}
 
 function trimTranslateQueue() {
   const s = useCapcom.getState();
@@ -162,22 +173,32 @@ export function retryPendingZh() {
   for (let i = 0; i < slots; i += 1) void flushTranslate();
 }
 
-async function flushCoach(source: "auto" | "intent", spoken?: string) {
+async function flushCoach(
+  source: "auto" | "intent",
+  spoken?: string,
+  opts?: { rescue?: boolean },
+) {
   const store = useCapcom.getState();
   const intent = source === "intent" ? (spoken ?? store.intent).trim() : "";
   const last = store.captions.at(-1)?.en ?? "";
+  const mode = liveMode();
   if (!last && !intent) return;
   if (!store.autoCoach && source === "auto") return;
+  if (coachInflight && source === "auto") {
+    coachQueued = true;
+    return;
+  }
   if (
     source === "auto" &&
+    !opts?.rescue &&
     !shouldAskCoach({
       last,
+      minGapMs: coachMinGapMs(mode),
       prev: store.coach ? { prompt: store.coach.prompt, at: store.coach.at } : null,
     })
   ) {
     return;
   }
-  if (coachInflight && source === "auto") return;
   const gen = ++coachGen;
   coachInflight = true;
   store.setCoachPending(true);
@@ -191,6 +212,7 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
           prevTopic: store.coach?.topic ?? "",
           prevTopicZh: store.coach?.topicZh ?? "",
           notes: store.jots.map((j) => j.en || j.zh).filter(Boolean),
+          mode,
         },
       }),
       COACH_TIMEOUT_MS,
@@ -223,6 +245,7 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
       return;
     }
     if (source === "intent") useCapcom.getState().setIntent("");
+    lastCoachOkAt = Date.now();
     useCapcom.getState().setCoach({
       id: `c-${Date.now().toString(36)}`,
       topic: result.topic,
@@ -230,6 +253,7 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
       briefZh: result.briefZh,
       briefEn: result.briefEn,
       move: result.move,
+      mode,
       options: result.options,
       extras: result.extras ?? [],
       source,
@@ -238,10 +262,29 @@ async function flushCoach(source: "auto" | "intent", spoken?: string) {
       at: Date.now(),
     });
   } catch {
-    if (gen === coachGen) useCapcom.getState().setCoachError("教练这轮没跟上，下句会再写。");
+    if (gen === coachGen) useCapcom.getState().setCoachError("这轮慢了，正在重写");
   } finally {
-    if (gen === coachGen) coachInflight = false;
+    if (gen === coachGen) {
+      coachInflight = false;
+      if (coachQueued) {
+        coachQueued = false;
+        void flushCoach("auto");
+      }
+    }
   }
+}
+
+function rescueCoach() {
+  const s = useCapcom.getState();
+  if (!s.autoCoach || !s.listening) return;
+  const last = s.captions.at(-1);
+  if (!last) return;
+  if (coachInflight) return;
+  const heardAgo = Date.now() - last.at;
+  if (heardAgo > 20000) return;
+  const silentFor = lastCoachOkAt ? Date.now() - lastCoachOkAt : heardAgo;
+  if (silentFor < 16000) return;
+  void flushCoach("auto", undefined, { rescue: true });
 }
 
 export function requestCoach(spoken?: string) {
@@ -308,6 +351,7 @@ export async function requestEssay(coachId?: string) {
         topic: bits.topic,
         move: bits.move,
         options: bits.options,
+        mode: card?.mode ?? liveMode(),
       },
     });
     if (essayGens.get(id) !== gen) return;
@@ -769,12 +813,17 @@ function onListenState(live: boolean) {
   }
 }
 
-export function arm() {
+export function arm(mode?: ClassMode) {
   const store = useCapcom.getState();
   const open =
     store.sessions.find((s) => s.id === store.liveId && !s.endedAt) ?? null;
   store.setView("live");
-  if (!open) store.resetHud();
+  if (!open) {
+    store.resetHud();
+    if (mode) store.setClassMode(mode);
+  } else {
+    store.setClassMode(parseClassMode(open.classMode ?? store.classMode));
+  }
   store.setListening(true);
   store.setMic("arming");
   store.setEngineError("请允许麦克风。接通后会出现「听课中」。");
@@ -846,7 +895,10 @@ export function useCapcomEngine() {
       const mic = useCapcom.getState().mic;
       if (mic === "idle") useCapcom.getState().setMic("unsupported");
     }
-    const tick = window.setInterval(() => retryPendingZh(), 2800);
+    const tick = window.setInterval(() => {
+      retryPendingZh();
+      rescueCoach();
+    }, 2800);
     return () => window.clearInterval(tick);
   }, []);
 }

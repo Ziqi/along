@@ -49,6 +49,13 @@ describe("coach same / keep", () => {
     );
   });
 
+  it("uses a wider gap in audit so a busy room does not flood cards", () => {
+    const prev = { prompt: "The quarter missed again this morning.", at: 10_000 };
+    const last = "Retail investors sold on the first miss and walked.";
+    assert.equal(shouldAskCoach({ last, prev, now: 14_000, minGapMs: 5500 }), false);
+    assert.equal(shouldAskCoach({ last, prev, now: 16_000, minGapMs: 5500 }), true);
+  });
+
   it("asks again on a new line; skips the same line within 12s", () => {
     const prev = { prompt: "The quarter missed again this morning.", at: 10_000 };
     assert.equal(

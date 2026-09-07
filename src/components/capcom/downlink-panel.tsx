@@ -125,10 +125,10 @@ function Preflight() {
   return (
     <div className="flex flex-col gap-3 py-1">
       <p className="text-sm leading-relaxed text-muted text-pretty">
-        点「开始听」开一堂新课。暂停不会结课。结课立刻进纪要，下一堂再点「开始听」。
+        点「开始听」先选互动、旁听或只听，再开一堂。暂停不会结课。结课立刻进纪要。
       </p>
       <p className="text-sm leading-relaxed text-muted text-pretty">
-        「纪要」课上就能进：实时提纲、刚才听到的、自己记的要点。教练点「记」也进纪要。
+        左边听懂这一句，右边教练跟着写。教练点「记」也进纪要。
       </p>
     </div>
   );

@@ -429,6 +429,19 @@ describe("DeepSearch keyed by coach card id", () => {
     assert.equal(packed.at(-1)?.topic, "Beat 23");
   });
 
+  it("keeps listen-mode cards as study rows in the pack", () => {
+    const card = coachCard("coach-listen", "Even though");
+    card.mode = "listen";
+    card.options = [
+      { label: "这句", en: "Even though hospitals are convenient, you still wait.", zh: "即使方便，你仍要等。", keys: [] },
+      { label: "剖析", en: "Even though lets you concede first, then turn.", zh: "先让一步再转折。", keys: [] },
+      { label: "背景", en: "The hour compared wait times in two countries.", zh: "这小时在比两国等候。", keys: [] },
+    ];
+    const packed = packCoach([card], {});
+    assert.equal(packed[0]?.mode, "listen");
+    assert.equal(packed[0]?.options[0]?.label, "这句");
+  });
+
   it("packs two same-topic cards with their own DeepSearch", () => {
     const packed = packCoach(
       [coachCard("coach-a", "Quarterly pressure"), coachCard("coach-b", "Quarterly pressure")],

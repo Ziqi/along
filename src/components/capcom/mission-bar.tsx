@@ -5,11 +5,12 @@ import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
 import { endClass, openRecap, goHomeSafe } from "@/components/capcom/use-engine";
+import { CLASS_MODES, modeLabel, parseClassMode, type ClassMode } from "@/lib/class-mode";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 type Props = {
-  onArm: () => void;
+  onArm: (mode?: ClassMode) => void;
   onSafe: () => void;
 };
 
@@ -29,9 +30,16 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const atHome = view === "live" && !openClass;
   const reading = view === "recap";
   const showRecap = sessions.length > 0 || openClass;
+  const classMode = useCapcom((s) => s.classMode);
+  const setClassMode = useCapcom((s) => s.setClassMode);
   const [theme, setTheme] = useState<Theme>("day");
   const [more, setMore] = useState(false);
+  const [pick, setPick] = useState(false);
+  const [switchMode, setSwitchMode] = useState(false);
   const { isPending } = useCurrentUserState();
+  const liveMode = parseClassMode(
+    sessions.find((s) => s.id === liveId && !s.endedAt)?.classMode ?? classMode,
+  );
 
   useEffect(() => {
     const next = readTheme();
@@ -51,7 +59,17 @@ export function MissionBar({ onArm, onSafe }: Props) {
       暂停
     </Button>
   ) : (
-    <Button type="button" variant="arm" size="lg" className="max-md:h-10 max-md:min-h-10 max-md:px-3" onClick={onArm} disabled={arming}>
+    <Button
+      type="button"
+      variant="arm"
+      size="lg"
+      className="max-md:h-10 max-md:min-h-10 max-md:px-3"
+      onClick={() => {
+        if (paused || openClass) onArm();
+        else setPick(true);
+      }}
+      disabled={arming}
+    >
       <Mic className="size-4" />
       {arming ? "开麦中" : paused ? "继续听" : "开始听"}
     </Button>
@@ -59,6 +77,20 @@ export function MissionBar({ onArm, onSafe }: Props) {
 
   const extras = (
     <>
+      {openClass && !reading ? (
+        <Button
+          type="button"
+          variant="quiet"
+          size="lg"
+          className="max-md:w-full max-md:justify-start"
+          onClick={() => {
+            setSwitchMode(true);
+            setMore(false);
+          }}
+        >
+          {modeLabel(liveMode)}
+        </Button>
+      ) : null}
       {openClass && !reading ? (
         <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { setJotOpen(true); setMore(false); }}>
           <PenLine className="size-3.5" />
@@ -136,6 +168,15 @@ export function MissionBar({ onArm, onSafe }: Props) {
         {arming ? <span className="text-fg">正在开麦…</span> : null}
         {paused ? <span>已暂停</span> : null}
         {atHome ? <span className="hidden sm:inline">首页</span> : null}
+        {openClass && !reading ? (
+          <button
+            type="button"
+            className="hidden text-xs text-muted hover:text-fg sm:inline"
+            onClick={() => setSwitchMode((v) => !v)}
+          >
+            {modeLabel(liveMode)}
+          </button>
+        ) : null}
         {lastLatency != null ? (
           <span className="hidden font-mono tabular-nums text-dim sm:inline">
             {lastLatency} 毫秒
@@ -215,6 +256,57 @@ export function MissionBar({ onArm, onSafe }: Props) {
           </div>
         ) : null}
       </div>
+      {pick || switchMode ? (
+        <ModeSheet
+          title={pick ? "这堂怎么听" : "换成哪种课"}
+          onPick={(mode) => {
+            setClassMode(mode);
+            setPick(false);
+            setSwitchMode(false);
+            if (pick) onArm(mode);
+          }}
+          onClose={() => {
+            setPick(false);
+            setSwitchMode(false);
+          }}
+        />
+      ) : null}
     </header>
+  );
+}
+
+function ModeSheet({
+  title,
+  onPick,
+  onClose,
+}: {
+  title: string;
+  onPick: (mode: ClassMode) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/30 p-3 sm:items-center">
+      <div className="w-full max-w-md border border-line bg-elevated p-4 shadow-lg">
+        <p className="text-base font-medium tracking-tight">{title}</p>
+        <p className="mt-1 text-sm text-muted">教练按这个跟。点错了顶栏还能改。</p>
+        <ul className="mt-4 flex flex-col gap-2">
+          {CLASS_MODES.map((m) => (
+            <li key={m.id}>
+              <button
+                type="button"
+                className="flex w-full flex-col items-start border border-line bg-surface px-3 py-3 text-left hover:bg-elevated"
+                onClick={() => onPick(m.id)}
+              >
+                <span className="text-sm font-medium text-fg">{m.label}</span>
+                <span className="mt-0.5 text-sm text-muted">{m.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <Button type="button" variant="quiet" size="lg" className="mt-3" onClick={onClose}>
+          取消
+        </Button>
+      </div>
+    </div>
   );
 }

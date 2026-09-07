@@ -7,6 +7,7 @@ import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { splitProse } from "@/lib/recap-kit";
 import { recapStageView, type RecapStage } from "@/lib/recap-stage";
 import type { ClassSession, RecapCoach, RecapPair, RecapStudy, RecapTable } from "@/lib/types";
+import { isStudyCard, parseClassMode } from "@/lib/class-mode";
 import { formatDayTime } from "@/lib/utils";
 import { SignedOut } from "@/lib/auth/gates";
 
@@ -579,11 +580,22 @@ export function RecapPage() {
                     <section className="flex flex-col gap-8 border-t border-line pt-8">
                       <div>
                         <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                          PART 3 · 附录 · 课中开口
+                          {parseClassMode(session.classMode) === "listen" ||
+                          coachPack.every((c) => isStudyCard(c))
+                            ? "PART 3 · 附录 · 课中剖析"
+                            : "PART 3 · 附录 · 课中开口"}
                         </p>
-                        <h2 className="mt-2 text-xl font-medium tracking-tight">Speaking appendix · 开口原件</h2>
+                        <h2 className="mt-2 text-xl font-medium tracking-tight">
+                          {parseClassMode(session.classMode) === "listen" ||
+                          coachPack.every((c) => isStudyCard(c))
+                            ? "Class notes · 课中剖析"
+                            : "Speaking appendix · 开口原件"}
+                        </h2>
                         <p className="mt-1 text-sm text-muted">
-                          课上教练和 DeepSearch 的原件，附在讲义后面，方便对照开口。
+                          {parseClassMode(session.classMode) === "listen" ||
+                          coachPack.every((c) => isStudyCard(c))
+                            ? "课上留下的句子、剖析和背景，附在讲义后面。"
+                            : "课上教练和 DeepSearch 的原件，附在讲义后面，方便对照开口。"}
                         </p>
                       </div>
                       {coachPack.map((card, i) => (
@@ -656,7 +668,8 @@ function CoachPackCard({
     <article className="flex flex-col gap-3 border border-line bg-elevated px-4 py-4">
       <header className="flex flex-col gap-1">
         <p className="font-mono text-[10px] tracking-[0.18em] text-dim">
-          {String(n).padStart(2, "0")} · {card.move === "answer" ? "答" : "接"}
+          {String(n).padStart(2, "0")} ·{" "}
+          {isStudyCard(card) ? "析" : card.move === "answer" ? "答" : "接"}
         </p>
         <h3 className="text-lg font-medium tracking-tight">{card.topic}</h3>
         {card.topicZh ? <p className="text-sm text-muted">{card.topicZh}</p> : null}

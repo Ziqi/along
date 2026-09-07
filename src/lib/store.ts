@@ -22,6 +22,7 @@ import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
 import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
 import { newerSession, sortSessions, toggleStar } from "@/lib/session-order";
 import { COACH_KEEP } from "@/lib/live-queue";
+import { parseClassMode, type ClassMode } from "@/lib/class-mode";
 import { canAutoTitle, stampTitle, topicKey } from "@/lib/utils";
 import type { RecapStage } from "@/lib/recap-stage";
 
@@ -236,6 +237,7 @@ function normalizeSessions(raw: unknown): ClassSession[] {
           transcript: Array.isArray(s.transcript)
             ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
             : [],
+          classMode: parseClassMode((s as { classMode?: unknown }).classMode),
           sourceId: s.sourceId ?? null,
           sourceTitle: s.sourceTitle ?? null,
           starred: Boolean(s.starred),
@@ -363,6 +365,7 @@ function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
     sourceTitle: newer.sourceTitle ?? older.sourceTitle,
     starred: newer.starred,
     starredAt: newer.starred ? (newer.starredAt ?? older.starredAt) : null,
+    classMode: parseClassMode(newer.classMode ?? older.classMode),
   };
 }
 
@@ -381,6 +384,7 @@ type AppState = {
   mic: MicState;
   listening: boolean;
   autoCoach: boolean;
+  classMode: ClassMode;
   startedAt: number | null;
   lastLatency: number | null;
   coach: CoachCard | null;
@@ -421,6 +425,7 @@ type AppState = {
   setMic: (mic: MicState) => void;
   setListening: (on: boolean) => void;
   setAutoCoach: (on: boolean) => void;
+  setClassMode: (mode: ClassMode) => void;
   setIntent: (text: string) => void;
   setCoach: (card: CoachCard | null) => void;
   setCoachPending: (on: boolean) => void;
@@ -487,6 +492,7 @@ export const useCapcom = create<AppState>((set, get) => {
     mic: "idle",
     listening: false,
     autoCoach: true,
+    classMode: "interactive",
     startedAt: null,
     lastLatency: null,
     coach: null,
@@ -594,6 +600,17 @@ export const useCapcom = create<AppState>((set, get) => {
     setMic: (mic) => set({ mic }),
     setListening: (on) => set({ listening: on }),
     setAutoCoach: (on) => set({ autoCoach: on }),
+    setClassMode: (mode) => {
+      const classMode = parseClassMode(mode);
+      const liveId = get().liveId;
+      const sessions = get().sessions.map((s) =>
+        s.id === liveId && !s.endedAt
+          ? { ...s, classMode, updatedAt: Date.now() }
+          : s,
+      );
+      persistSessions(sessions);
+      set({ classMode, sessions });
+    },
     setIntent: (text) => set({ intent: text }),
     setCoach: (card) => {
       if (!card) {
@@ -732,6 +749,7 @@ export const useCapcom = create<AppState>((set, get) => {
         transcript: src.transcript.map((t) => ({ ...t })),
         coaches: src.coaches ?? [],
         essays: src.essays ?? {},
+        classMode: parseClassMode(src.classMode),
         sourceId: src.id,
         sourceTitle: src.title,
         starred: false,
@@ -808,6 +826,7 @@ export const useCapcom = create<AppState>((set, get) => {
       const next: ClassSession = {
         id: idOf("ses"),
         title,
+        classMode: get().classMode,
         startedAt: now,
         endedAt: null,
         notes: [],
@@ -996,6 +1015,7 @@ export const useCapcom = create<AppState>((set, get) => {
                 pending: false,
               })),
           seq: keepTape ? cur.seq : tape.length,
+          classMode: open ? parseClassMode(open.classMode) : cur.classMode,
         });
       };
       const withSample = (sessions: ClassSession[]) => {

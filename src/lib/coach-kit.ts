@@ -21,6 +21,7 @@ export function resolveCoachSame(input: {
 export function shouldAskCoach(input: {
   last: string;
   now?: number;
+  minGapMs?: number;
   prev: { prompt: string; at: number } | null;
 }) {
   const last = input.last.replace(/\s+/g, " ").trim();
@@ -31,7 +32,7 @@ export function shouldAskCoach(input: {
   if (!prev) return true;
   const now = input.now ?? Date.now();
   if (prev.prompt === last && now - prev.at < 12000) return false;
-  if (now - prev.at < 3000) return false;
+  if (now - prev.at < (input.minGapMs ?? 3000)) return false;
   return true;
 }
 
