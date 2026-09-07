@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay } from "@/lib/essay-kit";
-import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isFilled, missingZh, studyFromTape } from "@/lib/recap-kit";
-import { extractJsonObject } from "@/lib/utils";
+import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
+import { looksLikeSpacexPacket, spacexContentJson } from "@/lib/recap-spacex";
+import { extractJsonObject } from "@/lib/json-object";
 
 const FLASH = "grok-4.20-non-reasoning";
 const FLASH_FALLBACK = "grok-4.3";
@@ -47,12 +48,31 @@ async function readChat(res: Response, started: number) {
   };
 }
 
+function chatPayload(model: string, params: {
+  messages: { role: string; content: string }[];
+  maxTokens: number;
+  temperature: number;
+  json?: boolean;
+  reasoning?: string;
+}) {
+  const body: Record<string, unknown> = {
+    model,
+    temperature: params.temperature,
+    max_tokens: params.maxTokens,
+    messages: params.messages,
+  };
+  if (params.json) body.response_format = { type: "json_object" };
+  if (params.reasoning) body.reasoning_effort = params.reasoning;
+  return body;
+}
+
 async function chatFlash(params: {
   system: string;
   user: string;
   maxTokens: number;
   temperature?: number;
   timeoutMs?: number;
+  json?: boolean;
 }): Promise<{ ok: true; text: string; ms: number } | ChatErr> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) return { ok: false, error: "AI 暂不可用" };
@@ -67,23 +87,27 @@ async function chatFlash(params: {
     ? setTimeout(() => ac.abort(), params.timeoutMs)
     : null;
   try {
-    const first = await postChat({
-      model: FLASH,
-      temperature,
-      max_tokens: params.maxTokens,
-      messages,
-    }, ac.signal);
+    const first = await postChat(
+      chatPayload(FLASH, { messages, maxTokens: params.maxTokens, temperature, json: params.json }),
+      ac.signal,
+    );
     if (!first.ok) return first;
     let res = first.res!;
     if (res.status === 400 || res.status === 404) {
-      const fb = await postChat({
-        model: FLASH_FALLBACK,
-        temperature,
-        max_tokens: params.maxTokens,
-        messages,
-      }, ac.signal);
-      if (!fb.ok) return fb;
-      res = fb.res!;
+      const retry = await postChat(
+        chatPayload(FLASH, { messages, maxTokens: params.maxTokens, temperature }),
+        ac.signal,
+      );
+      if (retry.ok && retry.res && retry.res.status !== 400 && retry.res.status !== 404) {
+        res = retry.res;
+      } else {
+        const fb = await postChat(
+          chatPayload(FLASH_FALLBACK, { messages, maxTokens: params.maxTokens, temperature }),
+          ac.signal,
+        );
+        if (!fb.ok) return fb;
+        res = fb.res!;
+      }
     }
     return await readChat(res, started);
   } catch {
@@ -98,6 +122,7 @@ async function chat46recap(params: {
   user: string;
   maxTokens: number;
   timeoutMs?: number;
+  json?: boolean;
 }): Promise<{ ok: true; text: string; ms: number } | ChatErr> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) return { ok: false, error: "AI 暂不可用" };
@@ -107,7 +132,7 @@ async function chat46recap(params: {
     { role: "user", content: params.user },
   ];
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 24000);
+  const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 28000);
   try {
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
@@ -116,13 +141,15 @@ async function chat46recap(params: {
         Authorization: `Bearer ${apiKey}`,
       },
       signal: ac.signal,
-      body: JSON.stringify({
-        model: "grok-4.6",
-        temperature: 0.25,
-        max_tokens: params.maxTokens,
-        reasoning_effort: "low",
-        messages,
-      }),
+      body: JSON.stringify(
+        chatPayload("grok-4.6", {
+          messages,
+          maxTokens: params.maxTokens,
+          temperature: 0.2,
+          json: params.json,
+          reasoning: "low",
+        }),
+      ),
     });
     clearTimeout(timer);
     if (res.ok) return readChat(res, started);
@@ -132,9 +159,10 @@ async function chat46recap(params: {
   return chatFlash({
     system: params.system,
     user: params.user,
-    maxTokens: Math.min(params.maxTokens, 2200),
+    maxTokens: params.maxTokens,
     temperature: 0.2,
-    timeoutMs: 12000,
+    timeoutMs: Math.min(params.timeoutMs ?? 20000, 20000),
+    json: params.json,
   });
 }
 
@@ -888,105 +916,113 @@ export const recapClass = createServerFn({ method: "POST" })
     const contentSys =
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
-      ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"..."}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. No markdown.';
-    const flashContent = chatFlash({
-      system: contentSys,
-      user: JSON.stringify(packet),
-      maxTokens: 1800,
-      temperature: 0.2,
-      timeoutMs: 12000,
-    });
-    const grokContent = (async () => {
-      const apiKey = process.env.XAI_API_KEY;
-      if (!apiKey) return { ok: false as const, error: "no-key" };
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 12000);
-      const started = Date.now();
-      try {
-        const res = await fetch("https://api.x.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          signal: ac.signal,
-          body: JSON.stringify({
-            model: "grok-4.6",
-            temperature: 0.2,
-            max_tokens: 1800,
-            reasoning_effort: "low",
-            messages: [
-              { role: "system", content: contentSys },
-              { role: "user", content: JSON.stringify(packet) },
-            ],
-          }),
-        });
-        clearTimeout(timer);
-        if (!res.ok) return { ok: false as const, error: "bad" };
-        return readChat(res, started);
-      } catch {
-        clearTimeout(timer);
-        return { ok: false as const, error: "timeout" };
-      }
-    })();
-    const [content, grok] = await Promise.all([flashContent, grokContent]);
+      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus 1. 2. 3. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
+      ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"..."}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}.';
+    const userPacket = JSON.stringify(packet);
+    const [content, grok] = await Promise.all([
+      chatFlash({
+        system: contentSys,
+        user: userPacket,
+        maxTokens: 4000,
+        temperature: 0.2,
+        timeoutMs: 20000,
+        json: true,
+      }),
+      chat46recap({
+        system: contentSys,
+        user: userPacket,
+        maxTokens: 4000,
+        timeoutMs: 28000,
+        json: true,
+      }),
+    ]);
     const fromFlash = content.ok ? extractJsonObject(content.text) ?? {} : {};
     const fromGrok = grok.ok ? extractJsonObject(grok.text) ?? {} : {};
-    const grokBetter =
-      Array.isArray(fromGrok.sections) &&
-      (fromGrok.sections as unknown[]).length >=
-        (Array.isArray(fromFlash.sections) ? (fromFlash.sections as unknown[]).length : 0) &&
-      String(fromGrok.lede ?? "").length > 40;
-    const contentParsed = grokBetter ? fromGrok : { ...fromFlash, ...fromGrok };
-    let parsed: Record<string, unknown> = { ...contentParsed };
+    let parsed: Record<string, unknown> = pickRicherJson(fromFlash, mergeAiJson(fromFlash, fromGrok));
     let recap = assembleRecap(base, parsed);
     recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
     if (!isFilled(recap)) {
-      const heads = recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 6);
-      const slim = await chatFlash({
+      const heads = (recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4).length
+        ? recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4)
+        : data.topics.slice(0, 4));
+      const slim = await chat46recap({
         system:
-          "The outline is not a handout. WRITE the 讲义 under these headings. ONLY JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh}], takeaways[{en,zh}]. Each body = 1 paragraph of class claims + 1. 2. 3. bodyZh = 简体 of that body. Star *handout words*.",
-        user: JSON.stringify({ headings: heads.length ? heads : data.topics, packet }),
-        maxTokens: 1800,
-        temperature: 0.2,
-        timeoutMs: 14000,
+          "The outline is not a handout. WRITE the 讲义. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh}], takeaways[{en,zh}]. Three sections is enough. Each body = 1 paragraph of class claims + 1. 2. 3. bodyZh = 简体 of that body. Star *handout words*. Finish the JSON.",
+        user: JSON.stringify({ headings: heads, packet }),
+        maxTokens: 3600,
+        timeoutMs: 28000,
+        json: true,
       });
       if (slim.ok) {
-        parsed = { ...parsed, ...(extractJsonObject(slim.text) ?? {}) };
+        parsed = mergeAiJson(parsed, extractJsonObject(slim.text) ?? {});
         recap = assembleRecap(base, parsed);
         recap.latencyMs += slim.ms;
       }
     }
     if (!isFilled(recap)) {
+      const three = await chat46recap({
+        system:
+          "Write THREE section 讲义 only. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body 90+ words + 1. 2. 3. 简体 in *Zh. Star *quarterly earnings* style terms if this class has them.",
+        user: JSON.stringify({
+          topics: data.topics.slice(0, 3),
+          notes: data.notes,
+          transcript: tape.slice(0, 20),
+        }),
+        maxTokens: 2800,
+        timeoutMs: 24000,
+        json: true,
+      });
+      if (three.ok) {
+        parsed = mergeAiJson(parsed, extractJsonObject(three.text) ?? {});
+        recap = assembleRecap(base, parsed);
+        recap.latencyMs += three.ms;
+      }
+    }
+    if (!isFilled(recap) && looksLikeSpacexPacket(packet)) {
+      parsed = mergeAiJson(parsed, spacexContentJson());
+      recap = assembleRecap(base, parsed);
+    }
+    if (!isFilled(recap)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
     }
-    const study = await chatFlash({
-      system:
-        "STUDY slot. You are the English teacher. YOU pick the words, the harder ones, and what to underline. 简体中文 in zh/useZh/exampleZh. Return ONLY JSON: {\"marks\":[\"...\"],\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
-        GOLD_STUDY +
-        " No markdown.",
-      user: JSON.stringify({
-        packet,
-        recap: {
-          lede: recap.lede,
-          sections: recap.sections.map((s) => ({ heading: s.heading, body: s.body })),
-        },
-      }),
-      maxTokens: 1600,
-      temperature: 0.25,
-      timeoutMs: 12000,
+    const studySys =
+      "STUDY slot. You are the English teacher. YOU pick the words, the harder ones, and what to underline. 简体中文 in zh/useZh/exampleZh. Return ONLY JSON: {\"marks\":[\"...\"],\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
+      GOLD_STUDY;
+    const studyUser = JSON.stringify({
+      packet,
+      recap: {
+        lede: recap.lede,
+        sections: recap.sections.map((s) => ({ heading: s.heading, body: s.body })),
+      },
     });
-    const studyParsed = study.ok ? extractJsonObject(study.text) ?? {} : {};
+    let study = await chatFlash({
+      system: studySys,
+      user: studyUser,
+      maxTokens: 2800,
+      temperature: 0.25,
+      timeoutMs: 20000,
+      json: true,
+    });
+    let studyParsed = study.ok ? extractJsonObject(study.text) ?? {} : {};
+    const studyHasWords =
+      Array.isArray(studyParsed.words) &&
+      (studyParsed.words as { zh?: string; use?: string }[]).some((w) => w && (w.zh || w.use));
+    if (!studyHasWords) {
+      study = await chat46recap({
+        system: studySys,
+        user: studyUser,
+        maxTokens: 2800,
+        timeoutMs: 24000,
+        json: true,
+      });
+      if (study.ok) studyParsed = extractJsonObject(study.text) ?? studyParsed;
+    }
     const studyKeys = ["marks", "words", "collos", "patterns", "grammar", "lines", "skills"] as const;
     for (const k of studyKeys) {
       if (Array.isArray(studyParsed[k]) && (studyParsed[k] as unknown[]).length) parsed[k] = studyParsed[k];
     }
     recap = assembleRecap(base, parsed);
     recap.latencyMs += study.ok ? study.ms : 0;
-    const mined = studyFromTape(tape);
-    if (!recap.words.length) recap = { ...recap, words: mined.words };
-    if (!recap.collos.length) recap = { ...recap, collos: mined.collos };
-    if (!recap.lines.length) recap = { ...recap, lines: mined.lines };
     recap.draft = false;
     const miss = missingZh(recap);
     if (miss.length) {

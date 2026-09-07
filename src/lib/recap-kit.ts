@@ -1,5 +1,4 @@
-import type { ClassRecap, CoachCard, RecapCoach, RecapDeep, RecapPair, RecapSection, RecapStudy, TopicEssay } from "@/lib/types";
-import { topicKey } from "@/lib/utils";
+import type { ClassRecap, CoachCard, RecapCoach, RecapDeep, RecapPair, RecapSection, RecapStudy, TopicEssay } from "./types.ts";
 
 const STOP = new Set(
   "the a an and or but if so to of in on at for from with as is are was were be been being it this that these those you we they i he she my our your their not no yes yeah yup yep just about into over after before than then also more some any can will would could should have has had do did does what when where which who how why there here very much many too own same other than into like think really people kind thing things something because actually maybe perhaps literally somehow already always never still even well right okay ok wait mean means said say says get got going gonna want need see look come take give make made hello subscribe best constantly world jobs it's that's don't didn't there's they're we're you're i've you've we've let's them they this that will would could should have been being very also".split(
@@ -45,7 +44,7 @@ export function compactTape(tape: { en: string; zh: string }[]) {
 }
 
 function formatBody(paras: string[], points: string[]) {
-  const p = paras.map((x) => clip(x, 420)).filter(Boolean);
+  const p = paras.map((x) => clip(x, 640)).filter(Boolean);
   const seen = new Set<string>();
   const n: string[] = [];
   for (const x of points) {
@@ -269,27 +268,8 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
   const title = typeof ai.title === "string" && ai.title.trim() ? ai.title.trim() : base.title;
   const lede = typeof ai.lede === "string" && ai.lede.trim() ? ai.lede.trim() : "";
   const ledeZh = typeof ai.ledeZh === "string" && ai.ledeZh.trim() ? ai.ledeZh.trim() : "";
-  const filled = sections.some((s) => s.body.length > 40);
-  const promoted = filled
-    ? sections
-    : outline
-        .map((o) => {
-          const para = o.bullets.length ? `${o.heading}. ${o.bullets.join(" ")}` : "";
-          const body = formatBody(para ? [para] : [], o.bullets);
-          return body
-            ? {
-                heading: o.heading,
-                headingZh: "",
-                body,
-                bodyZh: "",
-              }
-            : null;
-        })
-        .filter((s): s is RecapSection => Boolean(s));
-  const useSections = filled ? sections : promoted;
-  const useLede =
-    lede ||
-    (useSections[0]?.body ? useSections[0].body.split("\n")[0] ?? "" : "");
+  const useSections = sections.filter((s) => writtenBody(s.body));
+  const useLede = lede.trim().length > 40 ? lede : "";
   const marks = [
     ...((Array.isArray(ai.marks) ? ai.marks : []) as unknown[])
       .map((m) => String(m ?? "").trim())
@@ -314,7 +294,7 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
     skills: pairs("skills", 6),
     marks: [...new Set(marks)].slice(0, 24),
     coachPack: base.coachPack ?? [],
-    draft: !(lede.trim().length > 40 && useSections.some((s) => s.body.length > 80)),
+    draft: !(useLede.trim().length > 40 && useSections.some((s) => writtenBody(s.body))),
     at: Date.now(),
   };
 }
@@ -397,10 +377,10 @@ export function packCoach(
   for (const c of cards) {
     const topic = c.topic.trim();
     if (!topic) continue;
-    const k = topicKey(topic) || c.id;
+    const k = keyOf(topic) || c.id;
     if (seen.has(k)) continue;
     seen.add(k);
-    const raw = essays[k] ?? essays[c.id] ?? essays[topicKey(topic)];
+    const raw = essays[k] ?? essays[c.id] ?? essays[keyOf(topic)];
     const deep: RecapDeep | null =
       raw && !raw.draft && (raw.viewEn || raw.facts.length || raw.aEn)
         ? {
@@ -533,8 +513,44 @@ export function attachCoachPack(recap: ClassRecap, pack: RecapCoach[]): ClassRec
   };
 }
 
+export function writtenBody(body: string) {
+  return body.replace(/\s+/g, " ").trim().length > 80;
+}
+
 export function isFilled(recap: ClassRecap) {
   const ledeOk = (recap.lede ?? "").trim().length > 40;
-  const bodyOk = recap.sections.some((s) => s.body.replace(/\s+/g, " ").trim().length > 80);
+  const bodyOk = recap.sections.some((s) => writtenBody(s.body));
   return ledeOk && bodyOk;
+}
+
+/** Merge model JSON without letting an outline-only object wipe real sections. */
+export function mergeAiJson(a: Record<string, unknown>, b: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === "string" && !v.trim()) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+export function scoreContentJson(ai: Record<string, unknown>) {
+  const lede = typeof ai.lede === "string" ? ai.lede.trim().length : 0;
+  const sections = Array.isArray(ai.sections) ? ai.sections : [];
+  let body = 0;
+  let n = 0;
+  for (const row of sections) {
+    if (!row || typeof row !== "object") continue;
+    const text = typeof (row as { body?: unknown }).body === "string" ? (row as { body: string }).body : "";
+    if (writtenBody(text)) {
+      n += 1;
+      body += text.trim().length;
+    }
+  }
+  return lede + body + n * 80;
+}
+
+export function pickRicherJson(a: Record<string, unknown>, b: Record<string, unknown>) {
+  return scoreContentJson(b) > scoreContentJson(a) ? b : a;
 }

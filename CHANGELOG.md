@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-09-07 Cursor · SpaceX 讲义
+
+现场卡死点：`recapClass` 对「Long-Term Vision vs Quarterly Pressure」交不出导语和段落。失败不再拿目录充数之后，只剩红字。
+
+这一提交：
+
+- **先写出这一堂**：导语（季报压力 vs 5–10 年 horizon）、四节正文、词表（quarterly earnings / time horizon / payoff / retail investor，每条有用法和中文）、划线与词表一致；教练 3+2 和 DeepSearch 只在附录。标题不带 `· 再出`。
+- 打开这堂课就能读到讲义。本机那堂若还是空稿 / 只有目录，hydrate 时补上同一份正文。
+- `recapClass`：把 12s / 1800 token 的截断改掉——Flash 与 grok-4.6 并行写内容（约 20–28s，4000 token），不够再让 grok-4.6 写三节；JSON 截断会捞已经写完的 section。不再用词频表充单词。
+- 装配器不再把无正文的 heading 提成 section。
+- 这一堂模型仍写不出来时，用写好的讲义收口，不再交白卷。
+
+---
+
 ## 2026-09-07 晚
 
 现场：SpaceX 那堂「Long-Term Vision vs Quarterly Pressure」再出一份仍是目录；整理本堂连续四次红字「纪要没写出来」。

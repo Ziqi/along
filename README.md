@@ -47,7 +47,7 @@ Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, a
 2. **英语学习**：单词、搭配、句式、语法、好例句。
 3. **教练**：课上出过的开口建议；点过 DeepSearch 的检索稿跟在卡片下面。
 
-装配器拼结构（目录扩成段落、装入教练和 DeepSearch）。模型写正文。没有段落不算写完，失败会自动再写。可改标题、下载 Markdown、导出 PDF。
+装配器拼结构（装入教练和 DeepSearch）。模型写正文。没有段落不算写完，失败会自动再写。目录不会当成完稿。打开纪要里的「Long-Term Vision vs Quarterly Pressure」可直接读到导语、段落、词表和中文。可改标题、下载 Markdown、导出 PDF。
 
 ### 翻译
 

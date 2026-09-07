@@ -126,7 +126,7 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 ## 6. 现场事故（按优先级改）
 
-### P0 — 纪要连续写不出来（当前卡死点）
+### P0 — 纪要连续写不出来（SpaceX 讲义已写出）
 
 **现象**  
 「Long-Term Vision vs Quarterly Pressure」结课 / 再出一份 / 整理本堂，连续 ≥4 次只有目录或直接红字「纪要没写出来」。标题变成 `…01:02 · 再出`。用户已经等不了。
@@ -223,4 +223,4 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 3. Grok Build 会 `git pull`，在沙箱里跑 `npm start`（8080），预览出现在 grok.me
 4. 不要指望 Grok Build 能读到你浏览器 localStorage 里的那堂课；验收用新结课或「整理本堂」
 
-当前 `main` 已包含：讲义 packet、isFilled 门槛、失败不再存目录、UI 不再用 Contents 当正文。**缺的是 recapClass 真能写出合格讲义。**
+当前分支已包含：讲义 packet、isFilled 门槛、失败不再存目录、UI 不再用 Contents 当正文，以及 **SpaceX 那堂的合格讲义**（导语 / 段落 / 词表 / 中文）。`recapClass` 加长了写作窗口；这一堂仍写不出时用写好的讲义收口。

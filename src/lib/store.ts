@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types";
 import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions, removedIds, writeLocalSessions } from "@/lib/persist";
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
+import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
 import { canAutoTitle, stampTitle, topicKey } from "@/lib/utils";
 
 let nid = 0;
@@ -216,24 +217,26 @@ function normalizeSessions(raw: unknown): ClassSession[] {
     const s = row as ClassSession;
     if (!s.id) continue;
     try {
-      out.push({
-        ...s,
-        notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
-        recap: normRecap(s.recap),
-        coaches: Array.isArray(s.coaches) ? s.coaches : [],
-        essays: s.essays && typeof s.essays === "object" ? s.essays : {},
-        transcript: Array.isArray(s.transcript)
-          ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
-          : [],
-        sourceId: s.sourceId ?? null,
-        sourceTitle: s.sourceTitle ?? null,
-        starred: Boolean(s.starred),
-        starredAt: typeof s.starredAt === "number" ? s.starredAt : null,
-        updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
-        startedAt: typeof s.startedAt === "number" ? s.startedAt : Date.now(),
-        endedAt: typeof s.endedAt === "number" ? s.endedAt : s.endedAt ?? null,
-        title: String(s.title ?? "课堂"),
-      });
+      out.push(
+        fillKnownHandout({
+          ...s,
+          notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
+          recap: normRecap(s.recap),
+          coaches: Array.isArray(s.coaches) ? s.coaches : [],
+          essays: s.essays && typeof s.essays === "object" ? s.essays : {},
+          transcript: Array.isArray(s.transcript)
+            ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
+            : [],
+          sourceId: s.sourceId ?? null,
+          sourceTitle: s.sourceTitle ?? null,
+          starred: Boolean(s.starred),
+          starredAt: typeof s.starredAt === "number" ? s.starredAt : null,
+          updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
+          startedAt: typeof s.startedAt === "number" ? s.startedAt : Date.now(),
+          endedAt: typeof s.endedAt === "number" ? s.endedAt : s.endedAt ?? null,
+          title: String(s.title ?? "课堂"),
+        }),
+      );
     } catch {
       /* skip bad row */
     }
@@ -320,7 +323,7 @@ function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
     const prev = map.get(s.id);
     map.set(s.id, prev ? mergeOne(prev, s) : s);
   }
-  return sortSessions([...map.values()]).slice(0, 40);
+  return sortSessions([...map.values()].map(fillKnownHandout)).slice(0, 40);
 }
 
 type AppState = {
@@ -948,8 +951,15 @@ export const useCapcom = create<AppState>((set, get) => {
         });
       };
       const withSample = (sessions: ClassSession[]) => {
-        if (isRemoved(SAMPLE_ID) || sessions.some((s) => s.id === SAMPLE_ID)) return sessions;
-        return mergeSessions(sessions, [sampleSession()]);
+        const extras: ClassSession[] = [];
+        if (
+          !isRemoved(SPACEX_ID) &&
+          !sessions.some((s) => s.id === SPACEX_ID || looksLikeSpacexSession(s))
+        ) {
+          extras.push(spacexSession());
+        }
+        if (!isRemoved(SAMPLE_ID) && !sessions.some((s) => s.id === SAMPLE_ID)) extras.push(sampleSession());
+        return extras.length ? mergeSessions(sessions, extras) : sessions.map(fillKnownHandout);
       };
       try {
         apply(withSample(loadSessions()));
