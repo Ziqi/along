@@ -157,6 +157,7 @@ export type ClassRecap = {
   skills: RecapPair[];
   outline: RecapOutline[];
   takeaways: RecapPair[];
+  marks: string[];
   coachPack: RecapCoach[];
   draft: boolean;
   latencyMs: number;

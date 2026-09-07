@@ -13,7 +13,7 @@ import {
   quickTranslate,
 } from "@/lib/capcom-ai";
 import { heuristicEssay } from "@/lib/essay-kit";
-import { emptyRecap, fillFromCoach, packCoach } from "@/lib/recap-kit";
+import { attachCoachPack, emptyRecap, isFilled, packCoach } from "@/lib/recap-kit";
 
 let coachGen = 0;
 let askGen = 0;
@@ -439,6 +439,7 @@ function toRecap(
     grammar?: RecapStudyLike[];
     skills?: { en: string; zh: string }[];
     takeaways?: { en: string; zh: string }[];
+    marks?: string[];
     coachPack?: import("@/lib/types").RecapCoach[];
     ms: number;
   },
@@ -473,6 +474,7 @@ function toRecap(
     grammar: study(result.grammar),
     skills: result.skills ?? [],
     takeaways: result.takeaways ?? [],
+    marks: result.marks ?? [],
     coachPack: result.coachPack?.length ? result.coachPack : coachPack,
     draft: false,
     latencyMs: result.ms,
@@ -604,31 +606,41 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
             coach: pack.map((c) => ({
               topic: c.topic,
               brief: c.briefEn,
+              briefZh: c.briefZh,
               say: c.options.map((o) => o.en),
+              extras: c.extras.map((o) => o.en),
+              deep: c.deep
+                ? {
+                    title: c.deep.title,
+                    viewEn: c.deep.viewEn,
+                    viewZh: c.deep.viewZh,
+                    facts: c.deep.facts.map((f) => f.en),
+                    terms: c.deep.terms.map((t) => t.en),
+                    aEn: c.deep.aEn,
+                  }
+                : null,
             })),
           },
         });
         if (gen !== recapGen) return;
-        if (result.ok && result.sections.length) {
-          useCapcom.getState().setRecap(
-            fillFromCoach(
-              toRecap(result, session?.recap?.outline ?? skeleton.outline, pack),
-              pack,
-            ),
-            sid,
+        if (result.ok) {
+          const next = attachCoachPack(
+            toRecap(result, session?.recap?.outline ?? skeleton.outline, pack),
+            pack,
           );
-          return;
+          if (isFilled(next)) {
+            useCapcom.getState().setRecap(next, sid);
+            return;
+          }
+          lastErr = "正文太薄，正在重写。";
+        } else {
+          lastErr = result.error;
         }
-        lastErr = result.ok ? "正文太薄，正在重写。" : result.error;
       } catch {
         lastErr = "纪要没写完，正在重写。";
       }
     }
     if (gen !== recapGen) return;
-    if (pack.length) {
-      useCapcom.getState().setRecap(fillFromCoach(skeleton, pack), sid);
-      return;
-    }
     useCapcom.getState().setRecapError(lastErr);
   } finally {
     if (gen === recapGen) useCapcom.getState().setRecapPending(false);

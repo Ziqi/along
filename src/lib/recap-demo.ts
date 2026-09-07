@@ -357,6 +357,7 @@ export function sampleSession(): ClassSession {
         { en: "Give one example from this week, then the tradeoff.", zh: "举这周一个例子，再说取舍。" },
       ],
       coachPack: [],
+      marks: ["money app", "spreadsheet", "as long as", "tradeoff", "budget"],
       draft: false,
       latencyMs: 0,
       at: Date.now(),

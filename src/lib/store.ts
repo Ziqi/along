@@ -196,6 +196,9 @@ function normRecap(raw: unknown): ClassRecap | null {
     )
       .map(normPair)
       .filter(Boolean) as { en: string; zh: string }[],
+    marks: Array.isArray((r as { marks?: unknown }).marks)
+      ? ((r as { marks: unknown[] }).marks).map((m) => String(m).trim()).filter(Boolean)
+      : [],
     coachPack: Array.isArray((r as { coachPack?: unknown }).coachPack)
       ? ((r as { coachPack: RecapCoach[] }).coachPack)
       : [],
@@ -676,7 +679,7 @@ export const useCapcom = create<AppState>((set, get) => {
       if (!src) return null;
       const next: ClassSession = {
         id: idOf("ses"),
-        title: `${src.title} · 再出`,
+        title: (src.recap?.title || src.title).replace(/\s·\s再出/g, "").trim() || src.title,
         startedAt: Date.now(),
         endedAt: Date.now(),
         notes: src.notes.map((j) => ({ ...j, id: idOf("jot") })),
@@ -833,6 +836,7 @@ export const useCapcom = create<AppState>((set, get) => {
           skills: s.recap?.skills ?? [],
           outline: draft.outline.length ? draft.outline : (s.recap?.outline ?? []),
           takeaways: s.recap?.takeaways ?? [],
+          marks: s.recap?.marks ?? [],
           coachPack: s.recap?.coachPack ?? [],
           draft: true,
           latencyMs: draft.ms,
@@ -883,6 +887,7 @@ export const useCapcom = create<AppState>((set, get) => {
                 skills: [],
                 outline: [],
                 takeaways: [],
+                marks: [],
                 coachPack: [],
                 draft: true,
                 latencyMs: 0,

@@ -53,9 +53,17 @@ export function RecapPage() {
     [sessions],
   );
   const marks = useMemo(() => {
-    const raw = [...words, ...collos, ...patterns, ...grammar, ...lines].map((x) => x.en);
-    return [...new Set(raw.filter((t) => t && t.length >= 3))].sort((a, b) => b.length - a.length).slice(0, 48);
-  }, [words, collos, patterns, grammar, lines]);
+    const fromAi = recap?.marks ?? [];
+    if (fromAi.length) {
+      return [...new Set(fromAi.filter((t) => t && t.length >= 3 && t.split(/\s+/).length <= 4))].sort(
+        (a, b) => b.length - a.length,
+      );
+    }
+    const raw = [...words, ...collos].map((x) => x.en);
+    return [...new Set(raw.filter((t) => t && t.length >= 4 && t.split(/\s+/).length <= 4))].sort(
+      (a, b) => b.length - a.length,
+    ).slice(0, 24);
+  }, [recap?.marks, words, collos]);
   const tape = living && captions.length
     ? captions.map((c) => ({ en: c.en, zh: c.zh }))
     : (session?.transcript ?? []);
@@ -318,13 +326,13 @@ export function RecapPage() {
                   {pending ? <RecapProgress /> : null}
                   {!pending && recap?.draft && !recap.lede && !sections.length ? (
                     <p className="text-base leading-relaxed text-muted">
-                      目录已经在。正文正在写，失败会自动再写一次。教练和 DeepSearch 会直接装进来。
+                      目录不是讲义。正文失败会自动再写。不要停在这一页当完成稿。
                     </p>
                   ) : null}
 
                   {outline.length || recap?.lede || sections.length || takeaways.length ? (
                     <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                      PART 1 · CONTENT · 本堂内容
+                      PART 1 · 讲义 · 本堂内容
                     </p>
                   ) : null}
 
@@ -443,32 +451,16 @@ export function RecapPage() {
                   ))}
 
                   {outline.length && !sections.length ? (
-                    <section className="flex flex-col gap-4">
-                      <h2 className="text-xl font-medium tracking-tight">Contents · 本堂目录</h2>
-                      <ol className="list-decimal space-y-3 pl-5">
-                        {outline.map((o) => (
-                          <li key={o.heading} className="pl-1">
-                            <p className="text-base font-medium">{o.heading}</p>
-                            {o.bullets.length ? (
-                              <ul className="mt-1 list-disc space-y-1 pl-5">
-                                {o.bullets.map((b) => (
-                                  <li key={b} className="text-sm leading-relaxed text-fg text-pretty">
-                                    <MarkText text={b} terms={marks} />
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
+                    <p className="text-base leading-relaxed text-muted">
+                      只有目录，还没有讲义正文。点上面「整理本堂」再写一遍。
+                    </p>
                   ) : living && !recap && !pending ? (
                     <p className="text-base leading-relaxed text-muted">
                       After a few lines, the outline lands here. You can jot a point now.
                     </p>
                   ) : null}
 
-                  {topics.length || sections.length ? (
+                  {sections.length ? (
                     <section className="flex flex-col gap-4">
                       <h2 className="text-xl font-medium tracking-tight">Map · 内容分布</h2>
                       <BarList
@@ -488,7 +480,7 @@ export function RecapPage() {
                     </section>
                   ) : null}
 
-                  {topics.length ? <PairList kicker="Topics · 主题" items={topics} /> : null}
+                  {topics.length && !sections.length ? <PairList kicker="Topics · 主题" items={topics} /> : null}
 
                   {words.length ||
                   collos.length ||
@@ -499,11 +491,11 @@ export function RecapPage() {
                     <section className="flex flex-col gap-8 border-t border-line pt-8">
                       <div>
                         <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                          PART 2 · ENGLISH · 英语学习
+                          PART 2 · 讲义 · 语言点
                         </p>
                         <h2 className="mt-2 text-xl font-medium tracking-tight">Language · 语言点</h2>
                         <p className="mt-1 text-sm text-muted">
-                          单词、搭配、句式、语法、好例句。正文里已标出重点。英文为主，中文点拨。
+                          老师读完整堂课之后选出的词、搭配、句式。划线也由这份讲义决定。每条都有用法和中文。
                         </p>
                       </div>
                       <BarList
@@ -569,11 +561,11 @@ export function RecapPage() {
                     <section className="flex flex-col gap-8 border-t border-line pt-8">
                       <div>
                         <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
-                          PART 3 · COACH · 教练与 DeepSearch
+                          PART 3 · 附录 · 课中开口
                         </p>
-                        <h2 className="mt-2 text-xl font-medium tracking-tight">Coach · 课中教练</h2>
+                        <h2 className="mt-2 text-xl font-medium tracking-tight">Speaking appendix · 开口原件</h2>
                         <p className="mt-1 text-sm text-muted">
-                          课上已经出过的接话、三个答、两个延展。点过 DeepSearch 的主题，检索稿跟在卡片下面。
+                          课上教练和 DeepSearch 的原件，附在讲义后面，方便对照开口。
                         </p>
                       </div>
                       {coachPack.map((card, i) => (

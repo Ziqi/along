@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay } from "@/lib/essay-kit";
-import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, missingZh } from "@/lib/recap-kit";
+import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isFilled, missingZh, studyFromTape } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/utils";
 
 const FLASH = "grok-4.20-non-reasoning";
@@ -805,6 +805,7 @@ type RecapOk = {
   grammar: ReturnType<typeof parseStudy>;
   skills: { en: string; zh: string }[];
   takeaways: { en: string; zh: string }[];
+  marks: string[];
   ms: number;
 };
 
@@ -814,7 +815,21 @@ export const recapClass = createServerFn({ method: "POST" })
       lines: { en: string; zh: string }[];
       topics: string[];
       notes: string[];
-      coach?: { topic: string; brief: string; say: string[] }[];
+      coach?: {
+        topic: string;
+        brief?: string;
+        briefZh?: string;
+        say?: string[];
+        extras?: string[];
+        deep?: {
+          title?: string;
+          viewEn?: string;
+          viewZh?: string;
+          facts?: string[];
+          terms?: string[];
+          aEn?: string;
+        } | null;
+      }[];
     }) => ({
       lines: Array.isArray(input?.lines)
         ? input.lines
@@ -839,7 +854,23 @@ export const recapClass = createServerFn({ method: "POST" })
         ? input.coach.slice(0, 10).map((c) => ({
             topic: String(c?.topic ?? "").slice(0, 80),
             brief: String(c?.brief ?? "").slice(0, 240),
+            briefZh: String(c?.briefZh ?? "").slice(0, 160),
             say: Array.isArray(c?.say) ? c.say.map((s) => String(s).slice(0, 140)).slice(0, 3) : [],
+            extras: Array.isArray(c?.extras) ? c.extras.map((s) => String(s).slice(0, 140)).slice(0, 2) : [],
+            deep: c?.deep
+              ? {
+                  title: String(c.deep.title ?? "").slice(0, 80),
+                  viewEn: String(c.deep.viewEn ?? "").slice(0, 400),
+                  viewZh: String(c.deep.viewZh ?? "").slice(0, 240),
+                  facts: Array.isArray(c.deep.facts)
+                    ? c.deep.facts.map((s) => String(s).slice(0, 180)).slice(0, 4)
+                    : [],
+                  terms: Array.isArray(c.deep.terms)
+                    ? c.deep.terms.map((s) => String(s).slice(0, 40)).slice(0, 6)
+                    : [],
+                  aEn: String(c.deep.aEn ?? "").slice(0, 400),
+                }
+              : null,
           }))
         : [],
     }),
@@ -847,37 +878,23 @@ export const recapClass = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<RecapOk | ChatErr> => {
     if (data.lines.length < 2) return { ok: false, error: "实录太短" };
     const tape = compactTape(data.lines).slice(0, 36);
-    const payload = {
+    const packet = {
       transcript: tape,
-      coach_topics: data.topics,
-      coach_cards: data.coach,
       student_notes: data.notes,
+      coach_and_deep: data.coach,
+      topics: data.topics,
     };
     const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
     const contentSys =
-      "CONTENT slot. English-class recap for a mainland student. English primary, 简体中文 in *Zh. " +
+      "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
       ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"..."}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. No markdown.';
     const flashContent = chatFlash({
       system: contentSys,
-      user: JSON.stringify(payload),
+      user: JSON.stringify(packet),
       maxTokens: 1800,
       temperature: 0.2,
       timeoutMs: 12000,
-    });
-    const flashStudy = chatFlash({
-      system:
-        "STUDY slot. 简体中文 glosses. Return ONLY JSON: {\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
-        GOLD_STUDY +
-        " No markdown.",
-      user: JSON.stringify({
-        topics: data.topics,
-        notes: data.notes,
-        sample: tape.slice(0, 16),
-      }),
-      maxTokens: 1200,
-      temperature: 0.2,
-      timeoutMs: 10000,
     });
     const grokContent = (async () => {
       const apiKey = process.env.XAI_API_KEY;
@@ -900,7 +917,7 @@ export const recapClass = createServerFn({ method: "POST" })
             reasoning_effort: "low",
             messages: [
               { role: "system", content: contentSys },
-              { role: "user", content: JSON.stringify(payload) },
+              { role: "user", content: JSON.stringify(packet) },
             ],
           }),
         });
@@ -912,7 +929,7 @@ export const recapClass = createServerFn({ method: "POST" })
         return { ok: false as const, error: "timeout" };
       }
     })();
-    const [content, study, grok] = await Promise.all([flashContent, flashStudy, grokContent]);
+    const [content, grok] = await Promise.all([flashContent, grokContent]);
     const fromFlash = content.ok ? extractJsonObject(content.text) ?? {} : {};
     const fromGrok = grok.ok ? extractJsonObject(grok.text) ?? {} : {};
     const grokBetter =
@@ -920,24 +937,19 @@ export const recapClass = createServerFn({ method: "POST" })
       (fromGrok.sections as unknown[]).length >=
         (Array.isArray(fromFlash.sections) ? (fromFlash.sections as unknown[]).length : 0) &&
       String(fromGrok.lede ?? "").length > 40;
-    let parsed: Record<string, unknown> = {
-      ...(grokBetter ? fromGrok : { ...fromFlash, ...fromGrok }),
-      ...(study.ok ? extractJsonObject(study.text) ?? {} : {}),
-    };
+    const contentParsed = grokBetter ? fromGrok : { ...fromFlash, ...fromGrok };
+    let parsed: Record<string, unknown> = { ...contentParsed };
     let recap = assembleRecap(base, parsed);
-    recap.latencyMs = Math.max(
-      content.ok ? content.ms : 0,
-      study.ok ? study.ms : 0,
-      grok.ok ? grok.ms : 0,
-    );
-    if (!recap.lede && !recap.sections.length) {
+    recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
+    if (!isFilled(recap)) {
+      const heads = recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 6);
       const slim = await chatFlash({
         system:
-          "Write the recap UNDER these headings. Never return headings alone. ONLY JSON with title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh}], takeaways[{en,zh}]. body has a paragraph plus 1. 2. 3. Zh is 简体中文 of the same body. Rewrite STT.",
-        user: JSON.stringify(payload),
-        maxTokens: 1600,
+          "The outline is not a handout. WRITE the 讲义 under these headings. ONLY JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh}], takeaways[{en,zh}]. Each body = 1 paragraph of class claims + 1. 2. 3. bodyZh = 简体 of that body. Star *handout words*.",
+        user: JSON.stringify({ headings: heads.length ? heads : data.topics, packet }),
+        maxTokens: 1800,
         temperature: 0.2,
-        timeoutMs: 10000,
+        timeoutMs: 14000,
       });
       if (slim.ok) {
         parsed = { ...parsed, ...(extractJsonObject(slim.text) ?? {}) };
@@ -945,9 +957,36 @@ export const recapClass = createServerFn({ method: "POST" })
         recap.latencyMs += slim.ms;
       }
     }
-    if (!recap.sections.length) {
+    if (!isFilled(recap)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
     }
+    const study = await chatFlash({
+      system:
+        "STUDY slot. You are the English teacher. YOU pick the words, the harder ones, and what to underline. 简体中文 in zh/useZh/exampleZh. Return ONLY JSON: {\"marks\":[\"...\"],\"words\":[...],\"collos\":[...],\"patterns\":[...],\"grammar\":[...],\"lines\":[...],\"skills\":[{\"en\":\"...\",\"zh\":\"...\"}]}. Each study row {\"en\",\"zh\",\"use\",\"useZh\",\"example\",\"exampleZh\"}. " +
+        GOLD_STUDY +
+        " No markdown.",
+      user: JSON.stringify({
+        packet,
+        recap: {
+          lede: recap.lede,
+          sections: recap.sections.map((s) => ({ heading: s.heading, body: s.body })),
+        },
+      }),
+      maxTokens: 1600,
+      temperature: 0.25,
+      timeoutMs: 12000,
+    });
+    const studyParsed = study.ok ? extractJsonObject(study.text) ?? {} : {};
+    const studyKeys = ["marks", "words", "collos", "patterns", "grammar", "lines", "skills"] as const;
+    for (const k of studyKeys) {
+      if (Array.isArray(studyParsed[k]) && (studyParsed[k] as unknown[]).length) parsed[k] = studyParsed[k];
+    }
+    recap = assembleRecap(base, parsed);
+    recap.latencyMs += study.ok ? study.ms : 0;
+    const mined = studyFromTape(tape);
+    if (!recap.words.length) recap = { ...recap, words: mined.words };
+    if (!recap.collos.length) recap = { ...recap, collos: mined.collos };
+    if (!recap.lines.length) recap = { ...recap, lines: mined.lines };
     recap.draft = false;
     const miss = missingZh(recap);
     if (miss.length) {
@@ -990,6 +1029,7 @@ export const recapClass = createServerFn({ method: "POST" })
       grammar: recap.grammar,
       lines: recap.lines,
       skills: recap.skills,
+      marks: recap.marks,
       ms: recap.latencyMs,
     };
   });

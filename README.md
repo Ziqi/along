@@ -5,7 +5,8 @@
 Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, and a recap written during class.
 
 仓库：[github.com/Ziqi/along](https://github.com/Ziqi/along)  
-这一版改了什么、现场踩过什么坑：见 [CHANGELOG.md](./CHANGELOG.md)。
+这一版改了什么、现场踩过什么坑：见 [CHANGELOG.md](./CHANGELOG.md)。  
+给 Cursor 改代码用的系统全貌、8080 约定、纪要 P0：见 [CURSOR.md](./CURSOR.md)。
 
 ---
 
