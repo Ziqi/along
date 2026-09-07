@@ -223,7 +223,10 @@ function normalizeSessions(raw: unknown): ClassSession[] {
           notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
           recap: normRecap(s.recap),
           coaches: Array.isArray(s.coaches) ? s.coaches : [],
-          essays: s.essays && typeof s.essays === "object" ? s.essays : {},
+          essays: pinEssaysToCoachIds(
+            s.essays && typeof s.essays === "object" ? s.essays : {},
+            Array.isArray(s.coaches) ? s.coaches : [],
+          ),
           transcript: Array.isArray(s.transcript)
             ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
             : [],
@@ -251,6 +254,19 @@ function loadSessions(): ClassSession[] {
   } catch {
     return [];
   }
+}
+
+function pinEssaysToCoachIds(
+  essays: Record<string, TopicEssay>,
+  coaches: CoachCard[],
+) {
+  const next = { ...essays };
+  for (const c of coaches) {
+    if (!c?.id || next[c.id]) continue;
+    const k = topicKey(c.topic ?? "");
+    if (k && next[k]) next[c.id] = next[k];
+  }
+  return next;
 }
 
 function recapScore(r: ClassRecap | null) {
@@ -563,16 +579,11 @@ export const useCapcom = create<AppState>((set, get) => {
     setEssay: (essay, coachId, keepPending) => {
       const card =
         (coachId ? get().coaches.find((c) => c.id === coachId) : null) ?? get().coach;
-      const key = topicKey(card?.topic ?? "");
+      const id = card?.id ?? coachId;
       const essays = { ...get().essays };
-      if (essay) {
-        if (key) essays[key] = essay;
-        if (card?.id) essays[card.id] = essay;
-        else if (coachId) essays[coachId] = essay;
-      } else {
-        if (key) delete essays[key];
-        if (card?.id) delete essays[card.id];
-        if (coachId) delete essays[coachId];
+      if (id) {
+        if (essay) essays[id] = essay;
+        else delete essays[id];
       }
       set({
         essay,

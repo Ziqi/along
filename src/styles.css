@@ -225,3 +225,34 @@
     animation: none;
   }
 }
+
+.recap-menu > summary {
+  list-style: none;
+}
+.recap-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+@media print {
+  .mission-bar,
+  .recap-catalog,
+  .recap-chrome,
+  .recap-tools,
+  .recap-menu {
+    display: none !important;
+  }
+  html,
+  body,
+  #app,
+  .app-shell,
+  .recap-sheet {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #1c1b17 !important;
+  }
+  .recap-sheet {
+    max-width: none;
+  }
+}

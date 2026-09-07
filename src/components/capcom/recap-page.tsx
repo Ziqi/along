@@ -42,6 +42,8 @@ export function RecapPage() {
   const living = Boolean(session && !session.endedAt);
   const inClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const canRun = (session?.transcript?.length ?? 0) >= 2 || captions.length >= 2;
+  const hasPaper = Boolean(recap?.lede || sections.length);
+  const needWrite = pending || Boolean(error) || !hasPaper;
   const stats = useMemo(() => tally(sessions), [sessions]);
   const listed = useMemo(() => sortSessions(sessions), [sessions]);
   const marks = useMemo(() => {
@@ -77,7 +79,7 @@ export function RecapPage() {
       ) : null}
       <aside
         className={
-          "flex w-[min(18rem,86vw)] shrink-0 flex-col border-r border-line bg-bg md:w-[min(18rem,42vw)] " +
+          "recap-catalog flex w-[min(18rem,86vw)] shrink-0 flex-col border-r border-line bg-bg md:w-[min(18rem,42vw)] " +
           (catalog
             ? "fixed inset-y-0 left-0 z-30 md:static"
             : "hidden md:flex")
@@ -165,16 +167,24 @@ export function RecapPage() {
             <p className="px-3 py-4 text-sm text-muted">上课后这里会出现进行中的纪要。</p>
           )}
         </nav>
+        <SignedOut>
+          <p className="recap-chrome border-t border-line px-3 py-3 text-xs leading-relaxed text-muted">
+            这台设备上的纪要只存在本机。
+            <a href="/login" className="ml-1 text-fg underline decoration-fg/30 underline-offset-4">
+              登录后同步
+            </a>
+          </p>
+        </SignedOut>
       </aside>
 
-      <article className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <article className="recap-sheet min-h-0 min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-8 md:px-10 md:py-12">
           {!session ? (
             <p className="text-base text-muted">结课之后，每一堂会成为左边的一条纪要。</p>
           ) : (
             <>
               <header className="flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-3">
+                <div className="recap-chrome flex items-center justify-between gap-3">
                   <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
                     {formatDayTime(session.startedAt)}
                     {living ? " · live" : ""}
@@ -216,90 +226,127 @@ export function RecapPage() {
                   className="w-full resize-none bg-transparent text-3xl font-medium leading-tight tracking-tight text-fg text-balance focus:outline-none"
                   aria-label="纪要标题"
                 />
-                <SignedOut>
-                  <p className="text-sm leading-relaxed text-muted">
-                    这台设备上的纪要只存在本机。
-                    <a href="/login" className="ml-1 text-fg underline decoration-fg/30 underline-offset-4">
-                      登录后手机和电脑同步
-                    </a>
-                  </p>
-                </SignedOut>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="sm"
-                    className="h-7 min-h-7 px-2"
-                    onClick={() =>
-                      void (recap && !recap.draft
-                        ? forkAndRecap(session.id)
-                        : requestRecap(session.id))
-                    }
-                    disabled={pending || !canRun}
-                  >
-                    {pending ? "在写" : recap && !recap.draft ? "再出一份" : "整理本堂"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="sm"
-                    className="h-7 min-h-7 px-2"
-                    onClick={() => setEditing((v) => !v)}
-                    disabled={!recap}
-                  >
-                    {editing ? "完成" : "编辑"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="sm"
-                    className="h-7 min-h-7 px-2"
-                    onClick={() => setMode(mode === "drill" ? "read" : "drill")}
-                    disabled={!stats.cards}
-                  >
-                    {mode === "drill" ? "看纪要" : "复习"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="sm"
-                    className="h-7 min-h-7 px-2"
-                    onClick={() => removeSession(session.id)}
-                  >
-                    删除
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="sm"
-                    className="h-7 min-h-7 px-2"
-                    onClick={() =>
-                      downloadText(
-                        `${session.title}.md`,
-                        recapMarkdown(session, { tape: withTape }),
-                        "text/markdown;charset=utf-8",
-                      )
-                    }
-                  >
-                    下载 Markdown
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    size="sm"
-                    className="h-7 min-h-7 px-2"
-                    onClick={() => printRecap(session, { tape: withTape })}
-                  >
-                    导出 PDF
-                  </Button>
-                  <label className="flex items-center gap-1.5 text-xs text-muted">
-                    <input
-                      type="checkbox"
-                      checked={withTape}
-                      onChange={(e) => setWithTape(e.target.checked)}
-                    />
-                    含实录
-                  </label>
+                <div className="recap-tools flex flex-wrap items-center gap-2">
+                  {mode === "drill" ? (
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="sm"
+                      className="h-7 min-h-7 px-2"
+                      onClick={() => setMode("read")}
+                    >
+                      看纪要
+                    </Button>
+                  ) : editing ? (
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="sm"
+                      className="h-7 min-h-7 px-2"
+                      onClick={() => setEditing(false)}
+                    >
+                      完成
+                    </Button>
+                  ) : needWrite ? (
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      size="sm"
+                      className="h-7 min-h-7 px-2"
+                      onClick={() => void requestRecap(session.id)}
+                      disabled={pending || !canRun}
+                    >
+                      {pending ? "在写" : "整理本堂"}
+                    </Button>
+                  ) : (
+                    <>
+                      <details className="recap-menu relative">
+                        <summary className="cursor-pointer px-2 py-1 text-xs text-muted hover:text-fg">
+                          整理
+                        </summary>
+                        <div className="absolute left-0 top-full z-20 mt-1 flex min-w-40 flex-col border border-line bg-elevated p-1">
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            className="h-8 justify-start px-2"
+                            onClick={() => void forkAndRecap(session.id)}
+                            disabled={pending || !canRun}
+                          >
+                            再出一份
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            className="h-8 justify-start px-2"
+                            onClick={() => setEditing(true)}
+                            disabled={!recap}
+                          >
+                            编辑
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            className="h-8 justify-start px-2"
+                            onClick={() => setMode("drill")}
+                            disabled={!stats.cards}
+                          >
+                            复习
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            className="h-8 justify-start px-2"
+                            onClick={() => removeSession(session.id)}
+                          >
+                            删除
+                          </Button>
+                        </div>
+                      </details>
+                      <details className="recap-menu relative">
+                        <summary className="cursor-pointer px-2 py-1 text-xs text-muted hover:text-fg">
+                          导出
+                        </summary>
+                        <div className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col border border-line bg-elevated p-1">
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            className="h-8 justify-start px-2"
+                            onClick={() =>
+                              downloadText(
+                                `${session.title}.md`,
+                                recapMarkdown(session, { tape: withTape }),
+                                "text/markdown;charset=utf-8",
+                              )
+                            }
+                          >
+                            下载 Markdown
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="sm"
+                            className="h-8 justify-start px-2"
+                            onClick={() => printRecap(session, { tape: withTape })}
+                          >
+                            导出 PDF
+                          </Button>
+                          <label className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted">
+                            <input
+                              type="checkbox"
+                              checked={withTape}
+                              onChange={(e) => setWithTape(e.target.checked)}
+                            />
+                            含实录
+                          </label>
+                        </div>
+                      </details>
+                    </>
+                  )}
                 </div>
               </header>
 
@@ -1004,7 +1051,7 @@ function NotesEditor({ session }: { session: ClassSession }) {
       ) : (
         <p className="text-sm text-muted">教练点「记」，或在下面自己写一条。</p>
       )}
-      <form onSubmit={submit} className="border border-line bg-surface p-3">
+      <form onSubmit={submit} className="recap-chrome border border-line bg-surface p-3">
         <label className="text-xs text-muted" htmlFor="recap-jot">
           写一条要点，中文或英文都可以
         </label>

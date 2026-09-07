@@ -435,19 +435,25 @@ function clipPair(en: string, zh: string): RecapPair {
   return { en: clip(en, 400), zh: clip(zh, 180) };
 }
 
+/** Live + saved DeepSearch is keyed by coach card id. Topic key is leftover only. */
+export function essayOf(
+  card: { id: string; topic?: string },
+  essays: Record<string, TopicEssay>,
+): TopicEssay | undefined {
+  if (card.id && essays[card.id]) return essays[card.id];
+  const k = keyOf(card.topic ?? "");
+  return k ? essays[k] : undefined;
+}
+
 export function packCoach(
   cards: CoachCard[],
   essays: Record<string, TopicEssay>,
 ): RecapCoach[] {
-  const seen = new Set<string>();
   const out: RecapCoach[] = [];
   for (const c of cards) {
     const topic = c.topic.trim();
     if (!topic) continue;
-    const k = keyOf(topic) || c.id;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    const raw = essays[k] ?? essays[c.id] ?? essays[keyOf(topic)];
+    const raw = essayOf(c, essays);
     const deep: RecapDeep | null =
       raw && !raw.draft && (raw.viewEn || raw.facts.length || raw.aEn)
         ? {

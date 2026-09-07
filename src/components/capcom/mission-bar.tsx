@@ -27,6 +27,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const paused = !live && !arming && openClass;
   const atHome = view === "live" && !openClass;
+  const reading = view === "recap";
   const showRecap = sessions.length > 0 || openClass;
   const [theme, setTheme] = useState<Theme>("day");
   const [more, setMore] = useState(false);
@@ -58,18 +59,18 @@ export function MissionBar({ onArm, onSafe }: Props) {
 
   const extras = (
     <>
-      {openClass ? (
+      {openClass && !reading ? (
         <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { setJotOpen(true); setMore(false); }}>
           <PenLine className="size-3.5" />
           记
         </Button>
       ) : null}
-      {view === "recap" ? (
+      {reading ? (
         <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { goHome(); setMore(false); }}>
           {openClass ? "回课堂" : "首页"}
         </Button>
       ) : null}
-      {showRecap ? (
+      {showRecap && !reading ? (
         <Button
           type="button"
           variant="quiet"
@@ -79,12 +80,11 @@ export function MissionBar({ onArm, onSafe }: Props) {
             openRecap();
             setMore(false);
           }}
-          disabled={view === "recap"}
         >
           纪要
         </Button>
       ) : null}
-      {openClass ? (
+      {openClass && !reading ? (
         <Button type="button" variant="end" size="lg" className="max-md:w-full" onClick={() => { void endClass(); setMore(false); }}>
           结课
         </Button>
@@ -117,7 +117,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
   );
 
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-line px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-4 md:px-6 md:py-3">
+    <header className="mission-bar flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-line px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-4 md:px-6 md:py-3">
       <button
         type="button"
         onClick={goHome}
@@ -171,35 +171,34 @@ export function MissionBar({ onArm, onSafe }: Props) {
           >
             {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
-          {openClass ? (
+          {openClass && !reading ? (
             <Button type="button" variant="quiet" size="lg" onClick={() => setJotOpen(true)}>
               <PenLine className="size-3.5" />
               记
             </Button>
           ) : null}
-          {view === "recap" ? (
+          {reading ? (
             <Button type="button" variant="quiet" size="lg" onClick={goHome}>
               {openClass ? "回课堂" : "首页"}
             </Button>
           ) : null}
-          {showRecap ? (
+          {showRecap && !reading ? (
             <Button
               type="button"
               variant="quiet"
               size="lg"
               onClick={() => openRecap()}
-              disabled={view === "recap"}
             >
               纪要
             </Button>
           ) : null}
-          {openClass ? (
+          {openClass && !reading ? (
             <Button type="button" variant="end" size="lg" onClick={() => void endClass()}>
               结课
             </Button>
           ) : null}
         </div>
-        {listenBtn}
+        {reading ? null : listenBtn}
         <Button
           type="button"
           variant="quiet"

@@ -4,15 +4,18 @@ import { readFileSync } from "node:fs";
 import {
   assembleRecap,
   emptyRecap,
+  essayOf,
   isEssayFilled,
   isFilled,
   isStudyFilled,
   mergeAiJson,
+  packCoach,
   pickRicherJson,
   polishBody,
   scoreContentJson,
   splitProse,
 } from "./recap-kit.ts";
+import type { CoachCard, TopicEssay } from "./types.ts";
 import { extractJsonObject } from "./json-object.ts";
 import {
   SPACEX_TITLE,
@@ -260,5 +263,78 @@ describe("extractJsonObject salvage", () => {
     assert.ok(sections && sections.length >= 1);
     assert.equal(sections[0]?.heading, "Clock");
     assert.ok((sections[0]?.body ?? "").length > 40);
+  });
+});
+
+function coachCard(id: string, topic: string): CoachCard {
+  return {
+    id,
+    topic,
+    topicZh: "",
+    briefZh: "",
+    briefEn: "A brief.",
+    move: "join",
+    options: [],
+    extras: [],
+    source: "auto",
+    prompt: "",
+    latencyMs: 1,
+    at: 1,
+  };
+}
+
+function deepEssay(title: string): TopicEssay {
+  return {
+    title,
+    contextEn: "",
+    contextZh: "",
+    viewEn: "The hour's example is reuse, not a prettier slide about patience.",
+    viewZh: "这小时的例子是复用。",
+    angles: [],
+    facts: [{ en: "Falcon 9 first landed in 2015.", zh: "2015 年首次着陆。" }],
+    qEn: "",
+    qZh: "",
+    aEn: "The first Falcon 9 landing in 2015 is the fact I can say in forty seconds.",
+    aZh: "我能讲的事实是 2015 年着陆。",
+    say: "",
+    frames: [],
+    terms: [],
+    sources: [],
+    latencyMs: 12,
+    at: 1,
+    draft: false,
+  };
+}
+
+describe("DeepSearch keyed by coach card id", () => {
+  it("reads the card id first and does not let a later topic overwrite an earlier card", () => {
+    const a = coachCard("coach-a", "Quarterly pressure");
+    const b = coachCard("coach-b", "Quarterly pressure");
+    const essays = {
+      "coach-a": deepEssay("First search"),
+      "coach-b": deepEssay("Second search"),
+      "quarterly pressure": deepEssay("Legacy shared"),
+    };
+    assert.equal(essayOf(a, essays)?.title, "First search");
+    assert.equal(essayOf(b, essays)?.title, "Second search");
+  });
+
+  it("falls back to the old topic key when the card has no id entry yet", () => {
+    const card = coachCard("coach-new", "Quarterly pressure");
+    const essays = { "quarterly pressure": deepEssay("Legacy shared") };
+    assert.equal(essayOf(card, essays)?.title, "Legacy shared");
+  });
+
+  it("packs two same-topic cards with their own DeepSearch", () => {
+    const packed = packCoach(
+      [coachCard("coach-a", "Quarterly pressure"), coachCard("coach-b", "Quarterly pressure")],
+      {
+        "coach-a": deepEssay("First search"),
+        "coach-b": deepEssay("Second search"),
+      },
+    );
+    assert.equal(packed.length, 2);
+    assert.equal(packed[0]?.deep?.title, "First search");
+    assert.equal(packed[1]?.deep?.title, "Second search");
   });
 });

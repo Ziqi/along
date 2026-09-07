@@ -5,14 +5,20 @@ import { useCapcom } from "@/lib/store";
 import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
 import { requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
-import { topicKey } from "@/lib/utils";
+import { essayOf } from "@/lib/recap-kit";
 
-function essayOf(
-  card: { id: string; topic: string },
+function cardHasDeep(
+  id: string | null,
+  coaches: CoachCard[],
   essays: Record<string, TopicEssay>,
+  essayPending: boolean,
+  essayTarget: string | null,
 ) {
-  const k = topicKey(card.topic);
-  return (k ? essays[k] : undefined) ?? essays[card.id];
+  if (!id) return false;
+  const card = coaches.find((c) => c.id === id);
+  if (!card) return false;
+  if (essayOf(card, essays)) return true;
+  return Boolean(essayPending && essayTarget === id);
 }
 
 export function UplinkPanel() {
@@ -28,17 +34,24 @@ export function UplinkPanel() {
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const latest = coaches.at(-1) ?? null;
   const scroller = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const stayOnCard =
+    Boolean(activeId && activeId !== latest?.id) &&
+    (!followLatest.current ||
+      cardHasDeep(activeId, coaches, essays, essayPending, essayTarget));
 
   useEffect(() => {
     const el = scroller.current;
-    if (!el) return;
+    if (!el || stayOnCard) return;
     el.scrollTop = el.scrollHeight;
-  }, [coaches.length]);
+  }, [coaches.length, stayOnCard]);
 
   useEffect(() => {
-    if (latest) setActiveId(latest.id);
-  }, [latest?.id]);
+    if (!latest) return;
+    if (stayOnCard) return;
+    setActiveId(latest.id);
+  }, [latest?.id, stayOnCard]);
 
   const headerStatus = pending
     ? "写…"
@@ -82,7 +95,13 @@ export function UplinkPanel() {
               variant="quiet"
               size="sm"
               className="h-7 min-h-7 px-2"
-              onClick={() => void requestEssay(latest?.id)}
+              onClick={() => {
+                if (latest) {
+                  followLatest.current = false;
+                  setActiveId(latest.id);
+                }
+                void requestEssay(latest?.id);
+              }}
               disabled={essayPending}
             >
               {essayPending ? "检索中" : "DeepSearch"}
@@ -107,6 +126,7 @@ export function UplinkPanel() {
                   (on ? "text-fg" : "text-muted hover:text-fg")
                 }
                 onClick={() => {
+                  followLatest.current = card.id === latest?.id;
                   setActiveId(card.id);
                   document.getElementById(`coach-${card.id}`)?.scrollIntoView({
                     block: "start",
@@ -148,7 +168,11 @@ export function UplinkPanel() {
                       card={card}
                       deepPending={deepPending}
                       busy={deepPending}
-                      onDeep={() => void requestEssay(card.id)}
+                      onDeep={() => {
+                        followLatest.current = false;
+                        setActiveId(card.id);
+                        void requestEssay(card.id);
+                      }}
                       onJot={(text) => {
                         const hit = [...card.options, ...(card.extras ?? [])].find(
                           (o) => o.en === text,

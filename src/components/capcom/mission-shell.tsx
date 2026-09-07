@@ -103,7 +103,7 @@ function MissionShellInner() {
       : "flex min-h-0 flex-1 flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:p-4 lg:grid lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:grid-rows-[minmax(0,1fr)_minmax(148px,190px)] lg:gap-4 lg:p-5");
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
+    <div className="app-shell flex h-dvh flex-col overflow-hidden bg-bg text-fg">
       <MissionBar onArm={arm} onSafe={safe} />
       {engineError ? (
         <p className="shrink-0 border-b border-line px-4 py-2 text-xs text-hold md:px-6">
