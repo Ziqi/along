@@ -1,12 +1,12 @@
 # ALONG 跟课
 
-课堂英语跟课：实时听写与中英字幕、教练三条回复、DeepSearch、翻译、AI 对话、课上就能写的纪要。
+课堂英语跟课：实时听写与中英字幕、按课型写的教练、DeepSearch、结课后的讲义。
 
-Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, and a recap written during class.
+Live classroom companion: captions, a coach that follows how you listen, DeepSearch, and a recap written as a handout.
 
 仓库：[github.com/Ziqi/along](https://github.com/Ziqi/along)  
 这一版改了什么、现场踩过什么坑：见 [CHANGELOG.md](./CHANGELOG.md)。  
-给 Cursor 改代码用的系统全貌、8080 约定、纪要 P0：见 [CURSOR.md](./CURSOR.md)。
+给 Cursor 改代码用的系统全貌、8080 约定、纪要门槛：见 [CURSOR.md](./CURSOR.md)。
 
 ---
 
@@ -26,36 +26,42 @@ Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, a
 
 ### 听课
 
-- **开始听**：开一堂新课，打开麦克风，走 xAI Speech-to-Text Streaming。
+- **开始听**：先选这堂怎么听，再开麦。三种课型写进这一堂。
+  - **互动**：一对一，或网课里你要接老师的话。
+  - **旁听**：群课。多半在听，偶尔要接。
+  - **只听**：播客、Coursera、录音。没有对老师说一句。
+- **继续听**：同一堂课接着听，不再问课型。
 - **暂停**：只停麦，课还在。
-- **继续听**：同一堂课接着听。
 - **结课**：下课并整理纪要。下一堂必须再点「开始听」。
-- 左侧实录（英 + 中）。听不清的噪声（如 `???????`）会丢掉。可手写补一句。
+- 顶栏小字可中途改课型，下一张卡按新课型写。
+- 左边实录（英 + 中）。听不清的噪声（如 `???????`）会丢掉。每一行英文下面的中文是听懂这一句，不是另开的翻译垫。
+
+课上是 **听课 | 教练** 整屏并排。手机只留这两个页签。翻译垫和 AI 对话已经拿掉。
 
 ### 教练
 
-- 听一段再出卡片。问句三条回复；讨论接话 / 追问 / 例子，外加两条延展。
-- 可单独暂停、恢复。点过的主题可从顶部游标跳回。
-- **DeepSearch** 挂在该主题下面：先联网找名字 / 数字 / 年份，再用 grok-4.6 根据这些事实写一段能讲四十秒的话。搜不到就说没检索到，不编。可同时开两路。
-- **记 / N**：弹出要点框，写入当前纪要。
+跟听开着就自动来。听写落下完整一句、安静约两秒，再写一张卡。主题靠刚听到的话和上一张主题名，不靠墙上的钟。
+
+- **互动**：讨论给同意 / 对比 / 例子；问句给直接答 / 补一层 / 举个例。
+- **旁听**：同一套开口，写成「若要开口」，人多时少刷。
+- **只听**：这句 + 剖析 + 背景。不再给对老师说的三句。
+- 可单独暂停、恢复。点过的主题可从顶部跳回。看旧卡时新卡不抢焦点。同一主题两拍写成 `等候时间 · 2`。
+- **DeepSearch** 点某一张卡才动：互动 / 旁听是事实和四十秒；只听是背景和资料。搜不到就说没检索到，不编。
+- **记 / N**：弹出随手记，写入当前纪要。
+
+上一轮还在写时，只记住此刻最后一句。卡住才用最后一句再写，不是每 12 秒换主题。
 
 ### 纪要
 
-结课后一份文档，三块：
+结课后一份讲义，三块：
 
-1. **课堂内容**：导语、要点、每个主题的段落（不是目录本身）。
-2. **英语学习**：单词、搭配、句式、语法、好例句。
-3. **教练**：课上出过的开口建议；点过 DeepSearch 的检索稿跟在卡片下面。
+1. **本堂内容**：导语、要点、每个主题的段落（不是目录本身）。
+2. **语言点**：单词、搭配、句式、语法、好例句。每条有用法和中文。
+3. **附录**：互动 / 旁听是课上开口原件；只听是课中剖析（这句 / 剖析 / 背景）。点过 DeepSearch 的检索稿跟在卡片下面。
 
-装配器拼结构（装入教练和 DeepSearch）。模型写正文。没有段落不算写完，失败会自动再写。目录不会当成完稿。打开纪要里的「Long-Term Vision vs Quarterly Pressure」可直接读到导语、段落、词表和中文。可改标题、下载 Markdown、导出 PDF。
+没在课上点过「记」也可以在纪要里补课堂随手记。空「要点」不是讲义 Takeaways。
 
-### 翻译
-
-独立便签。中英互译，`+` 开新便签。
-
-### AI 对话
-
-课堂问答，中英都给。`+` 开新线程。可放大，Esc 收回。
+装配器拼结构。模型写正文。没有段落不算写完，失败会自动再写。目录不会当成完稿。打开「Long-Term Vision vs Quarterly Pressure」可直接读到导语、段落、词表和中文。可改标题、下载 Markdown、打印。
 
 ---
 
@@ -65,8 +71,8 @@ Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, a
 |---|---|
 | 听写 | xAI 流式听写（grok-stt）。英文字幕就是听写结果，不经过 4.6。 |
 | 字幕翻译、课上提纲、纪要补中文 | `grok-4.20-0309-non-reasoning`（代码里绰号 Flash = 最快聊天模型，不是另一家产品）；不行再试 `grok-4.20-non-reasoning`，再不行 `grok-4.3` |
-| 教练、AI 对话 | `grok-4.6`（low）；超时才退到最快聊天模型 |
-| DeepSearch | 检索：最快聊天模型 + `web_search`。四十秒发言：`grok-4.6` 只根据检索到的事实写，不再联网。没事实就失败。 |
+| 教练 | `grok-4.6`（low）；超时才退到最快聊天模型 |
+| DeepSearch | 检索：最快聊天模型 + `web_search`。互动 / 旁听的四十秒、只听的背景：`grok-4.6` 只根据检索到的事实写，不再联网。没事实就失败。 |
 | 纪要正文 | 最快聊天模型与 `grok-4.6` 并行，装配器收口 |
 
 ---
@@ -79,12 +85,13 @@ Live classroom companion: captions, a coach, DeepSearch, translation, AI chat, a
 ```bash
 git clone https://github.com/Ziqi/along.git
 cd along
+git checkout cursor/class-mode-coach-5dd6
 npm install
 export XAI_API_KEY=your_key
 npm start
 ```
 
-Chrome 听写最稳。`npm start` 会检查开发服务是不是已经在跑。
+这一版还在 `cursor/class-mode-coach-5dd6`（叠在跟听可靠性那支上面）。`main` 尚未合入。Chrome 听写最稳。`npm start` 会检查开发服务是不是已经在跑。
 
 ```bash
 npm stop
@@ -98,16 +105,16 @@ npm stop
 |---|---|---|
 | 本机浏览器 | 默认 | 清站点数据之前。最多 40 堂 |
 | 云端数据库 | 登录后 | 账号还在就还在 |
-| 下载 | Markdown / PDF | 在你磁盘上 |
+| 下载 | Markdown / 打印 | 在你磁盘上 |
 
 ---
 
 ## 课上按钮
 
 ```
-开始听  →  新的一堂课（开麦）
+开始听  →  先选互动 / 旁听 / 只听，再开麦
 暂停    →  麦停，课还在
-继续听  →  同一堂课
+继续听  →  同一堂课，不再问课型
 结课    →  下课 + 整理纪要
 ```
 

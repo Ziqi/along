@@ -10,10 +10,13 @@
 
 课堂英语跟课 HUD。上课时：
 
-- 左：实时听写（英）+ 中文字幕
-- 右上：教练（主题卡：概括 + 3 答 + 2 延展；DeepSearch 挂在主题下）
-- 右下：翻译便签、AI 对话
-- 结课：一份**讲义**（不是目录）
+- 左：实时听写（英）+ 行下中文（听懂这一句，不是翻译垫）
+- 右：教练。开课前手选互动 / 旁听 / 只听；顶栏可中途改
+  - 互动 / 旁听：同意 / 对比 / 例子，或问句三答
+  - 只听：这句 / 剖析 / 背景
+- 结课：一份**讲义**（不是目录）。只听的 Part 3 是课中剖析，不是开口原件
+
+不要把翻译垫、AI 对话、听课底下的打字口加回去。
 
 产品名 **ALONG / 跟课**。默认白天模式。中文界面。
 
@@ -57,10 +60,11 @@ src/lib/capcom-ai.ts             全部 serverFn：STT secret、翻译、教练�
 src/lib/essay-kit.ts             DeepSearch 装配
 src/lib/speech-controller.ts     麦克风 + 流式 STT
 src/lib/stt-controller.ts
-src/components/capcom/use-engine.ts   听课生命周期 + requestRecap + 翻译队列
+src/lib/class-mode.ts            课型、旁听间隔、课中剖析标题
+src/components/capcom/use-engine.ts   听课生命周期 + requestRecap + 翻译队列 + 卡住重写
+src/components/capcom/mission-shell.tsx  听课 | 教练两栏
 src/components/capcom/recap-page.tsx  纪要页 UI
-src/components/capcom/hud.tsx         四块 HUD
-src/lib/export-recap.ts          Markdown / PDF
+src/lib/export-recap.ts          Markdown / 打印
 scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 ```
 
@@ -71,9 +75,9 @@ scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 ## 4. 课上逻辑（已经相对稳，不要推倒）
 
 ```
-开始听  →  新 ClassSession，开麦，xAI STT Streaming
+开始听  →  手选课型，新 ClassSession，开麦，xAI STT Streaming
 暂停    →  只停麦，课还在（liveId 不变）
-继续听  →  同一堂课
+继续听  →  同一堂课，不再问课型
 结课    →  stashLive → abortLive → requestRecap；下一堂必须再点开始听
 ```
 
@@ -89,8 +93,8 @@ scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 |---|---|
 | 听写 | xAI Speech-to-Text Streaming。英文字幕不经过 4.6。 |
 | 字幕翻译、课上提纲、纪要补中文 | `grok-4.20-0309-non-reasoning`（仓库绰号 Flash = 最快聊天模型），再试 `grok-4.20-non-reasoning`，再 `grok-4.3` |
-| 教练、AI 对话 | `grok-4.6` `reasoning_effort: low`，超时退最快聊天模型 |
-| DeepSearch | 最快模型 + `web_search` 检索事实；有事实后 4.6 只根据事实写四十秒（不联网）。没事实就失败，不许编。最多 2 路 |
+| 教练 | `grok-4.6` `reasoning_effort: low`，超时退最快聊天模型 |
+| DeepSearch | 最快模型 + `web_search` 检索事实；互动 / 旁听写四十秒，只听写背景。没事实就失败，不许编。最多 2 路 |
 | 纪要正文 | 最快模型与 grok-4.6 **并行**写内容 → 不够再 slim 一次 → 过关才写语言点 |
 
 ---
@@ -110,7 +114,7 @@ scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 
 1. **本堂内容** — `lede` + `ledeZh` + 每个主题一篇 `body`/`bodyZh`（段落 + 1.2.3），`takeaways`
 2. **语言点** — 由模型当英语老师选词、难词、划线（`marks`）、用法、例句。不要词频表，不要 BASIC 词表替老师做主
-3. **开口原件** — `packCoach` 把课上教练和 DeepSearch **原样**附在后面。不要抄进第 1 块
+3. **附录** — `packCoach` 把课上教练和 DeepSearch **原样**附在后面。互动 / 旁听叫开口原件；只听叫课中剖析。不要抄进第 1 块
 
 完成判定 `isFilled(recap)`（`src/lib/recap-kit.ts`）：
 
@@ -192,15 +196,15 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 ## 7. 建议升级（用户认可的方向，未完成）
 
-1. **纪要真正写成讲义**（P0，上面验收）
-2. 语言点：难词 + 搭配 + 用法 + 中文，全部模型判断
-3. 讲义排版：段落、1.2.3、表格（适合就上）、重点加粗/划线，下载 PDF 可打印
-4. 实录只作附录，下载可选
-5. 失败自动重写，有进度条，不允许「失败了就不写了」
-6. 课中实时提纲可以保留，但**不得**当作结课后的完成稿
-7. 登录在手机上可见；未登录要说清「只在这台设备」
+已落地、不要倒回去：讲义三块、语言点由模型选、实录作附录、失败再写、登录同步、三种课型、两栏 HUD、不要手写混进听写。
 
-不要做：再发明一套笔记独立产品（笔记已并进纪要要点）；不要把教练 3 答当课堂总结。
+还没做：
+
+1. **「我想说」**：打一句中文，给出课堂上能出口的英文。占听课里一条，不再开第四块屏。
+2. **纪要当复习本**：复习从菜单里拿到面上；各堂词、搭配、句式做成总索引。
+3. **两栏排版再吃满**：课上句子更好扫，教练卡更像能用的纸。
+
+不要做：人声分离；纪要里写「老师说 / 同学说」；折掉同意 / 对比 / 例子；再发明一套笔记独立产品；把翻译垫 / AI 对话加回去。
 
 ---
 
@@ -223,4 +227,4 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 3. Grok Build 会 `git pull`，在沙箱里跑 `npm start`（8080），预览出现在 grok.me
 4. 不要指望 Grok Build 能读到你浏览器 localStorage 里的那堂课；验收用新结课或「整理本堂」
 
-当前分支已包含：讲义 packet、isFilled 门槛、失败不再存目录、UI 不再用 Contents 当正文，以及 **SpaceX 那堂的合格讲义**（导语 / 段落 / 词表 / 中文）。`recapClass` 加长了写作窗口；这一堂仍写不出时用写好的讲义收口。
+当前可试的课型分支：`cursor/class-mode-coach-5dd6`（叠在跟听可靠性上）。`main` 尚未合入。不要指望沙箱能读到你浏览器里的那堂课；验收用新结课或「整理本堂」。
