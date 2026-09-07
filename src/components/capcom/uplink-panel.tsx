@@ -172,9 +172,6 @@ export function UplinkPanel() {
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
         {empty ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
-            <p className="text-xs text-dim">
-              {pending ? "跟听中" : captions.length ? "跟听中" : "待命"}
-            </p>
             <p className="max-w-sm text-base leading-relaxed text-muted text-pretty">
               {!liveId
                 ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。上课不能改课型。"
