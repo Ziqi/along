@@ -455,7 +455,7 @@ function toRecap(
       example: r.example ?? "",
       exampleZh: r.exampleZh ?? "",
     }));
-  return {
+  const next = {
     title: result.title,
     lede: result.lede ?? "",
     ledeZh: result.ledeZh ?? "",
@@ -476,10 +476,12 @@ function toRecap(
     takeaways: result.takeaways ?? [],
     marks: result.marks ?? [],
     coachPack: result.coachPack?.length ? result.coachPack : coachPack,
-    draft: false,
+    draft: true,
     latencyMs: result.ms,
     at: Date.now(),
   };
+  next.draft = !isFilled(next);
+  return next;
 }
 
 type RecapStudyLike = {

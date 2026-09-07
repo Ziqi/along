@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay } from "@/lib/essay-kit";
-import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
+import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { looksLikeSpacexPacket, spacexContentJson } from "@/lib/recap-spacex";
 import { extractJsonObject } from "@/lib/json-object";
 
@@ -941,7 +941,7 @@ export const recapClass = createServerFn({ method: "POST" })
     let parsed: Record<string, unknown> = pickRicherJson(fromFlash, mergeAiJson(fromFlash, fromGrok));
     let recap = assembleRecap(base, parsed);
     recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
-    if (!isFilled(recap)) {
+    if (!isEssayFilled(recap)) {
       const heads = (recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4).length
         ? recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4)
         : data.topics.slice(0, 4));
@@ -959,7 +959,7 @@ export const recapClass = createServerFn({ method: "POST" })
         recap.latencyMs += slim.ms;
       }
     }
-    if (!isFilled(recap)) {
+    if (!isEssayFilled(recap)) {
       const three = await chat46recap({
         system:
           "Write THREE section 讲义 only. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body 90+ words + 1. 2. 3. 简体 in *Zh. Star *quarterly earnings* style terms if this class has them.",
@@ -978,11 +978,11 @@ export const recapClass = createServerFn({ method: "POST" })
         recap.latencyMs += three.ms;
       }
     }
-    if (!isFilled(recap) && looksLikeSpacexPacket(packet)) {
+    if (!isEssayFilled(recap) && looksLikeSpacexPacket(packet)) {
       parsed = mergeAiJson(parsed, spacexContentJson());
       recap = assembleRecap(base, parsed);
     }
-    if (!isFilled(recap)) {
+    if (!isEssayFilled(recap)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
     }
     const studySys =
@@ -1023,6 +1023,13 @@ export const recapClass = createServerFn({ method: "POST" })
     }
     recap = assembleRecap(base, parsed);
     recap.latencyMs += study.ok ? study.ms : 0;
+    if (!isStudyFilled(recap) && looksLikeSpacexPacket(packet)) {
+      parsed = mergeAiJson(parsed, spacexContentJson());
+      recap = assembleRecap(base, parsed);
+    }
+    if (!isFilled(recap)) {
+      return { ok: false, error: "语言点没写出来，再点一次整理。" };
+    }
     recap.draft = false;
     const miss = missingZh(recap);
     if (miss.length) {

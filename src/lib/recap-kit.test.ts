@@ -1,12 +1,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   assembleRecap,
   emptyRecap,
+  isEssayFilled,
   isFilled,
+  isStudyFilled,
   mergeAiJson,
   pickRicherJson,
+  polishBody,
   scoreContentJson,
+  splitProse,
 } from "./recap-kit.ts";
 import { extractJsonObject } from "./json-object.ts";
 import {
@@ -20,6 +25,34 @@ import {
   spacexSession,
   spacexTranscript,
 } from "./recap-spacex.ts";
+
+const LONG_EN =
+  "This class argued that a ninety-day score cannot narrate a decade of engineering work without cutting the decade itself.";
+const LONG_ZH =
+  "这堂课认为九十天的成绩单讲不完十年的工程，硬讲就会砍掉十年。谁等得起回报，谁会在第一次不及预期时卖掉。";
+
+function studyRow(en: string) {
+  return {
+    en,
+    zh: `${en} 中文`,
+    use: `How ${en} showed up in this hour.`,
+    useZh: "这小时里怎么用的。",
+    example: `They used ${en} when the quarter missed.`,
+    exampleZh: "季报不及预期时他们用了这个词。",
+  };
+}
+
+function essayOnly() {
+  return {
+    ...emptyRecap("Clock"),
+    lede: LONG_EN,
+    ledeZh: LONG_ZH,
+    sections: [
+      { heading: "Clock", headingZh: "钟", body: LONG_EN, bodyZh: LONG_ZH },
+      { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH },
+    ],
+  };
+}
 
 describe("SpaceX 讲义 P0", () => {
   it("gold recap is a filled bilingual handout", () => {
@@ -126,6 +159,92 @@ describe("recap JSON merge", () => {
     assert.equal((merged.sections as unknown[]).length, 1);
     assert.ok(scoreContentJson(good) > scoreContentJson(thin));
     assert.equal(pickRicherJson(good, thin), good);
+  });
+});
+
+describe("handout gate and document close", () => {
+  it("isFilled needs two bilingual sections plus four complete study rows", () => {
+    const oneSection = {
+      ...essayOnly(),
+      sections: [{ heading: "Clock", headingZh: "钟", body: LONG_EN, bodyZh: LONG_ZH }],
+      words: [studyRow("payoff"), studyRow("miss"), studyRow("horizon"), studyRow("retail")],
+    };
+    assert.equal(isEssayFilled(oneSection), false);
+    assert.equal(isFilled(oneSection), false);
+
+    const noZh = {
+      ...essayOnly(),
+      ledeZh: "",
+      sections: [
+        { heading: "Clock", headingZh: "", body: LONG_EN, bodyZh: "" },
+        { heading: "Payoff", headingZh: "", body: LONG_EN, bodyZh: "" },
+      ],
+      words: [studyRow("payoff"), studyRow("miss"), studyRow("horizon"), studyRow("retail")],
+    };
+    assert.equal(isEssayFilled(noZh), false);
+    assert.equal(isFilled(noZh), false);
+
+    const emptyWords = essayOnly();
+    assert.equal(isEssayFilled(emptyWords), true);
+    assert.equal(isStudyFilled(emptyWords), false);
+    assert.equal(isFilled(emptyWords), false);
+
+    const bareWords = {
+      ...essayOnly(),
+      words: [
+        { en: "payoff", zh: "", use: "", useZh: "", example: "", exampleZh: "" },
+        { en: "miss", zh: "", use: "", useZh: "", example: "", exampleZh: "" },
+        { en: "horizon", zh: "", use: "", useZh: "", example: "", exampleZh: "" },
+        { en: "retail", zh: "", use: "", useZh: "", example: "", exampleZh: "" },
+      ],
+    };
+    assert.equal(isStudyFilled(bareWords), false);
+    assert.equal(isFilled(bareWords), false);
+
+    const ready = {
+      ...essayOnly(),
+      words: [studyRow("payoff"), studyRow("miss"), studyRow("horizon"), studyRow("retail")],
+    };
+    assert.equal(isEssayFilled(ready), true);
+    assert.equal(isStudyFilled(ready), true);
+    assert.equal(isFilled(ready), true);
+  });
+
+  it("polishBody keeps a three-paragraph body plus numbered points", () => {
+    const body = polishBody(
+      [
+        "First paragraph about the calendar versus the rocket.",
+        "Second paragraph about who can wait for the payoff.",
+        "Third paragraph about how to say a miss in class.",
+        "1. Name the horizon.",
+        "2. Name the miss.",
+        "3. Name the payoff.",
+      ].join("\n"),
+    );
+    assert.match(body, /First paragraph/);
+    assert.match(body, /Second paragraph/);
+    assert.match(body, /Third paragraph/);
+    assert.match(body, /1\. Name the horizon/);
+    assert.match(body, /3\. Name the payoff/);
+  });
+
+  it("splitProse keeps paragraphs and 1.2.3 as an ordered list", () => {
+    const blocks = splitProse(
+      "A listed firm is judged every ninety days.\n\n1. A quarter asks for a number.\n2. A rocket asks for years.\n3. Fund the horizon.",
+    );
+    assert.equal(blocks[0]?.type, "p");
+    assert.match(blocks[0]?.items[0] ?? "", /listed firm/);
+    assert.equal(blocks[1]?.type, "ol");
+    assert.equal(blocks[1]?.items.length, 3);
+    assert.equal(blocks[1]?.items[0], "A quarter asks for a number.");
+  });
+
+  it("Markdown and print paths never dump outline as the handout", () => {
+    const src = readFileSync(new URL("./export-recap.ts", import.meta.url), "utf8");
+    assert.equal(src.includes("outline"), false);
+    assert.match(src, /splitProse/);
+    assert.match(src, /<ol>/);
+    assert.match(src, /class="card"/);
   });
 });
 

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
 import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/components/capcom/use-engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
+import { splitProse } from "@/lib/recap-kit";
 import type { ClassSession, RecapCoach, RecapPair, RecapStudy } from "@/lib/types";
 import { formatDayTime } from "@/lib/utils";
 import { SignedOut } from "@/lib/auth/gates";
@@ -64,9 +65,6 @@ export function RecapPage() {
       (a, b) => b.length - a.length,
     ).slice(0, 24);
   }, [recap?.marks, words, collos]);
-  const tape = living && captions.length
-    ? captions.map((c) => ({ en: c.en, zh: c.zh }))
-    : (session?.transcript ?? []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -189,7 +187,7 @@ export function RecapPage() {
                   <p className="font-mono text-[10px] tracking-[0.16em] text-dim">
                     {formatDayTime(session.startedAt)}
                     {living ? " · live" : ""}
-                    {recap?.draft ? " · outline" : ""}
+                    {recap?.draft ? " · 未完稿" : ""}
                     {session.sourceTitle ? ` · from ${session.sourceTitle}` : ""}
                   </p>
                   <div className="flex items-center gap-1">
@@ -330,7 +328,7 @@ export function RecapPage() {
                     </p>
                   ) : null}
 
-                  {outline.length || recap?.lede || sections.length || takeaways.length ? (
+                  {recap?.lede || sections.length || takeaways.length ? (
                     <p className="font-mono text-[10px] tracking-[0.22em] text-dim">
                       PART 1 · 讲义 · 本堂内容
                     </p>
@@ -460,26 +458,6 @@ export function RecapPage() {
                     </p>
                   ) : null}
 
-                  {sections.length ? (
-                    <section className="flex flex-col gap-4">
-                      <h2 className="text-xl font-medium tracking-tight">Map · 内容分布</h2>
-                      <BarList
-                        rows={
-                          topics.length
-                            ? topics.map((t) => ({
-                                label: t.en,
-                                sub: t.zh,
-                                n: topicHits(t.en, tape),
-                              }))
-                            : sections.map((s, i) => ({
-                                label: s.heading,
-                                n: Math.max(1, 6 - i),
-                              }))
-                        }
-                      />
-                    </section>
-                  ) : null}
-
                   {topics.length && !sections.length ? <PairList kicker="Topics · 主题" items={topics} /> : null}
 
                   {words.length ||
@@ -498,40 +476,31 @@ export function RecapPage() {
                           老师读完整堂课之后选出的词、搭配、句式。划线也由这份讲义决定。每条都有用法和中文。
                         </p>
                       </div>
-                      <BarList
-                        rows={[
-                          { label: "Words 单词", n: words.length },
-                          { label: "Collocations 搭配", n: collos.length },
-                          { label: "Patterns 句式", n: patterns.length },
-                          { label: "Grammar 语法", n: grammar.length },
-                          { label: "Sentences 例句", n: lines.length },
-                        ].filter((r) => r.n > 0)}
-                      />
-                      <StudyTable
+                      <StudyCards
                         kicker="Words · 单词"
                         items={words}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { words: next })}
                       />
-                      <StudyTable
+                      <StudyCards
                         kicker="Collocations · 搭配"
                         items={collos}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { collos: next })}
                       />
-                      <StudyTable
+                      <StudyCards
                         kicker="Patterns · 句式"
                         items={patterns}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { patterns: next })}
                       />
-                      <StudyTable
+                      <StudyCards
                         kicker="Grammar · 语法"
                         items={grammar}
                         editing={editing}
                         onChange={(next) => updateRecap(session.id, { grammar: next })}
                       />
-                      <StudyTable
+                      <StudyCards
                         kicker="Key sentences · 好例句"
                         items={lines}
                         editing={editing}
@@ -797,48 +766,8 @@ function RecapProgress() {
       <div className="h-1.5 w-full bg-line">
         <div className="h-1.5 bg-fg transition-[width] duration-200" style={{ width: `${pct}%` }} />
       </div>
-      <p className="text-xs text-muted">目录先出来。正文由模型写入，装配器只拼结构，写不完会停并让你再点。</p>
+      <p className="text-xs text-muted">先写导语和章节，再填词表。写不完会停，再点一次「整理本堂」。</p>
     </div>
-  );
-}
-
-function topicHits(topic: string, tape: { en: string }[]) {
-  const keys = topic
-    .toLowerCase()
-    .split(/[^a-z0-9']+/)
-    .filter((w) => w.length > 3);
-  if (!keys.length && !topic.trim()) return 1;
-  let n = 0;
-  const whole = topic.toLowerCase();
-  for (const line of tape) {
-    const t = line.en.toLowerCase();
-    if (whole && t.includes(whole)) n += 2;
-    else if (keys.some((w) => t.includes(w))) n += 1;
-  }
-  return Math.max(1, n);
-}
-
-function BarList({
-  rows,
-}: {
-  rows: { label: string; n: number; sub?: string }[];
-}) {
-  if (!rows.length) return null;
-  const max = Math.max(1, ...rows.map((r) => r.n));
-  return (
-    <ul className="flex flex-col gap-2.5">
-      {rows.map((r) => (
-        <li key={r.label}>
-          <div className="flex items-baseline justify-between gap-3 text-xs">
-            <span className="min-w-0 truncate text-fg">{r.label}</span>
-            <span className="shrink-0 text-dim">{r.sub || r.n}</span>
-          </div>
-          <div className="mt-1 h-1.5 bg-line">
-            <div className="h-1.5 bg-fg" style={{ width: `${Math.round((r.n / max) * 100)}%` }} />
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -851,64 +780,7 @@ function ProseBlocks({
   muted?: boolean;
   terms?: string[];
 }) {
-  const raw = text.split("\n");
-  const blocks: { type: "p" | "ol" | "ul"; items: string[] }[] = [];
-  let i = 0;
-  while (i < raw.length) {
-    const line = raw[i]?.trim() ?? "";
-    if (!line) {
-      i += 1;
-      continue;
-    }
-    if (/^\d+[\.)]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < raw.length) {
-        const cur = raw[i]?.trim() ?? "";
-        if (!cur) {
-          i += 1;
-          break;
-        }
-        if (/^\d+[\.)]\s+/.test(cur)) {
-          items.push(cur.replace(/^\d+[\.)]\s+/, ""));
-          i += 1;
-          continue;
-        }
-        break;
-      }
-      if (items.length) blocks.push({ type: "ol", items });
-      continue;
-    }
-    if (/^[-•]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < raw.length) {
-        const cur = raw[i]?.trim() ?? "";
-        if (!cur) {
-          i += 1;
-          break;
-        }
-        if (/^[-•]\s+/.test(cur)) {
-          items.push(cur.replace(/^[-•]\s+/, ""));
-          i += 1;
-          continue;
-        }
-        break;
-      }
-      if (items.length) blocks.push({ type: "ul", items });
-      continue;
-    }
-    const items: string[] = [];
-    while (i < raw.length) {
-      const cur = raw[i]?.trim() ?? "";
-      if (!cur) {
-        i += 1;
-        break;
-      }
-      if (/^\d+[\.)]\s+/.test(cur) || /^[-•]\s+/.test(cur)) break;
-      items.push(cur);
-      i += 1;
-    }
-    if (items.length) blocks.push({ type: "p", items: [items.join(" ")] });
-  }
+  const blocks = splitProse(text);
   if (!blocks.length) return null;
   const body = muted ? "text-sm leading-relaxed text-muted text-pretty" : "text-base leading-8 text-fg text-pretty";
   return (
@@ -965,7 +837,7 @@ function PairList({ kicker, items }: { kicker: string; items: RecapPair[] }) {
   );
 }
 
-function StudyTable({
+function StudyCards({
   kicker,
   items,
   editing,
@@ -984,60 +856,76 @@ function StudyTable({
   return (
     <section className="flex flex-col gap-3">
       <h3 className="text-lg font-medium tracking-tight">{kicker}</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem] border-collapse text-left">
-          <thead>
-            <tr className="border-b border-line text-[10px] tracking-[0.14em] text-dim">
-              <th className="py-2 pr-3 font-normal">English</th>
-              <th className="py-2 pr-3 font-normal">中文</th>
-              <th className="py-2 pr-3 font-normal">Usage</th>
-              <th className="py-2 font-normal">Example</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it, i) => (
-              <tr key={`${it.en}-${i}`} className="border-b border-line/70 align-top">
-                {editing ? (
-                  <>
-                    <td className="py-2 pr-2">
-                      <EditText value={it.en} rows={2} className="text-sm font-medium" onSave={(v) => patch(i, "en", v)} />
-                    </td>
-                    <td className="py-2 pr-2">
-                      <EditText value={it.zh} rows={2} className="text-sm text-muted" onSave={(v) => patch(i, "zh", v)} />
-                    </td>
-                    <td className="py-2 pr-2">
-                      <EditText value={it.use} rows={2} className="text-sm" onSave={(v) => patch(i, "use", v)} />
-                      <EditText value={it.useZh} rows={2} className="mt-1 text-sm text-muted" onSave={(v) => patch(i, "useZh", v)} />
-                    </td>
-                    <td className="py-2">
-                      <EditText value={it.example} rows={2} className="text-sm" onSave={(v) => patch(i, "example", v)} />
-                      <EditText value={it.exampleZh} rows={2} className="mt-1 text-sm text-muted" onSave={(v) => patch(i, "exampleZh", v)} />
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="py-2.5 pr-3 text-sm font-medium leading-snug text-fg">{it.en}</td>
-                    <td className="py-2.5 pr-3 text-sm leading-snug text-muted">{it.zh}</td>
-                    <td className="py-2.5 pr-3 text-sm leading-snug">
-                      {it.use ? <p className="text-fg">{it.use}</p> : null}
-                      {it.useZh ? <p className="mt-0.5 text-muted">{it.useZh}</p> : null}
-                    </td>
-                    <td className="py-2.5 text-sm leading-snug">
-                      {it.example ? (
-                        <p className="text-fg text-pretty">
-                          <StarEn text={it.example} />
-                        </p>
-                      ) : null}
-                      {it.exampleZh ? (
-                        <p className="mt-0.5 text-muted text-pretty">{it.exampleZh}</p>
-                      ) : null}
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((it, i) => (
+          <article
+            key={`${it.en}-${i}`}
+            className="flex flex-col gap-2 border border-line bg-elevated px-4 py-3"
+          >
+            {editing ? (
+              <>
+                <EditText
+                  value={it.en}
+                  rows={2}
+                  className="text-base font-medium"
+                  onSave={(v) => patch(i, "en", v)}
+                />
+                <EditText
+                  value={it.zh}
+                  rows={2}
+                  className="text-sm text-muted"
+                  onSave={(v) => patch(i, "zh", v)}
+                />
+                <p className="font-mono text-[10px] tracking-[0.14em] text-dim">用法</p>
+                <EditText value={it.use} rows={2} className="text-sm" onSave={(v) => patch(i, "use", v)} />
+                <EditText
+                  value={it.useZh}
+                  rows={2}
+                  className="text-sm text-muted"
+                  onSave={(v) => patch(i, "useZh", v)}
+                />
+                <p className="font-mono text-[10px] tracking-[0.14em] text-dim">例句</p>
+                <EditText
+                  value={it.example}
+                  rows={2}
+                  className="text-sm"
+                  onSave={(v) => patch(i, "example", v)}
+                />
+                <EditText
+                  value={it.exampleZh}
+                  rows={2}
+                  className="text-sm text-muted"
+                  onSave={(v) => patch(i, "exampleZh", v)}
+                />
+              </>
+            ) : (
+              <>
+                <p className="text-base font-medium leading-snug text-fg">{it.en}</p>
+                {it.zh ? <p className="text-sm leading-snug text-muted">{it.zh}</p> : null}
+                {it.use || it.useZh ? (
+                  <div>
+                    <p className="font-mono text-[10px] tracking-[0.14em] text-dim">用法</p>
+                    {it.use ? <p className="mt-1 text-sm leading-relaxed text-fg">{it.use}</p> : null}
+                    {it.useZh ? <p className="text-sm leading-relaxed text-muted">{it.useZh}</p> : null}
+                  </div>
+                ) : null}
+                {it.example || it.exampleZh ? (
+                  <div>
+                    <p className="font-mono text-[10px] tracking-[0.14em] text-dim">例句</p>
+                    {it.example ? (
+                      <p className="mt-1 text-sm leading-relaxed text-fg text-pretty">
+                        <StarEn text={it.example} />
+                      </p>
+                    ) : null}
+                    {it.exampleZh ? (
+                      <p className="text-sm leading-relaxed text-muted text-pretty">{it.exampleZh}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </article>
+        ))}
       </div>
     </section>
   );

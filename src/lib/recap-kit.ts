@@ -70,7 +70,72 @@ export function polishBody(text: string) {
     else if (/^[-•]\s+/.test(line)) points.push(line.replace(/^[-•]\s+/, ""));
     else paras.push(line);
   }
-  return formatBody(paras.slice(0, 2), points.slice(0, 4));
+  return formatBody(paras.slice(0, 8), points.slice(0, 8));
+}
+
+export type ProseBlock = { type: "p" | "ol" | "ul"; items: string[] };
+
+/** Same split the screen and the print sheet use. */
+export function splitProse(text: string): ProseBlock[] {
+  const raw = text.split("\n");
+  const blocks: ProseBlock[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    const line = raw[i]?.trim() ?? "";
+    if (!line) {
+      i += 1;
+      continue;
+    }
+    if (/^\d+[\.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < raw.length) {
+        const cur = raw[i]?.trim() ?? "";
+        if (!cur) {
+          i += 1;
+          break;
+        }
+        if (/^\d+[\.)]\s+/.test(cur)) {
+          items.push(cur.replace(/^\d+[\.)]\s+/, ""));
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      if (items.length) blocks.push({ type: "ol", items });
+      continue;
+    }
+    if (/^[-•]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < raw.length) {
+        const cur = raw[i]?.trim() ?? "";
+        if (!cur) {
+          i += 1;
+          break;
+        }
+        if (/^[-•]\s+/.test(cur)) {
+          items.push(cur.replace(/^[-•]\s+/, ""));
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      if (items.length) blocks.push({ type: "ul", items });
+      continue;
+    }
+    const items: string[] = [];
+    while (i < raw.length) {
+      const cur = raw[i]?.trim() ?? "";
+      if (!cur) {
+        i += 1;
+        break;
+      }
+      if (/^\d+[\.)]\s+/.test(cur) || /^[-•]\s+/.test(cur)) break;
+      items.push(cur);
+      i += 1;
+    }
+    if (items.length) blocks.push({ type: "p", items: [items.join(" ")] });
+  }
+  return blocks;
 }
 
 export const GOLD_CONTENT = `You have read the FULL class: live transcript, student notes, coach cards, DeepSearch.
@@ -277,7 +342,7 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
     ...extractStars(lede),
     ...useSections.flatMap((s) => extractStars(s.body)),
   ];
-  return {
+  const built: ClassRecap = {
     ...base,
     title: clip(title, 80),
     lede: useLede,
@@ -294,9 +359,11 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
     skills: pairs("skills", 6),
     marks: [...new Set(marks)].slice(0, 24),
     coachPack: base.coachPack ?? [],
-    draft: !(useLede.trim().length > 40 && useSections.some((s) => writtenBody(s.body))),
+    draft: true,
     at: Date.now(),
   };
+  built.draft = !isFilled(built);
+  return built;
 }
 
 export function missingZh(recap: ClassRecap): string[] {
@@ -517,10 +584,32 @@ export function writtenBody(body: string) {
   return body.replace(/\s+/g, " ").trim().length > 80;
 }
 
+function writtenZh(body: string) {
+  return body.replace(/\s+/g, " ").trim().length > 40;
+}
+
+export function studyRowReady(row: RecapStudy) {
+  return Boolean(
+    row.en.trim() &&
+      row.zh.trim() &&
+      (row.use ?? "").trim() &&
+      (row.example ?? "").trim(),
+  );
+}
+
+export function isEssayFilled(recap: ClassRecap) {
+  const ledeOk = (recap.lede ?? "").trim().length > 40 && writtenZh(recap.ledeZh ?? "");
+  const bilingual = recap.sections.filter((s) => writtenBody(s.body) && writtenZh(s.bodyZh ?? ""));
+  return ledeOk && bilingual.length >= 2;
+}
+
+export function isStudyFilled(recap: ClassRecap) {
+  const rows = [...recap.words, ...recap.collos, ...recap.patterns, ...recap.grammar, ...recap.lines];
+  return rows.filter(studyRowReady).length >= 4;
+}
+
 export function isFilled(recap: ClassRecap) {
-  const ledeOk = (recap.lede ?? "").trim().length > 40;
-  const bodyOk = recap.sections.some((s) => writtenBody(s.body));
-  return ledeOk && bodyOk;
+  return isEssayFilled(recap) && isStudyFilled(recap);
 }
 
 /** Merge model JSON without letting an outline-only object wipe real sections. */
