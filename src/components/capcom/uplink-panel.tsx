@@ -70,11 +70,12 @@ export function UplinkPanel() {
     el.scrollTop = el.scrollHeight;
   }, [coaches.length, stayOnCard, followLatest]);
 
+  const latestId = latest?.id ?? null;
   useEffect(() => {
-    if (!latest) return;
+    if (!latestId) return;
     if (stayOnCard || !followLatest) return;
-    setActiveId(latest.id);
-  }, [latest?.id, stayOnCard, followLatest]);
+    setActiveId(latestId);
+  }, [latestId, stayOnCard, followLatest]);
 
   const phase = coachUiPhase({
     autoCoach,

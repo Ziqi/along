@@ -11,11 +11,13 @@ import { StudyCards } from "./study-cards";
 
 /**
  * The paper below the title: essay, language points, appendix, notes, tape.
- * `editing` swaps the prose for textareas that save on blur.
+ * `editing` swaps the prose for textareas that save on blur; `readOnly` is a
+ * sample handout — nothing on it can be written to.
  */
 export function HandoutBody({
   session,
   editing,
+  readOnly = false,
   pending,
   stage,
   error,
@@ -24,6 +26,7 @@ export function HandoutBody({
 }: {
   session: ClassSession;
   editing: boolean;
+  readOnly?: boolean;
   pending: boolean;
   stage: RecapStage | null;
   error: string | null;
@@ -173,7 +176,7 @@ export function HandoutBody({
         </section>
       ) : null}
 
-      <NotesEditor session={session} />
+      {readOnly ? null : <NotesEditor session={session} />}
 
       <LiveTape lines={liveLines && liveLines.length ? liveLines : session.transcript} />
     </>

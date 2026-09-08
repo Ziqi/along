@@ -30,19 +30,11 @@ import {
 } from "./recap-kit.ts";
 import type { CoachCard, TopicEssay } from "./types.ts";
 import { extractJsonObject } from "./json-object.ts";
-import {
-  SPACEX_ID,
-  SPACEX_TITLE,
-  cleanRecapTitle,
-  fillKnownHandout,
-  looksLikeSpacexPacket,
-  looksLikeSpacexSession,
-  looksLikeSpacexText,
-  spacexContentJson,
-  spacexRecap,
-  spacexSession,
-  spacexTranscript,
-} from "./recap-spacex.ts";
+import { SPACEX_ID, SPACEX_TITLE, spacexContentJson, spacexRecap, spacexSession } from "./recap-spacex.ts";
+import { SAMPLE_ID, sampleSession } from "./recap-demo.ts";
+import { isSampleId, sampleById, sampleList } from "./samples.ts";
+import { coachExtraLabels, coachOptionLabels, isCoachFilled } from "./coach-assemble.ts";
+import { parseClassMode } from "./class-mode.ts";
 
 const LONG_EN =
   "This class argued that a ninety-day score cannot narrate a decade of engineering work without cutting the decade itself.";
@@ -133,65 +125,40 @@ describe("SpaceX 讲义 P0", () => {
     assert.equal(outlineOnly.draft, true);
   });
 
-  it("fillKnownHandout writes only the SpaceX fixture id", () => {
-    const hollow = {
-      ...spacexSession(),
-      id: SPACEX_ID,
-      title: "Long-Term Vision vs Quarterly Pressure · 9月7日 01:02 · 再出",
-      recap: emptyRecap("整理中"),
-    };
-    const filled = fillKnownHandout(hollow);
-    assert.equal(filled.title.includes("再出"), false);
-    assert.ok(filled.recap && isFilled(filled.recap));
-    assert.match(filled.recap.lede, /time horizon/i);
-    assert.ok(filled.recap.words.some((w) => w.en === "retail investor"));
-
-    const liveLookalike = fillKnownHandout({
-      ...spacexSession(),
-      id: "ses-user-spacex",
-      title: "Long-Term Vision vs Quarterly Pressure",
-      recap: emptyRecap("整理中"),
-    });
-    assert.equal(liveLookalike.recap?.lede ?? "", "");
-
-    const untouched = fillKnownHandout({
-      ...spacexSession(),
-      id: "ses-money",
-      title: "Money apps · 理财课",
-      transcript: [{ en: "I'd rather use an app than a spreadsheet.", zh: "我宁愿用 App。" }],
-      recap: emptyRecap("Money apps"),
-      coaches: [],
-      essays: {},
-    });
-    assert.equal(untouched.recap?.lede ?? "", "");
+  it("fixture coach cards carry the assembler's slot names, not numbers", () => {
+    const session = spacexSession();
+    for (const card of session.coaches) {
+      const mode = parseClassMode(session.classMode);
+      const names = coachOptionLabels(mode, card.move);
+      assert.deepEqual(
+        card.options.map((o) => o.label),
+        names,
+        card.topic,
+      );
+      assert.deepEqual(card.extras.map((o) => o.label), coachExtraLabels(), card.topic);
+      assert.ok(isCoachFilled(card, mode, card.move), card.topic);
+    }
+    for (const card of session.recap?.coachPack ?? []) {
+      assert.ok(card.options.every((o) => !/^\d+$/.test(o.label)), card.topic);
+    }
   });
 
-  it("does not call a finance or grammar hour SpaceX", () => {
-    assert.equal(
-      looksLikeSpacexText("long-term vision and the payoff for a retail investor"),
-      false,
+  it("samples are pages, not catalog rows", () => {
+    assert.ok(isSampleId(SPACEX_ID));
+    assert.ok(isSampleId(SAMPLE_ID));
+    assert.equal(isSampleId("ses-user-1"), false);
+    assert.equal(sampleById(SPACEX_ID)?.title, SPACEX_TITLE);
+    assert.equal(sampleById(SAMPLE_ID)?.title, sampleSession().title);
+    assert.equal(sampleById("ses-user-1"), null);
+    assert.deepEqual(
+      sampleList().map((s) => s.id),
+      [SPACEX_ID, SAMPLE_ID],
     );
-    assert.equal(
-      looksLikeSpacexText("quarterly earnings force a ninety-day story; the time horizon is five years"),
-      false,
-    );
-    assert.equal(
-      looksLikeSpacexPacket({
-        topics: ["Long-Term Vision vs Quarterly Pressure"],
-        transcript: [{ en: "Who can wait for the payoff?" }],
-      }),
-      false,
-    );
-    assert.equal(
-      looksLikeSpacexPacket({
-        topics: ["Long-Term Vision vs Quarterly Pressure"],
-        transcript: spacexTranscript().slice(0, 4),
-      }),
-      true,
-    );
-    assert.equal(looksLikeSpacexSession(spacexSession()), true);
-    assert.equal(looksLikeSpacexPacket({ topics: ["coffee"], transcript: [{ en: "hello class" }] }), false);
-    assert.equal(cleanRecapTitle("Vision · 再出"), "Vision");
+    for (const id of [SPACEX_ID, SAMPLE_ID]) {
+      const s = sampleById(id);
+      assert.ok(s?.recap && isFilled(s.recap), id);
+      assert.ok(s?.endedAt, id);
+    }
   });
 });
 

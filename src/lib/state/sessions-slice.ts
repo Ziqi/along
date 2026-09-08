@@ -2,8 +2,7 @@ import type { StateCreator } from "zustand";
 import type { ClassRecap, ClassSession, Jot, RecapOutline } from "@/lib/types";
 import { isRemoved, markRemoved, markRemovedJot } from "@/lib/persist";
 import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
-import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
-import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
+import { isSampleId } from "@/lib/samples";
 import { sortSessions, toggleStar } from "@/lib/session-order";
 import { parseClassMode, type ClassMode } from "@/lib/class-mode";
 import { canAutoTitle, stampTitle } from "@/lib/utils";
@@ -39,7 +38,10 @@ export type SessionsSlice = {
   recapError: string | null;
   setClassMode: (mode: ClassMode) => void;
   /** Add a note to `targetId`, else to the open class (starting one if the mic is on). */
-  addJot: (draft: { en?: string; zh?: string; src: Jot["src"] }, targetId?: string) => string | null;
+  addJot: (
+    draft: { en?: string; zh?: string; src: Jot["src"] },
+    targetId?: string,
+  ) => string | null;
   patchJot: (id: string, patch: Partial<Pick<Jot, "en" | "zh" | "pending">>) => void;
   removeJot: (id: string) => void;
   renameSession: (id: string, title: string) => void;
@@ -53,7 +55,12 @@ export type SessionsSlice = {
   setRecap: (recap: ClassRecap, sessionId?: string) => void;
   setLiveDraft: (
     sid: string,
-    draft: { title: string; outline: RecapOutline[]; topics: { en: string; zh: string }[]; ms: number },
+    draft: {
+      title: string;
+      outline: RecapOutline[];
+      topics: { en: string; zh: string }[];
+      ms: number;
+    },
   ) => void;
   setRecapPending: (on: boolean) => void;
   setRecapStage: (stage: RecapStage | null) => void;
@@ -126,17 +133,29 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       const current = host?.notes ?? get().jots;
       const last = current.at(-1);
       if (last && last.en === en && last.zh === zh && Date.now() - last.at < 2000) return last.id;
-      const jot: Jot = { id: idOf("jot"), en, zh, src: draft.src, at: Date.now(), pending: !en || !zh };
+      const jot: Jot = {
+        id: idOf("jot"),
+        en,
+        zh,
+        src: draft.src,
+        at: Date.now(),
+        pending: !en || !zh,
+      };
       const notes = [...current, jot].slice(-40);
-      const sessions = get().sessions.map((s) => (s.id === sid ? { ...s, notes, updatedAt: Date.now() } : s));
+      const sessions = get().sessions.map((s) =>
+        s.id === sid ? { ...s, notes, updatedAt: Date.now() } : s,
+      );
       persist(sessions);
       set({ sessions, jots: get().liveId === sid ? notes : get().jots });
       return jot.id;
     },
     patchJot: (id, patch) => {
-      const next = (j: Jot) => (j.id === id ? { ...j, ...patch, pending: patch.pending ?? false } : j);
+      const next = (j: Jot) =>
+        j.id === id ? { ...j, ...patch, pending: patch.pending ?? false } : j;
       const sessions = get().sessions.map((s) =>
-        s.notes.some((j) => j.id === id) ? { ...s, notes: s.notes.map(next), updatedAt: Date.now() } : s,
+        s.notes.some((j) => j.id === id)
+          ? { ...s, notes: s.notes.map(next), updatedAt: Date.now() }
+          : s,
       );
       persist(sessions);
       set({ sessions, jots: get().jots.map(next) });
@@ -261,7 +280,9 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         starredAt: null,
         updatedAt: now,
       };
-      const closed = get().sessions.map((s) => (!s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s));
+      const closed = get().sessions.map((s) =>
+        !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
+      );
       const sessions = sortSessions([next, ...closed]).slice(0, SESSION_KEEP);
       persist(sessions);
       set({
@@ -287,7 +308,9 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           ? {
               ...s,
               recap,
-              title: canAutoTitle(s.title, s.startedAt) ? stampTitle(s.startedAt, recap.title) : s.title,
+              title: canAutoTitle(s.title, s.startedAt)
+                ? stampTitle(s.startedAt, recap.title)
+                : s.title,
               updatedAt: Date.now(),
             }
           : s,
@@ -317,7 +340,9 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         return {
           ...s,
           recap,
-          title: canAutoTitle(s.title, s.startedAt) ? stampTitle(s.startedAt, draft.title) : s.title,
+          title: canAutoTitle(s.title, s.startedAt)
+            ? stampTitle(s.startedAt, draft.title)
+            : s.title,
           updatedAt: Date.now(),
         };
       });
@@ -394,22 +419,24 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           phase: phaseFromCatalog(cur.phase, Boolean(open)),
         });
       };
-      const withSample = (sessions: ClassSession[]) => {
-        const extras: ClassSession[] = [];
-        if (!isRemoved(SPACEX_ID) && !sessions.some((s) => s.id === SPACEX_ID || looksLikeSpacexSession(s))) {
-          extras.push(spacexSession());
-        }
-        if (!isRemoved(SAMPLE_ID) && !sessions.some((s) => s.id === SAMPLE_ID)) extras.push(sampleSession());
-        return extras.length ? mergeSessions(sessions, extras) : sessions.map(fillKnownHandout);
+      // Sample handouts used to be written into every catalog; they are pages of
+      // their own now. Tombstone any copy still around so the cloud drops it too.
+      let strayFound = false;
+      const withoutSamples = (sessions: ClassSession[]) => {
+        const strays = sessions.filter((s) => isSampleId(s.id));
+        if (!strays.length) return sessions;
+        strayFound = true;
+        for (const s of strays) markRemoved(s.id);
+        return sessions.filter((s) => !isSampleId(s.id));
       };
       const flushQueue = () => {
         const queued = releasePersistQueue();
         if (queued) persist(queued);
       };
       try {
-        apply(withSample(loadSessions()));
+        apply(withoutSamples(loadSessions()));
       } catch {
-        apply(withSample([]));
+        apply([]);
       }
       window.setTimeout(() => {
         if (!isPersistReady()) flushQueue();
@@ -423,9 +450,10 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           let next = await readStoredSessions(get().sessions);
           const queued = releasePersistQueue();
           if (queued) next = mergeSessions(next, queued);
-          next = withSample(next);
+          next = withoutSamples(next);
           writeLocalSessions(next);
           apply(next);
+          if (strayFound) persist(get().sessions);
         } catch {
           flushQueue();
         }
@@ -438,7 +466,9 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     clear: (opts) => {
       const now = Date.now();
       const liveId = get().liveId;
-      const sessions = get().sessions.map((s) => (!s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s));
+      const sessions = get().sessions.map((s) =>
+        !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
+      );
       persist(sessions);
       set({
         ...HUD_BLANK,

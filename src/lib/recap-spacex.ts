@@ -6,7 +6,7 @@ import type {
   RecapStudy,
   TopicEssay,
 } from "./types.ts";
-import { attachCoachPack, isFilled, packCoach } from "./recap-kit.ts";
+import { packCoach } from "./recap-kit.ts";
 
 export const SPACEX_ID = "ses-spacex-horizon";
 export const SPACEX_TITLE = "Long-Term Vision vs Quarterly Pressure";
@@ -401,13 +401,13 @@ function spacexCoaches(): CoachCard[] {
       briefZh: "房间卡在这个季度。把钟拉回五到十年。",
       move: "join",
       options: [
-        opt("1", "I hear the quarter. I am asking about the five-to-ten-year time horizon.", "我听到这个季度了。我想问的是五到十年的时间尺度。", ["time horizon", "quarter"]),
-        opt("2", "If we only optimize quarterly earnings, we will cut the tests the rocket still needs.", "如果只优化季报，我们就会砍掉火箭还需要的试验。", ["quarterly earnings"]),
-        opt("3", "Can we say what must be true in year five, not just in ninety days?", "我们能不能说清第五年必须成立的事，而不只是九十天？", ["year five"]),
+        opt("同意", "I hear the quarter. I am asking about the five-to-ten-year time horizon.", "我听到这个季度了。我想问的是五到十年的时间尺度。", ["time horizon", "quarter"]),
+        opt("对比", "If we only optimize quarterly earnings, we will cut the tests the rocket still needs.", "如果只优化季报，我们就会砍掉火箭还需要的试验。", ["quarterly earnings"]),
+        opt("例子", "Can we say what must be true in year five, not just in ninety days?", "我们能不能说清第五年必须成立的事，而不只是九十天？", ["year five"]),
       ],
       extras: [
         opt("延展", "Private companies can hide the ugly years. Public ones have to narrate them.", "私企可以藏起难看的年份。上市的必须讲出来。", ["private", "public"]),
-        opt("追问", "Whose clock are we using — the analyst’s, or the engineer’s?", "我们在用谁的钟——分析师的，还是工程师的？", ["clock"]),
+        opt("追深", "Whose clock are we using — the analyst’s, or the engineer’s?", "我们在用谁的钟——分析师的，还是工程师的？", ["clock"]),
       ],
       source: "auto",
       prompt: "long-term vision versus quarterly pressure",
@@ -422,13 +422,13 @@ function spacexCoaches(): CoachCard[] {
       briefZh: "有人会在第一个红季度卖掉。说出来，但不要嘲讽。",
       move: "answer",
       options: [
-        opt("1", "A retail investor often bought the vision, then sells the first miss.", "散户常常先买下愿景，再在第一次不及预期时卖掉。", ["retail investor", "miss"]),
-        opt("2", "A miss is information. A panic sale is a second decision.", "不及预期是信息。恐慌卖出是第二个决定。", ["miss"]),
-        opt("3", "I can live with a miss if the time horizon has not changed.", "只要时间尺度没变，我可以接受一次不及预期。", ["time horizon"]),
+        opt("直接答", "A retail investor often bought the vision, then sells the first miss.", "散户常常先买下愿景，再在第一次不及预期时卖掉。", ["retail investor", "miss"]),
+        opt("补一层", "A miss is information. A panic sale is a second decision.", "不及预期是信息。恐慌卖出是第二个决定。", ["miss"]),
+        opt("举个例", "I can live with a miss if the time horizon has not changed.", "只要时间尺度没变，我可以接受一次不及预期。", ["time horizon"]),
       ],
       extras: [
         opt("延展", "Institutions wait when the mandate says they may. Retail usually may not.", "机构在授权允许时可以等。散户通常不能。", ["mandate"]),
-        opt("例子", "The app turns red and it feels like a verdict, not a data point.", "应用变红，那感觉像判决，不像一个数据点。", ["red"]),
+        opt("追深", "The app turns red and it feels like a verdict, not a data point.", "应用变红，那感觉像判决，不像一个数据点。", ["red"]),
       ],
       source: "auto",
       prompt: "who sells after a miss",
@@ -582,71 +582,6 @@ export function spacexSession(): ClassSession {
     coaches: spacexCoaches(),
     essays: spacexEssays(),
     recap,
-  };
-}
-
-export function looksLikeSpacexText(text: string) {
-  const t = text.toLowerCase();
-  const named = /\bspacex\b|\bfalcon(?:\s*9)?\b/.test(t);
-  const quarterly = /quarterly (earnings|pressure|report|results)|季报/.test(t);
-  return named && quarterly;
-}
-
-export function looksLikeSpacexPacket(packet: unknown) {
-  return looksLikeSpacexText(JSON.stringify(packet ?? ""));
-}
-
-export function looksLikeSpacexSession(session: {
-  title?: string;
-  sourceTitle?: string | null;
-  transcript?: { en?: string; zh?: string }[];
-  coaches?: { topic?: string }[];
-  recap?: { title?: string; topics?: { en?: string }[] } | null;
-}) {
-  const blob = [
-    session.title,
-    session.sourceTitle,
-    session.recap?.title,
-    ...(session.transcript ?? []).map((t) => `${t.en ?? ""} ${t.zh ?? ""}`),
-    ...(session.coaches ?? []).map((c) => c.topic ?? ""),
-    ...(session.recap?.topics ?? []).map((t) => t.en ?? ""),
-  ].join("\n");
-  return looksLikeSpacexText(blob);
-}
-
-export function cleanRecapTitle(title: string) {
-  return title.replace(/\s·\s再出/g, "").trim();
-}
-
-/** Fixture only. Never stamp this 讲义 onto some other class that mentioned a horizon. */
-export function fillKnownHandout(session: ClassSession): ClassSession {
-  const titleClean = cleanRecapTitle(session.title);
-  if (session.id !== SPACEX_ID) {
-    return titleClean === session.title ? session : { ...session, title: titleClean };
-  }
-  const cleaned = cleanRecapTitle(session.title);
-  const title = /long-term vision|quarterly pressure/i.test(cleaned) ? cleaned : SPACEX_TITLE;
-  if (session.recap && isFilled(session.recap) && session.recap.draft !== true) {
-    if (title === session.title && session.recap.title === cleanRecapTitle(session.recap.title)) {
-      return session;
-    }
-    return {
-      ...session,
-      title,
-      recap: { ...session.recap, title: cleanRecapTitle(session.recap.title) || title },
-    };
-  }
-  const gold = spacexRecap();
-  const fromLive = packCoach(session.coaches ?? [], session.essays ?? {});
-  const pack = session.recap?.coachPack?.length
-    ? session.recap.coachPack
-    : fromLive.length
-      ? fromLive
-      : gold.coachPack;
-  return {
-    ...session,
-    title,
-    recap: attachCoachPack({ ...gold, title, coachPack: pack }, pack),
   };
 }
 

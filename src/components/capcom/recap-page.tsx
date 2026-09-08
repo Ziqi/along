@@ -6,10 +6,12 @@ import { forkAndRecap, goHomeSafe, requestRecap } from "@/lib/engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { collectDrillCards } from "@/lib/recap-kit";
 import { modeLabel, parseClassMode } from "@/lib/class-mode";
+import { sampleById } from "@/lib/samples";
 import { formatDayTime } from "@/lib/utils";
 import { DrillDeck } from "./recap/drill-deck";
 import { HandoutBody } from "./recap/handout-body";
 import { RecapCatalog } from "./recap/recap-catalog";
+import { SampleLinks } from "./recap/sample-links";
 import { tally } from "./recap/tally";
 
 export type RecapMode = "read" | "drill";
@@ -89,22 +91,27 @@ export function RecapPage(route: RecapRouteProps) {
   const [withTape, setWithTape] = useState(false);
   const nav = useRecapNav(route);
 
-  const session = sessionId ? (sessions.find((s) => s.id === sessionId) ?? null) : null;
+  const stored = sessionId ? (sessions.find((s) => s.id === sessionId) ?? null) : null;
+  // A sample handout is a page of its own: read-only, never in the catalog.
+  const sample = useMemo(() => (sessionId && !stored ? sampleById(sessionId) : null), [sessionId, stored]);
+  const session = stored ?? sample;
+  const readOnly = Boolean(sample);
   const missing = Boolean(sessionId && hydrated && !session);
   const recap = session?.recap ?? null;
   const living = Boolean(session && !session.endedAt);
   const inClass = sessions.some((s) => s.id === liveId && !s.endedAt);
-  const isLive = Boolean(session && session.id === liveId);
-  const canRun = (session?.transcript?.length ?? 0) >= 2 || (isLive && captions.length >= 2);
+  const isLive = Boolean(stored && stored.id === liveId);
+  const canRun = !readOnly && ((session?.transcript?.length ?? 0) >= 2 || (isLive && captions.length >= 2));
   const hasPaper = Boolean(recap?.lede || recap?.sections.length);
-  const needWrite = pending || Boolean(error) || !hasPaper;
+  const needWrite = !readOnly && (pending || Boolean(error) || !hasPaper);
   const stats = useMemo(() => tally(sessions), [sessions]);
   const listed = useMemo(() => sortSessions(sessions), [sessions]);
+  const deckSessions = useMemo(() => (sample ? [sample] : sessions), [sample, sessions]);
   const thisClassCards = useMemo(() => (session ? collectDrillCards([session], session.id).length : 0), [session]);
 
   useEffect(() => {
-    if (session && session.id !== storeSessionId) setSession(session.id);
-  }, [session, storeSessionId, setSession]);
+    if (stored && stored.id !== storeSessionId) setSession(stored.id);
+  }, [stored, storeSessionId, setSession]);
 
   function remove(id: string) {
     removeSession(id);
@@ -115,7 +122,9 @@ export function RecapPage(route: RecapRouteProps) {
     else nav.catalog();
   }
 
-  const bare = !sessionId && mode === "read";
+  // `/class` with nothing picked: on a phone the catalog takes the screen —
+  // unless it is empty, when the paper's first-visit guidance is worth more.
+  const bare = !sessionId && mode === "read" && !(hydrated && !sessions.length);
   const homeLabel = inClass ? "回课堂" : "首页";
 
   return (
@@ -144,6 +153,7 @@ export function RecapPage(route: RecapRouteProps) {
               hasClasses={sessions.length > 0}
               catalogOpen={() => nav.setCatalogOpen(true)}
               toCatalog={nav.catalog}
+              onSample={nav.read}
             >
               {mode === "drill" ? (
                 <DrillDeck
@@ -160,7 +170,7 @@ export function RecapPage(route: RecapRouteProps) {
               <header className="flex flex-col gap-4">
                 <div className="recap-chrome flex items-center justify-between gap-3">
                   <p className="text-sm text-muted">
-                    {mode === "drill" ? "复习" : "讲义"}
+                    {readOnly ? "示例讲义" : mode === "drill" ? "复习" : "讲义"}
                     {living ? " · 进行中" : ""}
                     {mode === "read" && recap?.draft ? " · 未完稿" : ""}
                   </p>
@@ -189,8 +199,10 @@ export function RecapPage(route: RecapRouteProps) {
                   key={`${session.id}-${session.title}`}
                   defaultValue={session.title}
                   rows={2}
-                  readOnly={mode === "drill"}
-                  onBlur={(e) => renameSession(session.id, e.target.value)}
+                  readOnly={readOnly || mode === "drill"}
+                  onBlur={(e) => {
+                    if (!readOnly) renameSession(session.id, e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -222,6 +234,7 @@ export function RecapPage(route: RecapRouteProps) {
                     </Button>
                   ) : (
                     <>
+                      {readOnly ? null : (
                       <details className="recap-menu relative" onToggle={closeOtherMenus}>
                         <summary className="cursor-pointer px-2 py-1 text-sm text-muted hover:text-fg">整理</summary>
                         <div className="absolute left-0 top-full z-20 mt-1 flex min-w-40 flex-col border border-line bg-elevated p-1">
@@ -250,6 +263,7 @@ export function RecapPage(route: RecapRouteProps) {
                           </Button>
                         </div>
                       </details>
+                      )}
                       <details className="recap-menu relative" onToggle={closeOtherMenus}>
                         <summary className="cursor-pointer px-2 py-1 text-sm text-muted hover:text-fg">导出</summary>
                         <div className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col border border-line bg-elevated p-1">
@@ -295,18 +309,30 @@ export function RecapPage(route: RecapRouteProps) {
               </header>
 
               {mode === "drill" ? (
-                <DrillDeck key={session.id} sessions={sessions} classId={session.id} thisClassId={session.id} onScope={nav.drill} />
+                <DrillDeck
+                  key={session.id}
+                  sessions={deckSessions}
+                  classId={session.id}
+                  thisClassId={session.id}
+                  onScope={nav.drill}
+                />
               ) : (
                 <HandoutBody
                   session={session}
-                  editing={editing}
-                  pending={pending}
+                  editing={editing && !readOnly}
+                  readOnly={readOnly}
+                  pending={!readOnly && pending}
                   stage={recapStage}
-                  error={error}
+                  error={readOnly ? null : error}
                   liveLines={isLive && living ? captions.map((c) => ({ en: c.en, zh: c.zh })) : null}
                   onPatch={(patch) => updateRecap(session.id, patch)}
                 />
               )}
+              {readOnly ? (
+                <p className="recap-chrome border-t border-line pt-6 text-sm text-muted">
+                  这是一份示例，不在你的目录里。上一堂课，结课后就会有一份这样的讲义。
+                </p>
+              ) : null}
             </>
           )}
         </div>
@@ -322,6 +348,7 @@ function EmptyPaper({
   hasClasses,
   catalogOpen,
   toCatalog,
+  onSample,
   children,
 }: {
   mode: RecapMode;
@@ -329,6 +356,7 @@ function EmptyPaper({
   hasClasses: boolean;
   catalogOpen: () => void;
   toCatalog: () => void;
+  onSample: (id: string) => void;
   children?: ReactNode;
 }) {
   if (missing) {
@@ -367,10 +395,17 @@ function EmptyPaper({
       </>
     );
   }
+  if (hasClasses) return <p className="text-base text-muted">从左边的目录里挑一堂。</p>;
   return (
-    <p className="text-base text-muted">
-      {hasClasses ? "从左边的目录里挑一堂。" : "结课之后，左边课表会列出各堂。"}
-    </p>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <p className="text-base leading-relaxed text-fg">还没有上过课。</p>
+        <p className="text-sm leading-relaxed text-muted">
+          回到首页点「开始听」，结课后这里会出现那一堂的讲义：本堂内容、语言点、附录。
+        </p>
+      </div>
+      <SampleLinks onPick={onSample} />
+    </div>
   );
 }
 

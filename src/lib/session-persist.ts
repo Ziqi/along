@@ -18,7 +18,6 @@ import {
 } from "@/lib/persist";
 import { markDropped, markSynced, scheduleCloudPush } from "@/lib/session-sync";
 import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
-import { fillKnownHandout } from "@/lib/recap-spacex";
 import { newerSession, sortSessions } from "@/lib/session-order";
 import { parseClassMode } from "@/lib/class-mode";
 import { topicKey } from "@/lib/utils";
@@ -102,7 +101,9 @@ function normTable(raw: unknown) {
             rightZh: String(r.rightZh ?? "").trim(),
           };
         })
-        .filter((row): row is { left: string; leftZh: string; right: string; rightZh: string } => Boolean(row))
+        .filter((row): row is { left: string; leftZh: string; right: string; rightZh: string } =>
+          Boolean(row),
+        )
     : [];
   if (rows.length < 2) return null;
   return {
@@ -114,12 +115,22 @@ function normTable(raw: unknown) {
   };
 }
 
-const pairs = (v: unknown) => (Array.isArray(v) ? v : []).map(normPair).filter(Boolean) as { en: string; zh: string }[];
-const studies = (v: unknown) => (Array.isArray(v) ? v : []).map(normStudy).filter(Boolean) as RecapStudy[];
+const pairs = (v: unknown) =>
+  (Array.isArray(v) ? v : []).map(normPair).filter(Boolean) as { en: string; zh: string }[];
+const studies = (v: unknown) =>
+  (Array.isArray(v) ? v : []).map(normStudy).filter(Boolean) as RecapStudy[];
 
 export function normRecap(raw: unknown): ClassRecap | null {
   if (!raw || typeof raw !== "object") return null;
-  const r = raw as Partial<ClassRecap> & { arc?: string; collos?: unknown; grammar?: unknown; skills?: unknown; takeaways?: unknown; marks?: unknown; coachPack?: unknown };
+  const r = raw as Partial<ClassRecap> & {
+    arc?: string;
+    collos?: unknown;
+    grammar?: unknown;
+    skills?: unknown;
+    takeaways?: unknown;
+    marks?: unknown;
+    coachPack?: unknown;
+  };
   const sections = Array.isArray(r.sections)
     ? r.sections
         .map((s) => ({
@@ -147,12 +158,16 @@ export function normRecap(raw: unknown): ClassRecap | null {
       ? (r.outline as RecapOutline[])
           .map((o) => ({
             heading: String(o?.heading ?? "").trim(),
-            bullets: Array.isArray(o?.bullets) ? o.bullets.map((b) => String(b).trim()).filter(Boolean) : [],
+            bullets: Array.isArray(o?.bullets)
+              ? o.bullets.map((b) => String(b).trim()).filter(Boolean)
+              : [],
           }))
           .filter((o) => o.heading)
       : [],
     takeaways: pairs(r.takeaways),
-    marks: Array.isArray(r.marks) ? (r.marks as unknown[]).map((m) => String(m).trim()).filter(Boolean) : [],
+    marks: Array.isArray(r.marks)
+      ? (r.marks as unknown[]).map((m) => String(m).trim()).filter(Boolean)
+      : [],
     coachPack: Array.isArray(r.coachPack) ? (r.coachPack as RecapCoach[]) : [],
     draft: r.draft === true,
     latencyMs: typeof r.latencyMs === "number" ? r.latencyMs : 0,
@@ -179,31 +194,29 @@ export function normalizeSessions(raw: unknown): ClassSession[] {
     const s = row as ClassSession;
     if (!s.id) continue;
     try {
-      out.push(
-        fillKnownHandout({
-          ...s,
-          schemaVersion: SESSION_SCHEMA_VERSION,
-          notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
-          recap: normRecap(s.recap),
-          coaches: Array.isArray(s.coaches) ? s.coaches : [],
-          essays: pinEssaysToCoachIds(
-            s.essays && typeof s.essays === "object" ? s.essays : {},
-            Array.isArray(s.coaches) ? s.coaches : [],
-          ),
-          transcript: Array.isArray(s.transcript)
-            ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
-            : [],
-          classMode: parseClassMode((s as { classMode?: unknown }).classMode),
-          sourceId: s.sourceId ?? null,
-          sourceTitle: s.sourceTitle ?? null,
-          starred: Boolean(s.starred),
-          starredAt: typeof s.starredAt === "number" ? s.starredAt : null,
-          updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
-          startedAt: typeof s.startedAt === "number" ? s.startedAt : Date.now(),
-          endedAt: typeof s.endedAt === "number" ? s.endedAt : (s.endedAt ?? null),
-          title: String(s.title ?? "课堂"),
-        }),
-      );
+      out.push({
+        ...s,
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
+        recap: normRecap(s.recap),
+        coaches: Array.isArray(s.coaches) ? s.coaches : [],
+        essays: pinEssaysToCoachIds(
+          s.essays && typeof s.essays === "object" ? s.essays : {},
+          Array.isArray(s.coaches) ? s.coaches : [],
+        ),
+        transcript: Array.isArray(s.transcript)
+          ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
+          : [],
+        classMode: parseClassMode((s as { classMode?: unknown }).classMode),
+        sourceId: s.sourceId ?? null,
+        sourceTitle: s.sourceTitle ?? null,
+        starred: Boolean(s.starred),
+        starredAt: typeof s.starredAt === "number" ? s.starredAt : null,
+        updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : (s.startedAt ?? Date.now()),
+        startedAt: typeof s.startedAt === "number" ? s.startedAt : Date.now(),
+        endedAt: typeof s.endedAt === "number" ? s.endedAt : (s.endedAt ?? null),
+        title: String(s.title ?? "课堂"),
+      });
     } catch {
       /* skip bad row */
     }
@@ -254,11 +267,15 @@ export function mergeOne(a: ClassSession, b: ClassSession): ClassSession {
     title: newer.title,
     endedAt: a.endedAt && b.endedAt ? Math.max(a.endedAt, b.endedAt) : (a.endedAt ?? b.endedAt),
     recap: mergeRecap(a.recap, b.recap),
-    transcript: (a.transcript?.length ?? 0) >= (b.transcript?.length ?? 0) ? a.transcript : b.transcript,
+    transcript:
+      (a.transcript?.length ?? 0) >= (b.transcript?.length ?? 0) ? a.transcript : b.transcript,
     notes: mergeNotes(a.notes ?? [], b.notes ?? []),
-    coaches: (a.coaches?.length ?? 0) >= (b.coaches?.length ?? 0) ? (a.coaches ?? []) : (b.coaches ?? []),
+    coaches:
+      (a.coaches?.length ?? 0) >= (b.coaches?.length ?? 0) ? (a.coaches ?? []) : (b.coaches ?? []),
     essays:
-      Object.keys(b.essays ?? {}).length >= Object.keys(a.essays ?? {}).length ? (b.essays ?? {}) : (a.essays ?? {}),
+      Object.keys(b.essays ?? {}).length >= Object.keys(a.essays ?? {}).length
+        ? (b.essays ?? {})
+        : (a.essays ?? {}),
     updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
     startedAt: Math.min(a.startedAt, b.startedAt),
     sourceId: newer.sourceId ?? older.sourceId,
@@ -275,7 +292,7 @@ export function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSessio
     const prev = map.get(s.id);
     map.set(s.id, prev ? mergeOne(prev, s) : s);
   }
-  return sortSessions([...map.values()].map(fillKnownHandout)).slice(0, SESSION_KEEP);
+  return sortSessions([...map.values()]).slice(0, SESSION_KEEP);
 }
 
 // ── Disk + cloud ────────────────────────────────────────────────────────────
