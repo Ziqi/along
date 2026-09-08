@@ -50,15 +50,16 @@ export function shouldKeepCoachCard(input: {
   prev: { prompt: string; options: { en: string }[]; at: number } | null;
   options: { en: string }[];
 }) {
-  if (input.source === "intent") return true;
   if (!input.options.length) return false;
   const prev = input.prev;
   if (!prev) return true;
-  const now = input.now ?? Date.now();
-  if (prev.prompt === input.lastHeard && now - prev.at < 12000) return false;
   const a = optionKey(prev.options);
   const b = optionKey(input.options);
-  return !(a && a === b);
+  if (a && a === b) return false;
+  if (input.source === "intent") return true;
+  const now = input.now ?? Date.now();
+  if (prev.prompt === input.lastHeard && now - prev.at < 12000) return false;
+  return true;
 }
 
 export function shouldRescueCoach(input: {
@@ -126,6 +127,7 @@ export function coachEmptyCopy(
   }
   if (phase === "retrying") return "正在再写一遍。";
   if (phase === "paused") return "已停写。点跟听再写。已经写好的卡还在。";
+  if (phase === "failed") return "没写出来。点重写再试。";
   if (phase === "following") {
     if (mode === "listen") return "已经在听。落下完整一句，就写这句、剖析、背景。";
     if (mode === "audit") return "已经在听。落下完整一句，就写成「若要开口」。";
@@ -151,6 +153,12 @@ export function humanCoachError(err: string, phase: "retrying" | "failed" = "fai
   }
   if (t === "empty") return "再听一句完整的，我再写。";
   return t;
+}
+
+/** Failed write while 停写: keep 重写, but say what 跟听 still does. */
+export function coachFailHint(autoCoach: boolean) {
+  if (autoCoach) return null;
+  return "跟听已停。要这一拍，点重写；要继续跟，点跟听。";
 }
 
 /** Timeouts and thin cards can retry. A missing model cannot. */

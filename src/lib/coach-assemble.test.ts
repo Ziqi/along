@@ -168,6 +168,78 @@ describe("assembleCoach", () => {
     assert.equal(card.ok, false);
   });
 
+  it("keeps an example that builds on the caption instead of failing the card", () => {
+    const card = assembleCoach({
+      mode: "interactive",
+      last: heard,
+      parsed: {
+        topic: "Wait times",
+        options: [
+          { en: "I can live with a longer wait if the care is safer." },
+          { en: "Manila waits still beat the queues I saw last year." },
+          { en: `${heard} I would still wait if the diagnosis is careful.` },
+        ],
+      },
+    });
+    assert.equal(card.ok, true);
+    if (!card.ok) return;
+    assert.match(card.options[2]?.en ?? "", /still wait/);
+  });
+
+  it("uses the previous title or 这一拍 when the model omits a topic", () => {
+    const reused = assembleCoach({
+      mode: "audit",
+      last: heard,
+      prevTopic: "Hospital waits",
+      parsed: {
+        options: [
+          { en: "I can live with a longer wait if the care is safer." },
+          { en: "Manila waits still beat the queues I saw last year." },
+          { en: "My cousin sat four hours and still left without a number." },
+        ],
+      },
+    });
+    assert.equal(reused.ok, true);
+    if (!reused.ok) return;
+    assert.equal(reused.topic, "Hospital waits");
+    const fresh = assembleCoach({
+      mode: "interactive",
+      last: "umm the the wait uh something something today maybe",
+      parsed: {
+        options: [
+          { en: "I can live with a longer wait if the care is safer." },
+          { en: "Manila waits still beat the queues I saw last year." },
+          { en: "My cousin sat four hours and still left without a number." },
+        ],
+      },
+    });
+    assert.equal(fresh.ok, true);
+    if (!fresh.ok) return;
+    assert.equal(fresh.topic, "这一拍");
+  });
+
+  it("clips 剖析 Chinese at a sentence, not at 40 characters", () => {
+    const zh =
+      "这一句用 year-on-year 把等候拉成对照，不是空说变久，而是把时间和城市都点出来。后半句落在马尼拉，让对比有地点，学生能马上接一句自己昨天在窗口排队的经历。后面还有一句不该露出来，装配器不该再往下收，也不该把半句硬切掉。";
+    const card = assembleCoach({
+      mode: "listen",
+      last: heard,
+      parsed: {
+        topic: "Wait times",
+        options: [
+          { label: "这句", en: heard, zh: "医院等候比去年更久。" },
+          { label: "剖析", en: "Longer than last year sets a clean year-on-year contrast.", zh },
+          { label: "背景", en: "A clinic hour comparing public queues across cities.", zh: "这是在比公立医院的排队。" },
+        ],
+      },
+    });
+    assert.equal(card.ok, true);
+    if (!card.ok) return;
+    assert.match(card.options[1]?.zh ?? "", /经历。/);
+    assert.equal((card.options[1]?.zh ?? "").includes("不该露出来"), false);
+    assert.ok((card.options[1]?.zh ?? "").length > 40);
+  });
+
   it("keeps the previous topic title when same=true on a join beat", () => {
     const card = assembleCoach({
       mode: "audit",
