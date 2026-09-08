@@ -95,14 +95,8 @@ export function UplinkPanel() {
       <header className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
         <h2 className="text-sm font-medium">教练</h2>
         <div className="flex min-w-0 items-center gap-1">
-          <Button
-            type="button"
-            variant="quiet"
-            size="sm"
-            className="h-8 min-h-8 px-2"
-            onClick={() => setCoachLive(!autoCoach)}
-          >
-            {autoCoach ? <Pause className="size-3" /> : <Play className="size-3" />}
+          <Button type="button" variant="quiet" size="sm" onClick={() => setCoachLive(!autoCoach)}>
+            {autoCoach ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
             {autoCoach ? "停写" : "跟听"}
           </Button>
           <p className="pl-1 text-xs text-dim">{headerStatus}</p>
@@ -143,17 +137,17 @@ export function UplinkPanel() {
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
         {!latest && phase === "failed" ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
-            <p className="max-w-sm text-base leading-relaxed text-abort text-pretty">{error}</p>
+            <p className="max-w-sm text-base text-abort text-pretty">{error}</p>
             {failHint ? <p className="max-w-sm text-sm text-muted text-pretty">{failHint}</p> : null}
             {canRewrite ? (
-              <Button type="button" variant="ghost" size="lg" className="self-start" onClick={() => void requestCoach()}>
+              <Button type="button" variant="secondary" size="lg" className="self-start" onClick={() => void requestCoach()}>
                 重写
               </Button>
             ) : null}
           </div>
         ) : !latest ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
-            <p className="max-w-sm text-base leading-relaxed text-muted text-pretty">
+            <p className="max-w-sm text-base text-muted text-pretty">
               {!liveId && phase === "idle"
                 ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。上课不能改课型。"
                 : coachEmptyCopy(phase, mode)}
@@ -221,7 +215,7 @@ export function UplinkPanel() {
                 <p className="text-sm text-abort">{error}</p>
                 {failHint ? <p className="text-sm text-muted">{failHint}</p> : null}
                 {canRewrite ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void requestCoach()}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void requestCoach()}>
                     重写
                   </Button>
                 ) : null}
@@ -265,32 +259,25 @@ function CoachBlock({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm text-muted">{kicker}</p>
-          <p className="mt-1 text-lg font-medium tracking-tight text-fg">
+          <p className="mt-1 text-xl font-medium tracking-tight text-fg">
             {card.topic || "—"}
           </p>
           {card.topicZh ? (
             <p className="mt-0.5 text-sm text-muted">{card.topicZh}</p>
           ) : null}
         </div>
-        <Button
-          type="button"
-          variant="quiet"
-          size="sm"
-          className="h-8 min-h-8 px-2"
-          onClick={onDeep}
-          disabled={busy}
-        >
-          {deepPending ? "检索中" : "DeepSearch"}
+        <Button type="button" variant="quiet" size="sm" onClick={onDeep} disabled={busy}>
+          {deepPending ? "检索中" : "检索"}
         </Button>
       </div>
       {card.briefZh || card.briefEn ? (
         <div>
-          <p className="text-xs text-dim">概括</p>
+          <p className="text-sm text-dim">概括</p>
           {card.briefEn ? (
-            <p className="mt-1 text-sm leading-relaxed text-fg text-pretty">{card.briefEn}</p>
+            <p className="mt-1 text-base text-fg text-pretty">{card.briefEn}</p>
           ) : null}
           {card.briefZh ? (
-            <p className="mt-0.5 text-sm leading-relaxed text-muted text-pretty">{card.briefZh}</p>
+            <p className="mt-0.5 text-sm text-muted text-pretty">{card.briefZh}</p>
           ) : null}
         </div>
       ) : null}
@@ -364,21 +351,16 @@ function ListenBeat({
       <p
         className={
           kind === "quote"
-            ? "mt-1.5 text-pretty text-xl font-medium leading-snug tracking-tight text-fg"
+            ? "mt-1.5 text-pretty text-lg font-medium tracking-tight text-fg"
             : kind === "aside"
-              ? "mt-1 text-pretty text-sm leading-relaxed text-muted"
-              : "mt-1.5 text-pretty text-base leading-relaxed text-fg"
+              ? "mt-1 text-pretty text-base text-muted"
+              : "mt-1.5 text-pretty text-lg text-fg"
         }
       >
         <MarkedEn text={option.en} keys={option.keys} />
       </p>
       {option.zh ? (
-        <p
-          className={
-            "mt-1 text-pretty " +
-            (kind === "aside" ? "text-sm text-dim" : "text-sm leading-relaxed text-muted")
-          }
-        >
+        <p className={"mt-1 text-pretty " + (kind === "aside" ? "text-sm text-dim" : "text-base text-muted")}>
           {option.zh}
         </p>
       ) : null}
@@ -397,22 +379,18 @@ function EssayBlock({
 }) {
   return (
     <article className="flex flex-col gap-4">
-      <p className="text-sm text-muted">
-        {listen
-          ? `DeepSearch · 背景和资料`
-          : `DeepSearch · 事实 + 四十秒发言`}
-      </p>
+      <p className="text-sm text-muted">{listen ? "检索 · 背景和资料" : "检索 · 事实 + 四十秒发言"}</p>
       {essay.title ? (
-        <h3 className="text-lg font-medium tracking-tight">{essay.title}</h3>
+        <h3 className="text-xl font-medium tracking-tight">{essay.title}</h3>
       ) : null}
       {essay.contextEn ? (
         <div>
           <p className="text-sm text-muted">背景</p>
-          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-fg text-pretty">
+          <p className="mt-1 whitespace-pre-line text-base text-fg text-pretty">
             {essay.contextEn}
           </p>
           {essay.contextZh ? (
-            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted text-pretty">
+            <p className="mt-1 whitespace-pre-line text-sm text-muted text-pretty">
               {essay.contextZh}
             </p>
           ) : null}
@@ -422,7 +400,7 @@ function EssayBlock({
         <LineBlock kicker="观点" text={essay.viewEn} onJot={() => onJot(essay.viewEn)} />
       ) : null}
       {essay.viewZh ? (
-        <p className="whitespace-pre-line text-sm leading-relaxed text-muted text-pretty">
+        <p className="whitespace-pre-line text-base text-muted text-pretty">
           {essay.viewZh}
         </p>
       ) : null}
@@ -436,13 +414,13 @@ function EssayBlock({
         <LineBlock kicker="可以这样问" text={essay.qEn} onJot={() => onJot(essay.qEn)} />
       ) : null}
       {essay.qZh ? (
-        <p className="text-sm leading-relaxed text-muted text-pretty">{essay.qZh}</p>
+        <p className="text-base text-muted text-pretty">{essay.qZh}</p>
       ) : null}
       {essay.aEn ? (
         <LineBlock kicker="可以这样答" text={essay.aEn} onJot={() => onJot(essay.aEn)} />
       ) : null}
       {essay.aZh ? (
-        <p className="whitespace-pre-line text-sm leading-relaxed text-muted text-pretty">
+        <p className="whitespace-pre-line text-base text-muted text-pretty">
           {essay.aZh}
         </p>
       ) : null}
@@ -489,8 +467,8 @@ function PairStack({
       <ol className="mt-1 list-decimal space-y-2 pl-5">
         {items.map((it) => (
           <li key={it.en} className="pl-1">
-            <p className="text-sm leading-relaxed text-fg">{it.en}</p>
-            {it.zh ? <p className="text-sm leading-relaxed text-muted">{it.zh}</p> : null}
+            <p className="text-base text-fg">{it.en}</p>
+            {it.zh ? <p className="text-sm text-muted">{it.zh}</p> : null}
           </li>
         ))}
       </ol>
@@ -508,7 +486,7 @@ function LineActions({ text, onJot }: { text: string; onJot?: () => void }) {
   return (
     <div className="flex items-center">
       {onJot ? (
-        <Button type="button" variant="quiet" size="sm" className="h-8 min-h-8 px-2" onClick={onJot}>
+        <Button type="button" variant="quiet" size="sm" onClick={onJot}>
           记
         </Button>
       ) : null}
@@ -516,7 +494,6 @@ function LineActions({ text, onJot }: { text: string; onJot?: () => void }) {
         type="button"
         variant="quiet"
         size="sm"
-        className="h-8 min-h-8 px-2"
         onClick={async () => {
           try {
             await navigator.clipboard.writeText(text);
@@ -526,7 +503,7 @@ function LineActions({ text, onJot }: { text: string; onJot?: () => void }) {
           }
         }}
       >
-        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         {copied ? "已复制" : "复制"}
       </Button>
     </div>
@@ -544,17 +521,17 @@ function OptionRow({
 }) {
   return (
     <div className="flex gap-3">
-      <span className="mt-1 w-4 shrink-0 font-mono text-sm text-dim">{n}</span>
+      <span className="mt-1.5 w-4 shrink-0 font-mono text-sm text-dim">{n}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-muted">{option.label}</p>
           <LineActions text={option.en} onJot={onJot} />
         </div>
-        <p className="text-pretty text-base font-medium leading-snug tracking-tight text-fg">
+        <p className="text-pretty text-lg font-medium tracking-tight text-fg">
           <MarkedEn text={option.en} keys={option.keys} />
         </p>
         {option.zh ? (
-          <p className="mt-0.5 text-sm text-muted text-pretty">{option.zh}</p>
+          <p className="mt-0.5 text-base text-muted text-pretty">{option.zh}</p>
         ) : null}
       </div>
     </div>
@@ -577,7 +554,7 @@ function LineBlock({
         <p className="text-sm text-muted">{kicker}</p>
         <LineActions text={text} onJot={onJot} />
       </div>
-      <p className="mt-1.5 text-pretty text-base font-medium leading-snug tracking-tight text-fg">
+      <p className="mt-1.5 text-pretty text-lg font-medium tracking-tight text-fg">
         {text}
       </p>
     </div>

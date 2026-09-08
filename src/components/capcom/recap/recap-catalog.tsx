@@ -52,12 +52,12 @@ export function RecapCatalog({
       <aside className={"recap-catalog flex shrink-0 flex-col border-r border-line bg-bg " + placement}>
         <div className="flex h-10 items-center justify-between border-b border-line px-3">
           <p className="text-sm font-medium text-fg">纪要</p>
-          <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2" onClick={onHome}>
+          <Button type="button" variant="quiet" size="xs" onClick={onHome}>
             {inClass ? "回课堂" : "首页"}
           </Button>
         </div>
         <div className="border-b border-line px-3 py-3">
-          <p className="text-sm leading-relaxed text-muted">
+          <p className="text-sm text-muted">
             {stats.classes} 堂 · {stats.topics} 主题 · {stats.patterns} 句式 · {stats.words} 词
           </p>
         </div>
@@ -84,9 +84,8 @@ export function RecapCatalog({
                     <Button
                       type="button"
                       variant="quiet"
-                      size="icon"
+                      size="icon-xs"
                       aria-label={s.starred ? "取消置顶" : "置顶"}
-                      className="size-7 min-h-7 min-w-7"
                       onClick={(e) => {
                         e.stopPropagation();
                         onStar(s.id);
@@ -97,15 +96,14 @@ export function RecapCatalog({
                     <Button
                       type="button"
                       variant="quiet"
-                      size="icon"
+                      size="icon-xs"
                       aria-label="删这份纪要"
-                      className="size-7 min-h-7 min-w-7"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemove(s.id);
                       }}
                     >
-                      <Trash2 className="size-3" />
+                      <Trash2 className="size-3.5" />
                     </Button>
                   </div>
                 </li>
@@ -116,7 +114,7 @@ export function RecapCatalog({
           )}
         </nav>
         <SignedOut>
-          <p className="recap-chrome border-t border-line px-3 py-3 text-xs leading-relaxed text-muted">
+          <p className="recap-chrome border-t border-line px-3 py-3 text-sm text-muted">
             这台设备上的纪要只存在本机。
             <a href="/login" className="ml-1 text-fg underline decoration-fg/30 underline-offset-4">
               登录后同步

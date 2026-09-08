@@ -39,7 +39,7 @@ export function NotesEditor({ session }: { session: ClassSession }) {
                     defaultValue={j.en}
                     rows={2}
                     onBlur={(e) => patchJot(j.id, { en: e.target.value, pending: false })}
-                    className="mt-1 w-full resize-none px-2 py-1.5 text-base leading-snug text-fg"
+                    className="mt-1 w-full resize-none px-2 py-1.5 text-base text-fg"
                     placeholder="英文"
                   />
                   <textarea
@@ -47,19 +47,12 @@ export function NotesEditor({ session }: { session: ClassSession }) {
                     defaultValue={j.zh}
                     rows={2}
                     onBlur={(e) => patchJot(j.id, { zh: e.target.value, pending: false })}
-                    className="mt-1 w-full resize-none px-2 py-1.5 text-sm leading-relaxed text-muted"
+                    className="mt-1 w-full resize-none px-2 py-1.5 text-sm text-muted"
                     placeholder="中文"
                   />
                 </div>
-                <Button
-                  type="button"
-                  variant="quiet"
-                  size="icon"
-                  aria-label="删这条随手记"
-                  className="size-7 min-h-7 min-w-7"
-                  onClick={() => removeJot(j.id)}
-                >
-                  <Trash2 className="size-3" />
+                <Button type="button" variant="quiet" size="icon-xs" aria-label="删这条随手记" onClick={() => removeJot(j.id)}>
+                  <Trash2 className="size-3.5" />
                 </Button>
               </li>
             ))}
@@ -68,7 +61,7 @@ export function NotesEditor({ session }: { session: ClassSession }) {
           <p className="text-sm text-muted">教练点「记」，或在下面自己写一条。</p>
         )}
         <form onSubmit={submit} className="recap-chrome border border-line bg-surface p-3">
-          <label className="text-xs text-muted" htmlFor="recap-jot">
+          <label className="text-sm text-muted" htmlFor="recap-jot">
             补一条随手记，中文或英文都可以
           </label>
           <textarea

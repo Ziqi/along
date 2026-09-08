@@ -35,21 +35,14 @@ export function DrillDeck({
   const scope = (
     <div className="flex items-center gap-2">
       {thisClassId ? (
-        <Button
-          type="button"
-          variant={all ? "quiet" : "arm"}
-          size="sm"
-          className="h-7 min-h-7 px-2"
-          onClick={() => onScope(thisClassId)}
-        >
+        <Button type="button" variant={all ? "quiet" : "primary"} size="xs" onClick={() => onScope(thisClassId)}>
           本堂
         </Button>
       ) : null}
       <Button
         type="button"
-        variant={all ? "arm" : "quiet"}
-        size="sm"
-        className="h-7 min-h-7 px-2"
+        variant={all ? "primary" : "quiet"}
+        size="xs"
         onClick={() => onScope(null)}
         disabled={!collectDrillCards(sessions).length}
       >
@@ -78,11 +71,11 @@ export function DrillDeck({
     <div className="flex flex-col gap-6">
       {scope}
       <button type="button" onClick={() => setShow(true)} className="min-h-40 border border-line px-5 py-8 text-left">
-        <p className="text-xl font-medium leading-snug tracking-tight text-pretty">{card.en}</p>
+        <p className="text-xl font-medium tracking-tight text-pretty">{card.en}</p>
         {show ? (
           <div className="mt-4 flex flex-col gap-2">
             {back.map((line) => (
-              <p key={line} className="text-base leading-relaxed text-muted text-pretty">
+              <p key={line} className="text-base text-muted text-pretty">
                 {line}
               </p>
             ))}
@@ -92,10 +85,10 @@ export function DrillDeck({
         )}
       </button>
       <div className="flex gap-2">
-        <Button type="button" variant="ghost" size="lg" onClick={() => setShow(true)}>
+        <Button type="button" variant="secondary" size="lg" onClick={() => setShow(true)}>
           看背面
         </Button>
-        <Button type="button" variant="arm" size="lg" onClick={next}>
+        <Button type="button" variant="primary" size="lg" onClick={next}>
           会了
         </Button>
         <Button type="button" variant="quiet" size="lg" onClick={next}>

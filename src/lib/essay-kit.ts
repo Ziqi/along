@@ -35,7 +35,7 @@ function list(raw: unknown, n: number): EssayTerm[] {
 /** Waiting card only. Do NOT copy coach lines — that made DeepSearch look like coach. */
 export function heuristicEssay(bits: EssayBits): TopicEssay {
   return {
-    title: clip(bits.topic || "DeepSearch", 48),
+    title: clip(bits.topic || "检索", 48),
     contextEn: "",
     contextZh: "",
     viewEn: "",

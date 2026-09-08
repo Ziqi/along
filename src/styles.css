@@ -1,12 +1,23 @@
 @import "tailwindcss";
 
+/*
+ * The Latin face ships with the app. A third-party font host is often
+ * unreachable from the mainland and cost the first paint a blocking request;
+ * now the English falls back to nothing. Chinese glyphs come from the system
+ * stack below, as they always did.
+ */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+
 @theme {
   --color-bg: #efeae0;
   --color-surface: #f7f3ea;
   --color-elevated: #fffdf8;
   --color-fg: #1c1b17;
   --color-muted: #5c5850;
-  --color-dim: #8a857a;
+  --color-dim: #736e64;
   --color-line: #d8d0c3;
   --color-go: #2f8a42;
   --color-hold: #a67a28;
@@ -16,13 +27,39 @@
   --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 8px;
+
+  /*
+   * Type: five steps and one display size, three line heights. Every size
+   * carries its line height, so a class alone lands on the grid.
+   *
+   *   xs   12  snug     timestamps, counters, sources
+   *   sm   14  relaxed  chrome labels, kickers, and the Chinese gloss on the paper
+   *   base 16  relaxed  English prose on the paper; the Chinese gloss in class
+   *   lg   18  snug     a line you say or just heard: captions, coach lines, the lede
+   *   xl   20  snug     a section heading, a card's topic, the front of a flash card
+   *   2xl  32  tight    the one title on a page
+   *
+   * The two surfaces map the bilingual pair one step apart:
+   *   classroom, glanced at from a seat   en lg  · zh base
+   *   paper, read up close                en base · zh sm
+   */
+  --text-*: initial;
+  --leading-*: initial;
+  --leading-tight: 1.15;
+  --leading-snug: 1.4;
+  --leading-relaxed: 1.7;
   --text-xs: 0.75rem;
+  --text-xs--line-height: var(--leading-snug);
   --text-sm: 0.875rem;
+  --text-sm--line-height: var(--leading-relaxed);
   --text-base: 1rem;
+  --text-base--line-height: var(--leading-relaxed);
   --text-lg: 1.125rem;
+  --text-lg--line-height: var(--leading-snug);
   --text-xl: 1.25rem;
-  --text-2xl: 1.75rem;
-  --text-3xl: 2rem;
+  --text-xl--line-height: var(--leading-snug);
+  --text-2xl: 2rem;
+  --text-2xl--line-height: var(--leading-tight);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-micro: 80ms;
@@ -64,13 +101,15 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
-}
-
-@media (max-width: 767px) {
-  input,
-  textarea,
-  select {
-    font-size: 16px;
+  /* A phone zooms into a control set below 16px, so on a phone the two small steps read as base inside one. */
+  @media (max-width: 767px) {
+    input,
+    textarea,
+    select {
+      --text-xs: 1rem;
+      --text-sm: 1rem;
+      font-size: 1rem;
+    }
   }
 }
 
@@ -201,9 +240,17 @@
   animation: caret 1s steps(1) infinite;
 }
 
+/*
+ * The one way a word is marked — in a caption, on a coach line, on the paper:
+ * a highlighter stroke under it. Weight and colour are inherited, so a line
+ * does not reflow when its marks arrive after the text.
+ */
 .key {
+  background: transparent;
+  color: inherit;
   font-style: normal;
-  color: var(--color-fg);
+  font-weight: inherit;
+  border-radius: 1px;
   box-shadow: inset 0 -0.38em 0 color-mix(in srgb, var(--color-hold) 42%, transparent);
 }
 
@@ -241,7 +288,6 @@
 .recap-paper {
   background: var(--color-elevated);
   box-shadow: 0 0 0 1px var(--color-line);
-  font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
 .recap-paper textarea,
@@ -282,5 +328,13 @@
   .recap-paper {
     box-shadow: none;
     max-width: none;
+  }
+  /* Printers drop box-shadows unless backgrounds are on; the same stroke as an underline. */
+  .key {
+    box-shadow: none;
+    text-decoration: underline;
+    text-decoration-color: #a67a28;
+    text-decoration-thickness: 0.12em;
+    text-underline-offset: 0.18em;
   }
 }

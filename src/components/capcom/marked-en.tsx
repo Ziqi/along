@@ -1,3 +1,4 @@
+/** An English line with the coach's key words marked. */
 export function MarkedEn({ text, keys }: { text: string; keys?: string[] }) {
   const marks = (keys ?? []).filter((k) => k.length > 1);
   if (!marks.length) return text;
@@ -7,9 +8,9 @@ export function MarkedEn({ text, keys }: { text: string; keys?: string[] }) {
     <>
       {parts.map((part, i) =>
         marks.some((k) => k.toLowerCase() === part.toLowerCase()) ? (
-          <em key={`${part}-${i}`} className="key">
+          <mark key={`${part}-${i}`} className="key">
             {part}
-          </em>
+          </mark>
         ) : (
           <span key={`${part}-${i}`}>{part}</span>
         ),

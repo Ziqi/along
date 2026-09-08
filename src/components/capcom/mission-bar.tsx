@@ -53,17 +53,19 @@ export function MissionBar({ onArm, onSafe }: Props) {
     applyTheme(next);
   }
 
+  // One step down on a phone: the bar is a single row there.
+  const listenSize = "max-md:h-10 max-md:px-3 max-md:text-sm";
   const listenBtn = live ? (
-    <Button type="button" variant="safe" size="lg" className="max-md:h-10 max-md:min-h-10 max-md:px-3" onClick={onSafe}>
-      <Pause className="size-3.5" />
+    <Button type="button" variant="secondary" size="lg" className={listenSize} onClick={onSafe}>
+      <Pause className="size-4" />
       暂停
     </Button>
   ) : (
     <Button
       type="button"
-      variant="arm"
+      variant="primary"
       size="lg"
-      className="max-md:h-10 max-md:min-h-10 max-md:px-3"
+      className={listenSize}
       onClick={() => {
         if (paused || openClass) onArm();
         else setPick(true);
@@ -79,7 +81,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
     <>
       {openClass && !reading ? (
         <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { setJotOpen(true); setMore(false); }}>
-          <PenLine className="size-3.5" />
+          <PenLine className="size-4" />
           记要点
         </Button>
       ) : null}
@@ -103,7 +105,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
         </Button>
       ) : null}
       {openClass && !reading ? (
-        <Button type="button" variant="end" size="lg" className="max-md:w-full" onClick={() => { void endClass(); setMore(false); }}>
+        <Button type="button" variant="danger" size="lg" className="max-md:w-full" onClick={() => { void endClass(); setMore(false); }}>
           结课
         </Button>
       ) : null}
@@ -120,7 +122,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
       <SignedOut>
         <a
           href="/login"
-          className="flex h-10 min-h-10 items-center px-3 text-sm text-muted hover:text-fg max-md:w-full"
+          className="flex h-11 items-center px-3 text-base font-medium text-muted hover:text-fg max-md:w-full"
           onClick={() => setMore(false)}
         >
           登录保存纪要
@@ -143,7 +145,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
         aria-label="首页"
       >
         <Mark className="size-6 shrink-0 text-fg" />
-        <h1 className="text-base font-medium tracking-[0.22em] text-fg md:text-lg">
+        <h1 className="text-base font-medium tracking-[0.2em] text-fg md:text-lg">
           ALONG
         </h1>
         <p className="hidden text-sm text-muted sm:block">跟课</p>
@@ -182,14 +184,13 @@ export function MissionBar({ onArm, onSafe }: Props) {
             variant="quiet"
             size="icon"
             aria-label={theme === "night" ? "白天" : "夜间"}
-            className="size-9 min-h-9 min-w-9 text-dim hover:text-fg"
             onClick={toggleTheme}
           >
             {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
           {openClass && !reading ? (
             <Button type="button" variant="quiet" size="lg" onClick={() => setJotOpen(true)}>
-              <PenLine className="size-3.5" />
+              <PenLine className="size-4" />
               记要点
             </Button>
           ) : null}
@@ -209,7 +210,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
             </Button>
           ) : null}
           {openClass && !reading ? (
-            <Button type="button" variant="end" size="lg" onClick={() => void endClass()}>
+            <Button type="button" variant="danger" size="lg" onClick={() => void endClass()}>
               结课
             </Button>
           ) : null}
@@ -219,7 +220,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
           type="button"
           variant="quiet"
           size="icon"
-          className="size-10 min-h-10 min-w-10 md:hidden"
+          className="md:hidden"
           aria-label="更多"
           onClick={() => setMore((v) => !v)}
         >

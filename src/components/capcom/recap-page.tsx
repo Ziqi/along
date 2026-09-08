@@ -178,16 +178,10 @@ export function RecapPage(route: RecapRouteProps) {
                     {mode === "read" && recap?.draft ? " · 未完稿" : ""}
                   </p>
                   <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="quiet"
-                      size="sm"
-                      className="h-7 min-h-7 px-2 md:hidden"
-                      onClick={() => nav.setCatalogOpen(true)}
-                    >
+                    <Button type="button" variant="quiet" size="xs" className="md:hidden" onClick={() => nav.setCatalogOpen(true)}>
                       目录
                     </Button>
-                    <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2 md:hidden" onClick={goHomeSafe}>
+                    <Button type="button" variant="quiet" size="xs" className="md:hidden" onClick={goHomeSafe}>
                       {homeLabel}
                     </Button>
                   </div>
@@ -212,24 +206,23 @@ export function RecapPage(route: RecapRouteProps) {
                       e.currentTarget.blur();
                     }
                   }}
-                  className="w-full resize-none px-3 py-2 text-[2rem] font-medium leading-tight tracking-tight text-fg text-balance"
+                  className="w-full resize-none px-3 py-2 text-2xl font-medium tracking-tight text-fg text-balance"
                   aria-label="纪要标题"
                 />
                 <div className="recap-tools flex flex-wrap items-center gap-2">
                   {mode === "drill" ? (
-                    <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2" onClick={() => nav.read(session.id)}>
+                    <Button type="button" variant="quiet" size="xs" onClick={() => nav.read(session.id)}>
                       看纪要
                     </Button>
                   ) : editing ? (
-                    <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2" onClick={() => nav.setEditing(false)}>
+                    <Button type="button" variant="quiet" size="xs" onClick={() => nav.setEditing(false)}>
                       完成
                     </Button>
                   ) : needWrite ? (
                     <Button
                       type="button"
                       variant="quiet"
-                      size="sm"
-                      className="h-7 min-h-7 px-2"
+                      size="xs"
                       onClick={() => void requestRecap(session.id)}
                       disabled={pending || !canRun}
                     >
@@ -245,7 +238,7 @@ export function RecapPage(route: RecapRouteProps) {
                             type="button"
                             variant="quiet"
                             size="sm"
-                            className="h-8 justify-start px-2"
+                            className="justify-start"
                             onClick={() => void forkAndRecap(session.id)}
                             disabled={pending || !canRun}
                           >
@@ -255,13 +248,13 @@ export function RecapPage(route: RecapRouteProps) {
                             type="button"
                             variant="quiet"
                             size="sm"
-                            className="h-8 justify-start px-2"
+                            className="justify-start"
                             onClick={() => nav.setEditing(true)}
                             disabled={!recap}
                           >
                             编辑
                           </Button>
-                          <Button type="button" variant="quiet" size="sm" className="h-8 justify-start px-2" onClick={() => remove(session.id)}>
+                          <Button type="button" variant="quiet" size="sm" className="justify-start" onClick={() => remove(session.id)}>
                             删除
                           </Button>
                         </div>
@@ -274,7 +267,7 @@ export function RecapPage(route: RecapRouteProps) {
                             type="button"
                             variant="quiet"
                             size="sm"
-                            className="h-8 justify-start px-2"
+                            className="justify-start"
                             onClick={() =>
                               downloadText(`${session.title}.md`, recapMarkdown(session, { tape: withTape }), "text/markdown;charset=utf-8")
                             }
@@ -285,12 +278,12 @@ export function RecapPage(route: RecapRouteProps) {
                             type="button"
                             variant="quiet"
                             size="sm"
-                            className="h-8 justify-start px-2"
+                            className="justify-start"
                             onClick={() => printRecap(session, { tape: withTape })}
                           >
                             打印
                           </Button>
-                          <label className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted">
+                          <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-muted">
                             <input type="checkbox" checked={withTape} onChange={(e) => setWithTape(e.target.checked)} />
                             含实录
                           </label>
@@ -299,8 +292,7 @@ export function RecapPage(route: RecapRouteProps) {
                       <Button
                         type="button"
                         variant="quiet"
-                        size="sm"
-                        className="h-7 min-h-7 px-2"
+                        size="xs"
                         onClick={() => nav.drill(session.id)}
                         disabled={!thisClassCards && !stats.cards}
                       >
@@ -384,15 +376,15 @@ function EmptyPaper({
           <div className="recap-chrome flex items-center justify-between gap-3">
             <p className="text-sm text-muted">复习 · 全部堂次</p>
             <div className="flex items-center gap-1">
-              <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2 md:hidden" onClick={catalogOpen}>
+              <Button type="button" variant="quiet" size="xs" className="md:hidden" onClick={catalogOpen}>
                 目录
               </Button>
-              <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2 md:hidden" onClick={goHomeSafe}>
+              <Button type="button" variant="quiet" size="xs" className="md:hidden" onClick={goHomeSafe}>
                 首页
               </Button>
             </div>
           </div>
-          <h1 className="text-[2rem] font-medium leading-tight tracking-tight text-fg">跨课词条</h1>
+          <h1 className="text-2xl font-medium tracking-tight text-fg">跨课词条</h1>
         </header>
         {children}
       </>
@@ -402,8 +394,8 @@ function EmptyPaper({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <p className="text-base leading-relaxed text-fg">还没有上过课。</p>
-        <p className="text-sm leading-relaxed text-muted">
+        <p className="text-base text-fg">还没有上过课。</p>
+        <p className="text-sm text-muted">
           回到首页点「开始听」，结课后这里会出现那一堂的讲义：本堂内容、语言点、附录。
         </p>
       </div>

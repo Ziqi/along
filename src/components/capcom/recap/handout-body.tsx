@@ -55,7 +55,7 @@ export function HandoutBody({
       {error ? <p className="border border-line bg-elevated px-4 py-3 text-sm text-abort">{error} 点上面「整理本堂」。</p> : null}
       {pending ? <RecapProgress stage={stage} /> : null}
       {!pending && recap?.draft && !recap.lede && !sections.length ? (
-        <p className="text-base leading-relaxed text-muted">目录不是讲义。正文失败会自动再写。不要停在这一页当完成稿。</p>
+        <p className="text-base text-muted">目录不是讲义。正文失败会自动再写。不要停在这一页当完成稿。</p>
       ) : null}
 
       {recap?.lede || sections.length || takeaways.length ? <p className="text-sm text-muted">本堂内容</p> : null}
@@ -64,20 +64,20 @@ export function HandoutBody({
         <section className="flex flex-col gap-2">
           {editing ? (
             <>
-              <EditText value={recap?.lede ?? ""} rows={4} className="text-lg leading-8 text-fg" onSave={(lede) => onPatch({ lede })} />
+              <EditText value={recap?.lede ?? ""} rows={4} className="text-lg leading-relaxed text-fg" onSave={(lede) => onPatch({ lede })} />
               <EditText
                 value={recap?.ledeZh ?? ""}
                 rows={3}
-                className="text-sm leading-relaxed text-muted"
+                className="text-sm text-muted"
                 onSave={(ledeZh) => onPatch({ ledeZh })}
               />
             </>
           ) : recap?.lede ? (
             <>
-              <p className="text-lg leading-8 text-fg text-pretty">
+              <p className="text-lg leading-relaxed text-fg text-pretty">
                 <MarkText text={recap.lede} terms={marks} />
               </p>
-              {recap.ledeZh ? <p className="text-sm leading-relaxed text-muted text-pretty">{recap.ledeZh}</p> : null}
+              {recap.ledeZh ? <p className="text-sm text-muted text-pretty">{recap.ledeZh}</p> : null}
             </>
           ) : null}
         </section>
@@ -109,13 +109,13 @@ export function HandoutBody({
               <EditText
                 value={sec.body}
                 rows={Math.min(10, Math.max(4, sec.body.split("\n").length + 1))}
-                className="text-base leading-8 text-fg"
+                className="text-base text-fg"
                 onSave={(body) => onPatch({ sections: sections.map((s, n) => (n === i ? { ...s, body } : s)) })}
               />
               <EditText
                 value={sec.bodyZh}
                 rows={4}
-                className="text-sm leading-relaxed text-muted"
+                className="text-sm text-muted"
                 onSave={(bodyZh) => onPatch({ sections: sections.map((s, n) => (n === i ? { ...s, bodyZh } : s)) })}
               />
               {sec.table ? <ContrastTable table={sec.table} /> : null}
@@ -135,9 +135,9 @@ export function HandoutBody({
       ))}
 
       {outline.length && !sections.length ? (
-        <p className="text-base leading-relaxed text-muted">只有目录，还没有讲义正文。点上面「整理本堂」再写一遍。</p>
+        <p className="text-base text-muted">只有目录，还没有讲义正文。点上面「整理本堂」再写一遍。</p>
       ) : living && !recap && !pending ? (
-        <p className="text-base leading-relaxed text-muted">听进几句之后，提纲会落在这里。现在也可以先补一条随手记。</p>
+        <p className="text-base text-muted">听进几句之后，提纲会落在这里。现在也可以先补一条随手记。</p>
       ) : null}
 
       {topics.length && !sections.length ? <PairList kicker="主题" items={topics} /> : null}

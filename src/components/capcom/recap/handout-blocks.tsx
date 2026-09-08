@@ -1,7 +1,10 @@
 import { splitProse } from "@/lib/recap-kit";
 import type { RecapPair, RecapTable } from "@/lib/types";
 
-/** `*starred*` spans become underlined marks; everything else may still get term highlights. */
+/**
+ * `*starred*` spans are the model's own marks; the rest of the text may still
+ * get the paper's study terms marked. Both wear the one `.key` stroke.
+ */
 export function MarkText({ text, terms }: { text: string; terms?: string[] }) {
   const chunks = text.split(/(\*[^*]+\*)/g);
   return (
@@ -9,7 +12,7 @@ export function MarkText({ text, terms }: { text: string; terms?: string[] }) {
       {chunks.map((chunk, i) => {
         if (chunk.startsWith("*") && chunk.endsWith("*") && chunk.length > 2) {
           return (
-            <mark key={i} className="bg-transparent font-medium underline decoration-fg/40 underline-offset-4">
+            <mark key={i} className="key">
               {chunk.slice(1, -1)}
             </mark>
           );
@@ -39,7 +42,7 @@ export function HighlightTerms({ text, terms }: { text: string; terms?: string[]
     <>
       {parts.map((p, i) =>
         lower.has(p.toLowerCase()) ? (
-          <mark key={i} className="rounded-sm bg-hold/25 px-0.5 font-medium text-fg">
+          <mark key={i} className="key">
             {p}
           </mark>
         ) : (
@@ -77,7 +80,7 @@ export function EditText({
 export function ProseBlocks({ text, muted, terms }: { text: string; muted?: boolean; terms?: string[] }) {
   const blocks = splitProse(text);
   if (!blocks.length) return null;
-  const body = muted ? "text-sm leading-relaxed text-muted text-pretty" : "text-base leading-8 text-fg text-pretty";
+  const body = muted ? "text-sm text-muted text-pretty" : "text-base text-fg text-pretty";
   return (
     <div className="flex flex-col gap-3">
       {blocks.map((b, bi) =>
@@ -180,10 +183,10 @@ export function PairOl({ items, terms }: { items: RecapPair[]; terms?: string[] 
     <ol className="list-decimal space-y-2 pl-5">
       {items.map((t) => (
         <li key={t.en} className="pl-1">
-          <p className="text-base leading-relaxed text-fg">
+          <p className="text-base text-fg">
             <MarkText text={t.en} terms={terms} />
           </p>
-          {t.zh ? <p className="text-sm leading-relaxed text-muted">{t.zh}</p> : null}
+          {t.zh ? <p className="text-sm text-muted">{t.zh}</p> : null}
         </li>
       ))}
     </ol>

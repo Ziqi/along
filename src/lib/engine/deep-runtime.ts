@@ -20,7 +20,7 @@ export function createDeepRuntime(ctx: EngineContext) {
     const card = (coachId ? s.coaches.find((c) => c.id === coachId) : null) ?? s.coach;
     const id = card?.id ?? "latest";
     if (!card) {
-      s.setEssayError("先写出三条，再 DeepSearch。");
+      s.setEssayError("先写出三条，再检索。");
       return;
     }
     if (inflight.has(id)) return;

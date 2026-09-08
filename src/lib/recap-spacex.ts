@@ -89,7 +89,7 @@ export function spacexRecap(): ClassRecap {
         headingZh: "可重复使用火箭的回报，以及怎么说",
         body: "Reusable hardware is the cleanest example the hour had. Early flights looked expensive and late. The *payoff* was not a prettier launch; it was flying the same booster again, then again, until the marginal cost collapsed. DeepSearch numbers belonged here as facts, not as a second coach card: first Falcon 9 landing in 2015, Block 5 boosters flown into double digits, Starlink turning launches into cash. That is a decade, not a quarter.\n\n1. Name the mechanism: reuse, not “innovation”.\n2. Name the wait: years of *misses* before the curve bends.\n3. In class English: the *payoff* arrives late, then all at once.",
         bodyZh:
-          "可重复使用的硬件是这小时最干净的例子。早期飞行又贵又晚。回报不是更好看的发射，而是同一枚助推器再飞、再飞，直到边际成本塌下来。DeepSearch 的数字应当作为事实进这一段，而不是再抄一张教练卡：2015 年 Falcon 9 首次着陆，Block 5 助推器飞进两位数，Starlink 把发射变成现金。这是十年，不是一个季度。\n\n1. 点出机制：重复使用，不是空说创新。\n2. 点出等待：曲线拐弯之前，会有多年不及预期。\n3. 课上英语：回报来得晚，然后一次性到齐。",
+          "可重复使用的硬件是这小时最干净的例子。早期飞行又贵又晚。回报不是更好看的发射，而是同一枚助推器再飞、再飞，直到边际成本塌下来。检索到的数字应当作为事实进这一段，而不是再抄一张教练卡：2015 年 Falcon 9 首次着陆，Block 5 助推器飞进两位数，Starlink 把发射变成现金。这是十年，不是一个季度。\n\n1. 点出机制：重复使用，不是空说创新。\n2. 点出等待：曲线拐弯之前，会有多年不及预期。\n3. 课上英语：回报来得晚，然后一次性到齐。",
         table: null,
       },
     ],

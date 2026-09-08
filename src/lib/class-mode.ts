@@ -49,7 +49,7 @@ export function recapAppendixCopy(study: boolean) {
     : {
         part: "课中开口",
         heading: "开口原件",
-        blurb: "课上教练和 DeepSearch 的原件，附在讲义后面，方便对照开口。",
+        blurb: "课上教练和检索的原件，附在讲义后面，方便对照开口。",
         md: "## 开口原件",
         htmlPart: "课中开口",
         htmlHeading: "开口原件",

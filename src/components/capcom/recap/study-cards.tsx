@@ -28,10 +28,10 @@ export function StudyCards({
               <>
                 <EditText value={it.en} rows={2} className="text-base font-medium" onSave={(v) => patch(i, "en", v)} />
                 <EditText value={it.zh} rows={2} className="text-sm text-muted" onSave={(v) => patch(i, "zh", v)} />
-                <p className="text-xs text-dim">用法</p>
+                <p className="text-sm text-dim">用法</p>
                 <EditText value={it.use} rows={2} className="text-sm" onSave={(v) => patch(i, "use", v)} />
                 <EditText value={it.useZh} rows={2} className="text-sm text-muted" onSave={(v) => patch(i, "useZh", v)} />
-                <p className="text-xs text-dim">例句</p>
+                <p className="text-sm text-dim">例句</p>
                 <EditText value={it.example} rows={2} className="text-sm" onSave={(v) => patch(i, "example", v)} />
                 <EditText
                   value={it.exampleZh}
@@ -43,23 +43,23 @@ export function StudyCards({
             ) : (
               <>
                 <p className="text-base font-medium leading-snug text-fg">{it.en}</p>
-                {it.zh ? <p className="text-sm leading-snug text-muted">{it.zh}</p> : null}
+                {it.zh ? <p className="text-sm text-muted">{it.zh}</p> : null}
                 {it.use || it.useZh ? (
                   <div>
-                    <p className="text-xs text-dim">用法</p>
-                    {it.use ? <p className="mt-1 text-sm leading-relaxed text-fg">{it.use}</p> : null}
-                    {it.useZh ? <p className="text-sm leading-relaxed text-muted">{it.useZh}</p> : null}
+                    <p className="text-sm text-dim">用法</p>
+                    {it.use ? <p className="text-sm text-fg">{it.use}</p> : null}
+                    {it.useZh ? <p className="text-sm text-muted">{it.useZh}</p> : null}
                   </div>
                 ) : null}
                 {it.example || it.exampleZh ? (
                   <div>
-                    <p className="text-xs text-dim">例句</p>
+                    <p className="text-sm text-dim">例句</p>
                     {it.example ? (
-                      <p className="mt-1 text-sm leading-relaxed text-fg text-pretty">
+                      <p className="text-sm text-fg text-pretty">
                         <MarkText text={it.example} />
                       </p>
                     ) : null}
-                    {it.exampleZh ? <p className="text-sm leading-relaxed text-muted text-pretty">{it.exampleZh}</p> : null}
+                    {it.exampleZh ? <p className="text-sm text-muted text-pretty">{it.exampleZh}</p> : null}
                   </div>
                 ) : null}
               </>

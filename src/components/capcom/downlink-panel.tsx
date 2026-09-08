@@ -50,16 +50,16 @@ export function DownlinkPanel() {
           <ol className="flex flex-col gap-6">
             {captions.map((c) => (
               <li key={c.id} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-                <p className="pt-1 font-mono text-xs tabular-nums text-dim/70">
+                <p className="pt-1 font-mono text-xs tabular-nums text-dim">
                   {formatClock(c.at)}
                 </p>
                 <div className="min-w-0">
-                  <p className="text-lg leading-[1.45] text-fg text-pretty">
+                  <p className="text-lg text-fg text-pretty">
                     {c.en}
                   </p>
                   <p
                     className={
-                      "mt-1 text-base leading-snug text-pretty " +
+                      "mt-1 text-base text-pretty " +
                       (c.pending || !/[\u4e00-\u9fff]/.test(c.zh)
                         ? "text-dim"
                         : c.error
@@ -78,8 +78,8 @@ export function DownlinkPanel() {
             ))}
             {interim ? (
               <li className="grid grid-cols-[auto_1fr] gap-x-4">
-                <p className="font-mono text-xs tabular-nums text-dim/70">--:--:--</p>
-                <p className="stream-caret text-lg leading-[1.45] text-fg/80">
+                <p className="pt-1 font-mono text-xs tabular-nums text-dim">--:--:--</p>
+                <p className="stream-caret text-lg text-fg/80">
                   {interim}
                 </p>
               </li>
@@ -109,8 +109,8 @@ function Preflight({
         : "点「开始听」，先选互动、旁听或只听。麦克风开了，完整一句才会上屏。";
   return (
     <div className="flex flex-col gap-3 py-1">
-      <p className="text-base leading-relaxed text-muted text-pretty">{lead}</p>
-      <p className="text-base leading-relaxed text-muted text-pretty">
+      <p className="text-base text-muted text-pretty">{lead}</p>
+      <p className="text-base text-muted text-pretty">
         暂停不停课。结课立刻进纪要。想换课型，先结课再开一堂。
       </p>
     </div>

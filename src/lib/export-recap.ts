@@ -112,7 +112,7 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
       });
       if (c.deep) {
         lines.push("");
-        lines.push(`#### DeepSearch · ${c.deep.title}`);
+        lines.push(`#### 检索 · ${c.deep.title}`);
         if (c.deep.viewEn) lines.push(c.deep.viewEn);
         if (c.deep.viewZh) lines.push(c.deep.viewZh);
         for (const f of c.deep.facts) lines.push(`- ${f.en}${f.zh ? ` — ${f.zh}` : ""}`);
@@ -158,7 +158,7 @@ function esc(s: string) {
 }
 
 function stars(s: string) {
-  return esc(s).replace(/\*([^*]+)\*/g, "<strong>$1</strong>");
+  return esc(s).replace(/\*([^*]+)\*/g, "<mark>$1</mark>");
 }
 
 function proseHtml(text: string, muted = false) {
@@ -234,9 +234,9 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   .card{break-inside:avoid;border-top:1px solid #d8d0c3;padding:.7rem 0}
   table.contrast{width:100%;border-collapse:collapse;margin:0.8rem 0 1rem;font-size:0.92rem}
   table.contrast th,table.contrast td{border-top:1px solid #d8d0c3;padding:0.45rem 0.6rem 0.45rem 0;text-align:left;vertical-align:top}
-  table.contrast th{font-weight:600}
-  .en{font-weight:600}
-  strong{font-weight:600;text-decoration:underline;text-underline-offset:3px}
+  table.contrast th{font-weight:500}
+  .en{font-weight:500}
+  mark{background:transparent;color:inherit;text-decoration:underline;text-decoration-color:#a67a28;text-decoration-thickness:.12em;text-underline-offset:.18em}
   @media print { body { padding: 0; } a { color: inherit; } }
 </style></head><body>
 <p class="meta">${esc(formatDayTime(session.startedAt))}</p>
@@ -268,7 +268,7 @@ ${
             .map((o) => `<li><p>${esc(o.en)}</p>${o.zh ? `<p class="zh">${esc(o.zh)}</p>` : ""}</li>`)
             .join("");
           const deep = c.deep
-            ? `<h3>DeepSearch · ${esc(c.deep.title)}</h3>${c.deep.viewEn ? `<p>${esc(c.deep.viewEn)}</p>` : ""}${c.deep.viewZh ? `<p class="zh">${esc(c.deep.viewZh)}</p>` : ""}${
+            ? `<h3>检索 · ${esc(c.deep.title)}</h3>${c.deep.viewEn ? `<p>${esc(c.deep.viewEn)}</p>` : ""}${c.deep.viewZh ? `<p class="zh">${esc(c.deep.viewZh)}</p>` : ""}${
                 c.deep.facts.length
                   ? `<ol>${c.deep.facts.map((f) => `<li>${esc(f.en)}${f.zh ? ` — ${esc(f.zh)}` : ""}</li>`).join("")}</ol>`
                   : ""

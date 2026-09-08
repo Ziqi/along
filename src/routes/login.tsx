@@ -11,7 +11,7 @@ function Login() {
         <div className="flex items-center gap-3">
           <Mark className="size-6 text-fg" />
           <div>
-            <p className="text-lg font-medium tracking-[0.18em]">ALONG</p>
+            <p className="text-lg font-medium tracking-[0.2em]">ALONG</p>
             <p className="text-sm text-muted">登录后，纪要保存在云端</p>
           </div>
         </div>
