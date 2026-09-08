@@ -8,6 +8,7 @@ import { createDeepRuntime } from "./deep-runtime.ts";
 import { createListenRuntime } from "./listen-runtime.ts";
 import { createNoteRuntime } from "./note-runtime.ts";
 import { createRecapRuntime } from "./recap-runtime.ts";
+import { createSayRuntime } from "./say-runtime.ts";
 
 export const TICK_MS = 2800;
 
@@ -51,6 +52,7 @@ export function createEngine(deps: EngineDeps) {
     },
   });
   const notes = createNoteRuntime(ctx, { onNote: () => recap.touch() });
+  const say = createSayRuntime(ctx, { onNote: () => recap.touch() });
   const listen = createListenRuntime(ctx, { onFinal: (t) => captions.ingest(t), dispatch });
 
   let tick: ReturnType<typeof setInterval> | null = null;
@@ -61,6 +63,7 @@ export function createEngine(deps: EngineDeps) {
     deep.abort();
     captions.abort();
     notes.abort();
+    say.abort();
     if (opts?.keepHandout) recap.abortOutline();
     else recap.abort();
   }
@@ -166,6 +169,8 @@ export function createEngine(deps: EngineDeps) {
     setCoachLive: (on: boolean) => coach.setLive(on),
     requestEssay: (coachId?: string) => deep.request(coachId),
     captureNote: notes.capture,
+    /** 「我想说」: one Chinese line in, one line to say out, kept as a note. */
+    sayLine: (text: string) => say.ask(text),
     requestRecap: (targetId?: string, hintTopics?: string[]) => recap.request(targetId, hintTopics),
     forkAndRecap: (fromId: string) => recap.forkAndRecap(fromId),
     /** Start the heartbeat once; safe to call again. */

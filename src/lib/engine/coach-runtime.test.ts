@@ -79,6 +79,7 @@ function api(coach: Coach): AiApi {
     coach,
     translate: never as AiApi["translate"],
     quick: never as AiApi["quick"],
+    say: never as AiApi["say"],
     expand: never as AiApi["expand"],
     recap: never as AiApi["recap"],
     outline: never as AiApi["outline"],

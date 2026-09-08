@@ -31,6 +31,8 @@ export type LiveSlice = {
   essayError: string | null;
   flash: string | null;
   jotOpen: boolean;
+  /** Which face the pad opens on: a note to keep, or a line to say. */
+  jotMode: "note" | "say";
   intent: string;
   engineError: string | null;
   seq: number;
@@ -50,7 +52,7 @@ export type LiveSlice = {
   setEssayPending: (on: boolean, coachId?: string | null) => void;
   setEssayError: (msg: string | null) => void;
   ping: (msg: string) => void;
-  setJotOpen: (on: boolean) => void;
+  setJotOpen: (on: boolean, mode?: "note" | "say") => void;
   setEngineError: (msg: string | null) => void;
   resetHud: () => void;
 };
@@ -124,6 +126,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   essayError: null,
   flash: null,
   jotOpen: false,
+  jotMode: "note",
   intent: "",
   engineError: null,
   seq: 0,
@@ -222,7 +225,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
       if (get().flash === msg) set({ flash: null });
     }, 1400);
   },
-  setJotOpen: (on) => set({ jotOpen: on }),
+  setJotOpen: (on, mode) => set(mode ? { jotOpen: on, jotMode: mode } : { jotOpen: on }),
   setEngineError: (msg) => set({ engineError: msg }),
   resetHud: () => set({ ...HUD_BLANK, jots: [], liveId: null }),
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Pause, Play } from "lucide-react";
+import { Check, Copy, MessageSquareText, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
 import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
@@ -41,6 +41,8 @@ export function UplinkPanel() {
   const classMode = useCapcom((s) => s.classMode);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
+  const setJotOpen = useCapcom((s) => s.setJotOpen);
+  const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const mode = parseClassMode(
     sessions.find((s) => s.id === liveId)?.classMode ?? classMode,
   );
@@ -96,6 +98,12 @@ export function UplinkPanel() {
         {/* On a phone the tab above already says which panel this is. */}
         <h2 className="text-sm font-medium max-lg:sr-only">教练</h2>
         <div className="ml-auto flex min-w-0 items-center gap-1">
+          {openClass ? (
+            <Button type="button" variant="quiet" size="sm" onClick={() => setJotOpen(true, "say")}>
+              <MessageSquareText className="size-3.5" />
+              我想说
+            </Button>
+          ) : null}
           <Button type="button" variant="quiet" size="sm" onClick={() => setCoachLive(!autoCoach)}>
             {autoCoach ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
             {autoCoach ? "停写" : "跟听"}

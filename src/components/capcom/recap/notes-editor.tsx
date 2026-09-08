@@ -33,7 +33,10 @@ export function NotesEditor({ session }: { session: ClassSession }) {
             {session.notes.map((j) => (
               <li key={j.id} className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-dim">{formatDayTime(j.at)}</p>
+                  <p className="text-xs text-dim">
+                    {formatDayTime(j.at)}
+                    {j.src === "say" ? " · 我想说" : j.src === "coach" ? " · 教练" : j.src === "deep" ? " · 检索" : ""}
+                  </p>
                   <textarea
                     key={`${j.id}-en-${j.en}`}
                     defaultValue={j.en}

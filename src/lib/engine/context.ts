@@ -7,6 +7,7 @@ import type {
   mintSttSecret,
   quickTranslate,
   recapClass,
+  sayIt,
 } from "../capcom-ai.ts";
 import { parseClassMode, type ClassMode } from "../class-mode.ts";
 import type { AppNav } from "../nav.ts";
@@ -18,6 +19,8 @@ type Call<F> = F extends (...args: infer A) => infer R ? (...args: A) => R : nev
 export type AiApi = {
   translate: Call<typeof liveTranslate>;
   quick: Call<typeof quickTranslate>;
+  /** 「我想说」: a Chinese thought → one line to say in this class. */
+  say: Call<typeof sayIt>;
   coach: Call<typeof liveCoach>;
   expand: Call<typeof expandTopic>;
   recap: Call<typeof recapClass>;

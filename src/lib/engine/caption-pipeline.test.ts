@@ -50,6 +50,7 @@ function api(translate: Translate): AiApi {
   return {
     translate,
     quick: never as AiApi["quick"],
+    say: never as AiApi["say"],
     coach: never as AiApi["coach"],
     expand: never as AiApi["expand"],
     recap: never as AiApi["recap"],

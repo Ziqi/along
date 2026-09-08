@@ -6,6 +6,7 @@ import {
   mintSttSecret,
   quickTranslate,
   recapClass,
+  sayIt,
 } from "@/lib/capcom-ai";
 import { appNav } from "@/lib/nav";
 import { useCapcom } from "@/lib/store";
@@ -22,6 +23,7 @@ export const engine = createEngine({
   api: {
     translate: liveTranslate,
     quick: quickTranslate,
+    say: sayIt,
     coach: liveCoach,
     expand: expandTopic,
     recap: recapClass,
@@ -43,6 +45,7 @@ export const {
   setCoachLive,
   requestEssay,
   captureNote,
+  sayLine,
   requestRecap,
   forkAndRecap,
 } = engine;
