@@ -208,7 +208,7 @@ describe("coach pane copy", () => {
 
   it("keeps audit empty copy honest while writing or idle", () => {
     assert.match(coachEmptyCopy("writing", "audit"), /若要开口/);
-    assert.match(coachEmptyCopy("retrying", "audit"), /正在重写/);
+    assert.match(coachEmptyCopy("retrying", "audit"), /再写一遍/);
     assert.match(coachEmptyCopy("idle", "audit"), /旁听/);
     assert.equal(coachEmptyCopy("idle", "audit").includes("正在写"), false);
   });
@@ -226,5 +226,32 @@ describe("coach pane copy", () => {
   it("tells the student a caption is in before the first card", () => {
     assert.match(coachEmptyCopy("following", "audit"), /已经在听/);
     assert.match(coachEmptyCopy("following", "listen"), /这句/);
+  });
+
+  it("does not hide a failed write behind 停写", () => {
+    assert.equal(
+      coachUiPhase({
+        autoCoach: false,
+        pending: false,
+        error: "教练没接到模型，点重写再试。",
+        hasCard: false,
+        hasCaptions: true,
+      }),
+      "failed",
+    );
+    assert.equal(
+      coachHeaderLabel(
+        coachUiPhase({
+          autoCoach: false,
+          pending: false,
+          error: null,
+          hasCard: false,
+          hasCaptions: true,
+        }),
+      ),
+      "已停写",
+    );
+    assert.match(coachEmptyCopy("paused", "interactive"), /已停写/);
+    assert.equal(humanCoachError("AI 暂不可用", "retrying").includes("正在重写"), false);
   });
 });

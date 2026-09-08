@@ -325,6 +325,9 @@ export function requestCoach(spoken?: string) {
 export function setCoachLive(on: boolean) {
   useCapcom.getState().setAutoCoach(on);
   if (!on) {
+    coachGen += 1;
+    coachInflight = false;
+    coachQueued = false;
     if (coachTimer != null) {
       window.clearTimeout(coachTimer);
       coachTimer = null;
@@ -332,7 +335,9 @@ export function setCoachLive(on: boolean) {
     useCapcom.getState().setCoachPending(false);
     return;
   }
-  void flushCoach("auto");
+  const live = useCapcom.getState();
+  const kick = Boolean(live.coachError) || !live.coach;
+  void flushCoach("auto", undefined, kick ? { rescue: true } : undefined);
 }
 
 export async function requestEssay(coachId?: string) {
@@ -340,8 +345,8 @@ export async function requestEssay(coachId?: string) {
   const card =
     (coachId ? store.coaches.find((c) => c.id === coachId) : null) ?? store.coach;
   const id = card?.id ?? "latest";
-  if (!card && !store.captions.length) {
-    store.setEssayError("先听一句，再 DeepSearch。");
+  if (!card) {
+    store.setEssayError("先写出三条，再 DeepSearch。");
     return;
   }
   if (essayInflight.has(id)) return;
