@@ -671,32 +671,30 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
     coach: coachPayload,
     mode: parseClassMode(session?.classMode ?? live.classMode),
   };
-  let lastErr = "纪要没写完，正在重写。";
+  let lastErr = "纪要没写出来，再点一次整理。";
   try {
     let essay: import("@/lib/types").ClassRecap | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    if (gen !== recapGen) return;
+    useCapcom.getState().setRecapStage("essay");
+    try {
+      const result = await recapClass({ data: { ...packet, phase: "essay" } });
       if (gen !== recapGen) return;
-      useCapcom.getState().setRecapStage(attempt ? "essay-retry" : "essay");
-      try {
-        const result = await recapClass({ data: { ...packet, phase: "essay" } });
-        if (gen !== recapGen) return;
-        if (result.ok) {
-          const next = attachCoachPack(
-            toRecap(result, session?.recap?.outline ?? skeleton.outline, pack),
-            pack,
-          );
-          if (isEssayFilled(next)) {
-            useCapcom.getState().setRecap({ ...next, draft: true }, sid);
-            essay = next;
-            break;
-          }
-          lastErr = "正文太薄，正在重写。";
+      if (result.ok) {
+        const next = attachCoachPack(
+          toRecap(result, session?.recap?.outline ?? skeleton.outline, pack),
+          pack,
+        );
+        if (isEssayFilled(next)) {
+          useCapcom.getState().setRecap({ ...next, draft: true }, sid);
+          essay = next;
         } else {
-          lastErr = result.error;
+          lastErr = "正文太薄，再点一次整理。";
         }
-      } catch {
-        lastErr = "纪要没写完，正在重写。";
+      } else {
+        lastErr = result.error;
       }
+    } catch {
+      lastErr = "纪要没写出来，再点一次整理。";
     }
     if (!essay) {
       if (gen === recapGen) useCapcom.getState().setRecapError(lastErr);

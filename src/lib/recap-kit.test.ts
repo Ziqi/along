@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   assembleRecap,
+  classNeedlesOf,
   collectDrillCards,
   emptyRecap,
   essayOf,
@@ -319,6 +320,9 @@ describe("handout gate and document close", () => {
     assert.match(src, /essayReadyForClass/);
     assert.match(src, /keepClassStudy/);
     assert.equal(src.includes("transcript: tape.slice(0, 20)"), false);
+    assert.equal(src.includes("Write THREE section"), false);
+    const engine = readFileSync(new URL("../components/capcom/use-engine.ts", import.meta.url), "utf8");
+    assert.equal(engine.includes("attempt < 2"), false);
   });
 
   it("keeps model stars and assembles a contrast table on a grammar hour", () => {
@@ -570,6 +574,47 @@ describe("handout assembler close", () => {
     );
   });
 
+  it("requires a coach brief in the essay when there is no search and no note", () => {
+    const opening =
+      "I agree the wait is the real cost, not the building, and that is why people leave.";
+    const coach = [
+      {
+        topic: "Wait times",
+        brief: "The room is stuck on this quarter. Pull the clock back to five or ten years.",
+        briefZh: "房间卡在这个季度。把钟拉回五到十年。",
+        say: [opening],
+      },
+    ];
+    const needles = classNeedlesOf({ notes: [], coach });
+    assert.ok(needles.some((n) => /clock|quarter|五到十年/i.test(n)));
+    assert.equal(needles.some((n) => n.includes(opening)), false);
+
+    const miss = {
+      ...essayOnly(),
+      sections: [
+        { heading: "Score", headingZh: "成绩", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+        { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+      ],
+    };
+    assert.equal(essayReadyForClass(miss, { notes: [], coach }), false);
+
+    const hit = {
+      ...essayOnly(),
+      lede: "The hour kept asking who can wait if the clock is five or ten years.",
+      sections: [
+        {
+          heading: "The clock",
+          headingZh: "钟",
+          body: `${LONG_EN} Pull the clock back; a quarter cannot narrate the decade.`,
+          bodyZh: `${LONG_ZH} 把钟拉回五到十年。`,
+          table: null,
+        },
+        { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+      ],
+    };
+    assert.equal(essayReadyForClass(hit, { notes: [], coach }), true);
+  });
+
   it("keeps study rows that point at this hour and drops dictionary leftovers", () => {
     const hay = "even though hospitals wait times payoff quarterly earnings";
     const keep = studyRow("wait times");
@@ -613,6 +658,7 @@ describe("handout assembler close", () => {
     assert.match(GOLD_CONTENT, /NEVER paste/);
     assert.match(GOLD_CONTENT, /DeepSearch/);
     assert.match(GOLD_CONTENT, /listen/);
+    assert.match(GOLD_CONTENT, /coach brief/);
     assert.match(GOLD_STUDY, /point back/);
     assert.match(GOLD_STUDY, /think \/ like \/ good/);
   });
