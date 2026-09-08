@@ -1,5 +1,6 @@
 import type { ClassSession } from "@/lib/types";
 import {
+  clearRemoved,
   clearSyncState,
   isRemoved,
   isRemovedJot,
@@ -28,6 +29,7 @@ import {
 import { SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
 
 export { normJot, normRecap, mergeOne } from "@/lib/session-merge";
+export { DiskReadError } from "@/lib/persist";
 
 /**
  * Everything about the catalog at rest: reading it off this device, writing it
@@ -89,13 +91,31 @@ function skeleton(row: SessionIndexRow): ClassSession {
 }
 
 /**
+ * Ids this tab knows only from the index: their class has not been read from
+ * disk or the cloud yet. Such a row is a shell — no transcript, no handout —
+ * and must never be written to the class store or pushed, or it covers the
+ * real class. Cleared per id as the full row arrives.
+ */
+const skeletonIds = new Set<string>();
+
+export function isSkeleton(id: string) {
+  return skeletonIds.has(id);
+}
+
+function filled(rows: ClassSession[]) {
+  for (const r of rows) skeletonIds.delete(r.id);
+}
+
+/**
  * What can be shown synchronously: the index, as skeleton sessions. The store
  * keeps `hydrated` false until `readStoredSessions` has filled them in.
  */
 export function loadSessions(): ClassSession[] {
   if (typeof window === "undefined") return [];
   try {
-    return normalizeSessions(readIndex().map(skeleton));
+    const rows = normalizeSessions(readIndex().map(skeleton));
+    for (const r of rows) skeletonIds.add(r.id);
+    return rows;
   } catch {
     return [];
   }
@@ -110,15 +130,28 @@ let persistQueue: ClassSession[] | null = null;
  * Before hydrate finishes, writes are queued so a slow IndexedDB read cannot be
  * overwritten by a catalog of skeletons.
  */
-export function persistSessions(sessions: ClassSession[], latest: () => ClassSession[]) {
+export function persistSessions(
+  sessions: ClassSession[],
+  latest: () => ClassSession[],
+  opts: { cloud?: boolean } = {},
+) {
   if (typeof window === "undefined") return;
   if (!persistReady) {
     persistQueue = mergeSessions(persistQueue ?? [], sessions);
     return;
   }
-  writeSessions(sessions.filter((s) => !isRemoved(s.id)));
+  writeSessions(
+    sessions.filter((s) => !isRemoved(s.id)),
+    { skip: isSkeleton },
+  );
+  // `cloud: false` is the mid-class safety copy: disk only, so an hour of
+  // captions is not re-uploaded every few seconds on a phone.
+  if (opts.cloud === false) return;
   scheduleCloudPush(
-    () => ({ sessions: latest().filter((s) => !isRemoved(s.id)), removed: removedIds() }),
+    () => ({
+      sessions: latest().filter((s) => !isRemoved(s.id) && !isSkeleton(s.id)),
+      removed: removedIds(),
+    }),
     async (plan) => {
       const m = await import("@/lib/recap-cloud");
       const out = await m.pushSessionsSafe({
@@ -144,9 +177,13 @@ export function isPersistReady() {
   return persistReady;
 }
 
-/** Everything on this device, merged with `current`. */
+/**
+ * Everything on this device, merged with `current`. Throws `DiskReadError` when
+ * the store could not be read; the caller must then write nothing back.
+ */
 export async function readDiskCatalog(current: ClassSession[]): Promise<ClassSession[]> {
   const disk = normalizeSessions(await readDiskSessions());
+  filled(disk);
   return mergeSessions(current, disk);
 }
 
@@ -166,24 +203,42 @@ export function setCloudRefresher(fn: (() => void) | null) {
  * new".
  */
 export async function pullCloudCatalog(current: ClassSession[]): Promise<ClassSession[]> {
+  return (await pullCloud(current)).sessions;
+}
+
+/**
+ * Like `pullCloudCatalog`, also saying whether a different account signed in on
+ * this device. In that case the previous account's local classes are NOT merged
+ * (they would be pushed into the new account's cloud): the catalog becomes the
+ * new account's cloud copy plus any class open in this tab, and the caller
+ * prunes the old rows from disk.
+ */
+export async function pullCloud(
+  current: ClassSession[],
+): Promise<{ sessions: ClassSession[]; switched: boolean }> {
   const cloud = await import("@/lib/recap-cloud");
   const pulled = await cloud.pullSessions({
     data: { since: syncCursor, sinceUser: syncUser },
   });
-  if (syncUser && syncUser !== pulled.userId) {
-    // Another account on this device: the old acknowledgements mean nothing here.
+  const switched = Boolean(syncUser && syncUser !== pulled.userId);
+  if (switched) {
+    // Another account on this device: the old acknowledgements mean nothing
+    // here, and neither do the old tombstones.
     resetCloudSync();
     clearSyncState();
+    clearRemoved();
     syncCursor = null;
   }
   syncUser = pulled.userId;
   for (const id of pulled.removed) markRemoved(id);
   markDropped(pulled.removed);
   const remote = normalizeSessions(pulled.sessions);
+  filled(remote);
   markSynced(remote);
   syncCursor = pulled.cursor;
   saveSync();
-  return mergeSessions(current, remote).filter((s) => !isRemoved(s.id));
+  const base = switched ? current.filter((s) => !s.endedAt) : current;
+  return { sessions: mergeSessions(base, remote).filter((s) => !isRemoved(s.id)), switched };
 }
 
 /**

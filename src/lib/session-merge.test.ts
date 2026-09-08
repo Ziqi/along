@@ -99,6 +99,32 @@ test("the handout edited last wins even when the older one is longer", () => {
   assert.equal(same.recap?.sections.length, 1);
 });
 
+test("a finished handout is never covered by a later draft or rename", () => {
+  const polished = recap({
+    lede: "The phone finished this handout offline, with a real lede.",
+    sections: [{ heading: "H", headingZh: "标", body: "Body.", bodyZh: "正文。" }],
+    draft: false,
+    at: 10,
+  });
+  const renamedDraft = recap({ title: "Renamed on the laptop", lede: "", draft: true, at: 20 });
+  const a = mergeOne(
+    session("a", { recap: polished, updatedAt: 10 }),
+    session("a", { recap: renamedDraft, updatedAt: 999 }),
+  );
+  assert.equal(a.recap?.draft, false);
+  assert.equal(a.recap?.lede, polished.lede);
+  // Two finished handouts: the one edited last still wins.
+  const later = { ...polished, lede: "Edited later.", at: 30 };
+  const b = mergeOne(session("a", { recap: polished }), session("a", { recap: later }));
+  assert.equal(b.recap?.lede, "Edited later.");
+  // Two drafts: the later one wins as before.
+  const c = mergeOne(
+    session("a", { recap: recap({ lede: "", draft: true, at: 1, title: "old" }) }),
+    session("a", { recap: recap({ lede: "", draft: true, at: 2, title: "new" }) }),
+  );
+  assert.equal(c.recap?.title, "new");
+});
+
 test("the tape and the cards keep the longer copy; the hour never gets shorter", () => {
   const heard = session("a", {
     transcript: [

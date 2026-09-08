@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  CLOUD_BACKOFF_MS,
+  CLOUD_RETRY_BASE_MS,
+  chunkPlan,
   emptyLedger,
   exportLedger,
   importLedger,
   planCloudPush,
+  retryWaitMs,
   type SyncLedger,
 } from "./session-sync.ts";
 import { bodyFingerprint, recapFingerprint, splitSession } from "./session-wire.ts";
@@ -135,4 +139,40 @@ test("the ledger survives a round trip through JSON", () => {
   const plan = planCloudPush([a], ["gone"], back);
   assert.equal(plan.bodies.length + plan.recaps.length + plan.drop.length, 0);
   assert.equal(importLedger(null).body.size, 0);
+});
+
+test("a plan too large for one request is split into self-contained chunks", () => {
+  const big = (id: string) =>
+    session(id, {
+      transcript: Array.from({ length: 40 }, (_, i) => ({ en: `line ${i} `.repeat(20), zh: "中文".repeat(40) })),
+      recap: recap({ at: 5 }),
+    });
+  const sessions = ["a", "b", "c", "d"].map(big);
+  const plan = planCloudPush(sessions, ["gone"], emptyLedger());
+  const one = JSON.stringify(plan.bodies[0]).length;
+  const chunks = chunkPlan(plan, one * 2 + 10);
+  assert.ok(chunks.length >= 2, "more than one request");
+  assert.deepEqual(chunks[0]!.drop, ["gone"], "tombstones ride in the first chunk only");
+  assert.ok(chunks.slice(1).every((c) => c.drop.length === 0));
+  const bodies = chunks.flatMap((c) => c.bodies.map((b) => b.id));
+  assert.deepEqual(bodies.sort(), ["a", "b", "c", "d"], "every body goes once");
+  for (const c of chunks) {
+    assert.deepEqual(
+      c.marks.body.map(([id]) => id).sort(),
+      c.bodies.map((b) => b.id).sort(),
+      "each chunk carries the marks for exactly its own rows",
+    );
+    assert.deepEqual(
+      c.marks.recap.map(([id]) => id).sort(),
+      c.recaps.map((r) => r.sessionId).sort(),
+    );
+  }
+  assert.equal(chunkPlan(plan, Number.MAX_SAFE_INTEGER).length, 1, "small enough: one request");
+});
+
+test("retry waits grow with consecutive failures and stop at the ceiling", () => {
+  assert.equal(retryWaitMs(1), CLOUD_RETRY_BASE_MS);
+  assert.equal(retryWaitMs(2), CLOUD_RETRY_BASE_MS * 2);
+  assert.equal(retryWaitMs(3), CLOUD_RETRY_BASE_MS * 4);
+  assert.equal(retryWaitMs(20), CLOUD_BACKOFF_MS);
 });

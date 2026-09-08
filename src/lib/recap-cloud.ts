@@ -29,11 +29,28 @@ import type { ClassRecap, ClassSession } from "@/lib/types";
 function parseBody(raw: string): SessionBody | null {
   try {
     const v = JSON.parse(raw) as SessionBody & { recap?: unknown };
-    if (!v || typeof v !== "object" || !v.id || !v.title) return null;
+    if (!v || typeof v !== "object" || !v.id) return null;
+    // A class never vanishes for want of a title.
+    if (typeof v.title !== "string" || !v.title) v.title = "课堂";
     return v;
   } catch {
     return null;
   }
+}
+
+/** Ids are the client's short strings; anything else is not a class of ours. */
+const ID_MAX = 64;
+function validId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= ID_MAX;
+}
+
+/**
+ * A client clock a day or more in the future would win every merge forever and
+ * make every other device's writes stale; cap the stamp at "soon".
+ */
+function clampClock(ms: unknown, now = Date.now()) {
+  const n = typeof ms === "number" && Number.isFinite(ms) ? ms : 0;
+  return Math.max(0, Math.min(Math.floor(n), now + 24 * 3600_000));
 }
 
 function parseRecap(raw: string | null): ClassRecap | null {
@@ -125,7 +142,7 @@ function cleanRecapRows(input: unknown): RecapRow[] {
   const out: RecapRow[] = [];
   for (const r of input.slice(0, SESSION_KEEP)) {
     const row = r as Partial<RecapRow>;
-    if (!row || typeof row.sessionId !== "string" || !row.recap || typeof row.recap !== "object") continue;
+    if (!row || !validId(row.sessionId) || !row.recap || typeof row.recap !== "object") continue;
     out.push({ sessionId: row.sessionId, recap: row.recap });
   }
   return out;
@@ -134,12 +151,12 @@ function cleanRecapRows(input: unknown): RecapRow[] {
 export const pushSessions = createServerFn({ method: "POST" })
   .validator((input: PushInput) => ({
     sessions: Array.isArray(input?.sessions)
-      ? (input.sessions.filter((s) => s && typeof s === "object" && s.id).slice(0, SESSION_KEEP) as SessionBody[])
+      ? (input.sessions
+          .filter((s) => s && typeof s === "object" && validId((s as { id?: unknown }).id))
+          .slice(0, SESSION_KEEP) as SessionBody[])
       : [],
     recaps: cleanRecapRows(input?.recaps),
-    drop: Array.isArray(input?.drop)
-      ? input.drop.map((id) => String(id)).filter(Boolean).slice(0, 120)
-      : [],
+    drop: Array.isArray(input?.drop) ? input.drop.filter(validId).slice(0, 120) : [],
   }))
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<PushOutput> => {
@@ -171,6 +188,7 @@ export const pushSessions = createServerFn({ method: "POST" })
         if (payload.length > SESSION_PAYLOAD_MAX_CHARS) continue;
       }
       const meta = sessionMeta(body);
+      const clientUpdatedAt = clampClock(meta.updatedAt);
       // A tombstoned id never comes back, and an older copy never covers a newer one.
       const wrote = await sql<{ id: string }>`
         insert into class_sessions
@@ -179,7 +197,7 @@ export const pushSessions = createServerFn({ method: "POST" })
         select
           ${uid}, ${body.id}, ${payload}, ${meta.title}::text, ${meta.classMode}::text,
           ${isoOrNull(meta.startedAt)}::timestamptz, ${isoOrNull(meta.endedAt)}::timestamptz,
-          ${meta.starred}::boolean, ${meta.schemaVersion}::integer, ${meta.updatedAt}::bigint, now()
+          ${meta.starred}::boolean, ${meta.schemaVersion}::integer, ${clientUpdatedAt}::bigint, now()
         where not exists (
           select 1 from class_session_tombstones t
           where t.user_id = ${uid} and t.id = ${body.id}
@@ -207,7 +225,7 @@ export const pushSessions = createServerFn({ method: "POST" })
         skipped.push(row.sessionId);
         continue;
       }
-      const at = typeof row.recap.at === "number" && Number.isFinite(row.recap.at) ? row.recap.at : 0;
+      const at = clampClock(row.recap.at);
       const wrote = await sql<{ session_id: string }>`
         insert into class_recaps (user_id, session_id, payload, recap_at, updated_at)
         select ${uid}, ${row.sessionId}, ${payload}, ${at}::bigint, now()
@@ -226,15 +244,24 @@ export const pushSessions = createServerFn({ method: "POST" })
     }
 
     if (data.sessions.length) {
+      // Keep the same forty the client keeps (pinned first, then most recently
+      // started), and tombstone what falls off, so every device drops the same
+      // class instead of each trimming its own and pulling the other's back.
       await sql`
-        delete from class_sessions
-        where user_id = ${uid}
-          and id not in (
-            select id from class_sessions
-            where user_id = ${uid}
-            order by updated_at desc
-            limit ${SESSION_KEEP}
-          )
+        with gone as (
+          delete from class_sessions
+          where user_id = ${uid}
+            and id not in (
+              select id from class_sessions
+              where user_id = ${uid}
+              order by starred desc, started_at desc nulls last, updated_at desc
+              limit ${SESSION_KEEP}
+            )
+          returning id
+        )
+        insert into class_session_tombstones (user_id, id)
+        select ${uid}, id from gone
+        on conflict (user_id, id) do nothing
       `;
       await sql`
         delete from class_recaps r

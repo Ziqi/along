@@ -12,6 +12,12 @@ import { createRecapRuntime } from "./recap-runtime.ts";
 import { createSayRuntime } from "./say-runtime.ts";
 
 export const TICK_MS = 2800;
+/**
+ * How often the live tape is written to disk while the class runs. Until
+ * pause or 结课 the hour lives only in memory otherwise; a tab the phone
+ * evicts in the background would lose everything since the last pause.
+ */
+export const STASH_EVERY_MS = 20_000;
 
 export type EngineDeps = {
   store: EngineStore;
@@ -52,10 +58,16 @@ export function createEngine(deps: EngineDeps) {
   const recap = createRecapRuntime(ctx);
   const coach = createCoachRuntime(ctx);
   const deep = createDeepRuntime(ctx);
+  let lastStash = 0;
   const captions = createCaptionPipeline(ctx, {
     onLine: () => {
       coach.bump();
       recap.touch();
+      const t = ctx.now();
+      if (t - lastStash >= STASH_EVERY_MS) {
+        lastStash = t;
+        store.getState().stashLive({ diskOnly: true });
+      }
     },
   });
   const notes = createNoteRuntime(ctx, { onNote: () => recap.touch() });

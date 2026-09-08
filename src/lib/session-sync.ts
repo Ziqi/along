@@ -97,8 +97,47 @@ export function importLedger(saved: SavedLedger | null | undefined): SyncLedger 
   return ledger;
 }
 
+/**
+ * Split one plan into requests the server will take: a first sync of forty
+ * full hours is several megabytes, more than one POST may carry. Each chunk is
+ * self-contained (its own marks), so it can be acknowledged on its own.
+ */
+export const PUSH_CHUNK_CHARS = 1_500_000;
+
+export function chunkPlan(plan: PushPlan, maxChars = PUSH_CHUNK_CHARS): PushPlan[] {
+  const chunks: PushPlan[] = [];
+  let cur: PushPlan = { bodies: [], recaps: [], drop: [...plan.drop], marks: { body: [], recap: [] } };
+  let size = 0;
+  const flushCur = () => {
+    if (cur.bodies.length || cur.recaps.length || cur.drop.length) chunks.push(cur);
+    cur = { bodies: [], recaps: [], drop: [], marks: { body: [], recap: [] } };
+    size = 0;
+  };
+  const marks = { body: new Map(plan.marks.body), recap: new Map(plan.marks.recap) };
+  for (const body of plan.bodies) {
+    const n = JSON.stringify(body).length;
+    if (size && size + n > maxChars) flushCur();
+    cur.bodies.push(body);
+    const fp = marks.body.get(body.id);
+    if (fp) cur.marks.body.push([body.id, fp]);
+    size += n;
+  }
+  for (const row of plan.recaps) {
+    const n = JSON.stringify(row.recap).length;
+    if (size && size + n > maxChars) flushCur();
+    cur.recaps.push(row);
+    const fp = marks.recap.get(row.sessionId);
+    if (fp) cur.marks.recap.push([row.sessionId, fp]);
+    size += n;
+  }
+  flushCur();
+  return chunks;
+}
+
 export const CLOUD_DEBOUNCE_MS = 1500;
 export const CLOUD_BACKOFF_MS = 60_000;
+/** After a failed push: 4 s, 8 s, 16 s … up to `CLOUD_BACKOFF_MS`. */
+export const CLOUD_RETRY_BASE_MS = 4000;
 
 type Scheduler = {
   ledger: SyncLedger;
@@ -107,6 +146,7 @@ type Scheduler = {
   pushing: boolean;
   again: boolean;
   blockedUntil: number;
+  failures: number;
   onLedger: ((saved: SavedLedger) => void) | null;
 };
 
@@ -117,8 +157,14 @@ const state: Scheduler = {
   pushing: false,
   again: false,
   blockedUntil: 0,
+  failures: 0,
   onLedger: null,
 };
+
+/** Wait before the next attempt after `failures` consecutive failed pushes. */
+export function retryWaitMs(failures: number) {
+  return Math.min(CLOUD_BACKOFF_MS, CLOUD_RETRY_BASE_MS * 2 ** Math.max(0, failures - 1));
+}
 
 function ledgerChanged() {
   state.onLedger?.(exportLedger(state.ledger));
@@ -192,14 +238,28 @@ async function flush(push: Pusher) {
   if (!plan.bodies.length && !plan.recaps.length && !plan.drop.length) return;
   state.pushing = true;
   try {
-    const out = await push(plan);
-    if (out.ok) {
-      for (const [id, fp] of plan.marks.body) state.ledger.body.set(id, fp);
-      for (const [id, fp] of plan.marks.recap) state.ledger.recap.set(id, fp);
-      for (const id of plan.drop) state.ledger.dropped.add(id);
+    for (const chunk of chunkPlan(plan)) {
+      const out = await push(chunk);
+      if (!out.ok) {
+        // Nothing in this chunk is acknowledged; the next flush re-plans it.
+        // Signed out: wait for the next edit. Anything else: retry with backoff.
+        state.failures += 1;
+        if (out.unauthorized) {
+          state.blockedUntil = Date.now() + CLOUD_BACKOFF_MS;
+        } else {
+          state.blockedUntil = Date.now() + retryWaitMs(state.failures);
+          state.again = true;
+        }
+        break;
+      }
+      state.failures = 0;
+      // A row the server kept a newer copy of is not acknowledged: after the
+      // pull merges that copy in, the next edit must still go up.
+      const stale = new Set(out.stale ?? []);
+      for (const [id, fp] of chunk.marks.body) if (!stale.has(id)) state.ledger.body.set(id, fp);
+      for (const [id, fp] of chunk.marks.recap) if (!stale.has(id)) state.ledger.recap.set(id, fp);
+      for (const id of chunk.drop) state.ledger.dropped.add(id);
       ledgerChanged();
-    } else if (out.unauthorized) {
-      state.blockedUntil = Date.now() + CLOUD_BACKOFF_MS;
     }
   } finally {
     state.pushing = false;

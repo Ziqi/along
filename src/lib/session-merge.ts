@@ -249,10 +249,23 @@ function recapScore(r: ClassRecap | null) {
   );
 }
 
-/** The handout written or edited last wins; only an exact tie falls back to the fuller one. */
+/** A handout the model finished: not a draft, and it has a lede. */
+export function recapPolished(r: ClassRecap | null | undefined) {
+  return Boolean(r && !r.draft && r.lede);
+}
+
+/**
+ * A finished handout is never covered by a draft, however recent the draft's
+ * stamp: a rename on the laptop must not throw away the handout the phone just
+ * wrote offline. Between two of the same standing the one written or edited
+ * last wins; only an exact tie falls back to the fuller one.
+ */
 export function mergeRecap(a: ClassRecap | null, b: ClassRecap | null) {
   if (!a) return b;
   if (!b) return a;
+  const doneA = recapPolished(a);
+  const doneB = recapPolished(b);
+  if (doneA !== doneB) return doneA ? a : b;
   if ((b.at ?? 0) !== (a.at ?? 0)) return (b.at ?? 0) > (a.at ?? 0) ? b : a;
   return recapScore(b) >= recapScore(a) ? b : a;
 }

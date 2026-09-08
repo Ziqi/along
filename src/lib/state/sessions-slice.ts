@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { ClassRecap, ClassSession, Jot, RecapOutline } from "@/lib/types";
-import { isRemoved, markRemoved, markRemovedJot } from "@/lib/persist";
+import { isRemoved, isRemovedJot, markRemoved, markRemovedJot } from "@/lib/persist";
+import { mergeNotes } from "@/lib/session-merge";
 import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
 import { isSampleId } from "@/lib/samples";
 import { sortSessions, toggleStar } from "@/lib/session-order";
@@ -8,11 +9,13 @@ import { parseClassMode, type ClassMode } from "@/lib/class-mode";
 import { canAutoTitle, stampTitle } from "@/lib/utils";
 import type { RecapStage } from "@/lib/recap-stage";
 import {
+  DiskReadError,
   isPersistReady,
+  isSkeleton,
   loadSessions,
   mergeSessions,
   persistSessions,
-  pullCloudCatalog,
+  pullCloud,
   readDiskCatalog,
   releasePersistQueue,
   setCloudRefresher,
@@ -67,7 +70,8 @@ export type SessionsSlice = {
   setRecapPending: (on: boolean) => void;
   setRecapStage: (stage: RecapStage | null) => void;
   setRecapError: (msg: string | null) => void;
-  stashLive: () => void;
+  /** Write the class being heard into its session. `diskOnly` skips the cloud push (the periodic safety copy). */
+  stashLive: (opts?: { diskOnly?: boolean }) => void;
   hydrateSessions: () => void;
   /** Pull what changed in the cloud since the last pull and merge it in; quiet when signed out or offline. */
   syncCloud: () => Promise<void>;
@@ -81,8 +85,16 @@ const idOf = (p: string) => {
   return `${p}-${Date.now().toString(36)}-${nid.toString(36)}`;
 };
 
+/**
+ * The stamp for an edit made now. Never earlier than the copy's current stamp:
+ * after a merge that stamp may come from another device's clock, and an edit
+ * that moved `updatedAt` backwards would be refused by the server as stale.
+ */
+const stamp = (s: { updatedAt?: number }) => Math.max(Date.now(), (s.updatedAt ?? 0) + 1);
+
 export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> = (set, get) => {
-  const persist = (sessions: ClassSession[]) => persistSessions(sessions, () => get().sessions);
+  const persist = (sessions: ClassSession[], opts?: { cloud?: boolean }) =>
+    persistSessions(sessions, () => get().sessions, opts);
 
   /**
    * Put a catalog read from disk or the cloud into the store without disturbing
@@ -105,7 +117,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       sessions: sessions.filter((s) => !isRemoved(s.id)),
       liveId: open?.id ?? (keepTape ? cur.liveId : null),
       sessionId: keepSession,
-      jots: cur.jots.length ? cur.jots : (open?.notes ?? []),
+      jots: open ? mergeNotes(cur.jots, open.notes ?? [], isRemovedJot) : cur.jots,
       captions: keepTape
         ? cur.captions
         : tape.map((t, i) => ({
@@ -165,7 +177,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       const classMode = parseClassMode(mode);
       const liveId = get().liveId;
       const sessions = get().sessions.map((s) =>
-        s.id === liveId && !s.endedAt ? { ...s, classMode, updatedAt: Date.now() } : s,
+        s.id === liveId && !s.endedAt ? { ...s, classMode, updatedAt: stamp(s) } : s,
       );
       persist(sessions);
       set({ classMode, sessions });
@@ -194,7 +206,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       };
       const notes = [...current, jot].slice(-40);
       const sessions = get().sessions.map((s) =>
-        s.id === sid ? { ...s, notes, updatedAt: Date.now() } : s,
+        s.id === sid ? { ...s, notes, updatedAt: stamp(s) } : s,
       );
       persist(sessions);
       set({ sessions, jots: get().liveId === sid ? notes : get().jots });
@@ -205,7 +217,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         j.id === id ? { ...j, ...patch, pending: patch.pending ?? false } : j;
       const sessions = get().sessions.map((s) =>
         s.notes.some((j) => j.id === id)
-          ? { ...s, notes: s.notes.map(next), updatedAt: Date.now() }
+          ? { ...s, notes: s.notes.map(next), updatedAt: stamp(s) }
           : s,
       );
       persist(sessions);
@@ -215,7 +227,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       markRemovedJot(id);
       const sessions = get().sessions.map((s) =>
         s.notes.some((j) => j.id === id)
-          ? { ...s, notes: s.notes.filter((j) => j.id !== id), updatedAt: Date.now() }
+          ? { ...s, notes: s.notes.filter((j) => j.id !== id), updatedAt: stamp(s) }
           : s,
       );
       persist(sessions);
@@ -229,8 +241,8 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         return {
           ...s,
           title: name,
-          recap: s.recap ? { ...s.recap, title: name, at: Date.now() } : s.recap,
-          updatedAt: Date.now(),
+          recap: s.recap ? { ...s.recap, title: name, at: Math.max(Date.now(), (s.recap.at ?? 0) + 1) } : s.recap,
+          updatedAt: stamp(s),
         };
       });
       persist(sessions);
@@ -302,8 +314,8 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     updateRecap: (id, patch) => {
       const sessions = get().sessions.map((s) => {
         if (s.id !== id || !s.recap) return s;
-        const recap = { ...s.recap, ...patch, at: Date.now() };
-        return { ...s, recap, title: recap.title || s.title, updatedAt: Date.now() };
+        const recap = { ...s.recap, ...patch, at: Math.max(Date.now(), (s.recap.at ?? 0) + 1) };
+        return { ...s, recap, title: recap.title || s.title, updatedAt: stamp(s) };
       });
       persist(sessions);
       set({ sessions });
@@ -331,8 +343,11 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         starredAt: null,
         updatedAt: now,
       };
+      // Only a class this tab was hearing gets closed; an open class pulled
+      // from another device is that device's business.
+      const mine = get().liveId;
       const closed = get().sessions.map((s) =>
-        !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
+        s.id === mine && !s.endedAt ? { ...s, endedAt: now, updatedAt: stamp(s) } : s,
       );
       const sessions = sortSessions([next, ...closed]).slice(0, SESSION_KEEP);
       persist(sessions);
@@ -362,7 +377,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
               title: canAutoTitle(s.title, s.startedAt)
                 ? stampTitle(s.startedAt, recap.title)
                 : s.title,
-              updatedAt: Date.now(),
+              updatedAt: stamp(s),
             }
           : s,
       );
@@ -394,7 +409,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           title: canAutoTitle(s.title, s.startedAt)
             ? stampTitle(s.startedAt, draft.title)
             : s.title,
-          updatedAt: Date.now(),
+          updatedAt: stamp(s),
         };
       });
       persist(sessions);
@@ -408,7 +423,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       }),
     setRecapStage: (stage) => set({ recapStage: stage }),
     setRecapError: (msg) => set({ recapError: msg, recapPending: false, recapStage: null }),
-    stashLive: () => {
+    stashLive: (opts) => {
       const sid = get().liveId;
       if (!sid) return;
       const transcript = get()
@@ -426,15 +441,15 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
             : null;
         return {
           ...s,
-          notes: get().jots,
+          notes: mergeNotes(get().jots, s.notes ?? [], isRemovedJot),
           transcript: transcript.length ? transcript : (s.transcript ?? []),
           coaches: get().coaches.length ? get().coaches : (s.coaches ?? []),
           essays: Object.keys(get().essays).length ? get().essays : (s.essays ?? {}),
           recap,
-          updatedAt: Date.now(),
+          updatedAt: stamp(s),
         };
       });
-      persist(sessions);
+      persist(sessions, opts?.diskOnly ? { cloud: false } : undefined);
       set({ sessions, liveId: sid });
     },
     // Three stages, each applied as it lands: the index (synchronous, skeleton
@@ -445,10 +460,15 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         const queued = releasePersistQueue();
         if (queued) persist(queued);
       };
-      try {
-        applyCatalog(withoutSamples(loadSessions()), false);
-      } catch {
-        /* no index yet */
+      // The shell mounts again after a sign-in round trip; the classes are
+      // already in memory then, so the index stage would only replace them
+      // with shells for a moment. Re-read the disk and merge instead.
+      if (!get().hydrated) {
+        try {
+          applyCatalog(withoutSamples(loadSessions()), false);
+        } catch {
+          /* no index yet */
+        }
       }
       window.setTimeout(() => {
         if (!isPersistReady()) flushQueue();
@@ -465,11 +485,19 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           if (queued) next = mergeSessions(next, queued);
           next = withoutSamples(next);
           // Just read everything: safe to drop records that are not in this list.
-          writeSessions(next, { prune: true });
+          writeSessions(next, { prune: true, skip: isSkeleton });
           applyCatalog(next, true);
-        } catch {
+        } catch (err) {
+          // The read failed: keep showing the index, write nothing derived
+          // from it back (a shell would cover the real class), and say so.
           flushQueue();
-          set({ hydrated: true });
+          set({
+            hydrated: true,
+            engineError:
+              err instanceof DiskReadError
+                ? "这台设备上存的课堂没读出来。这次不改动本机存档，刷新一次再试。"
+                : get().engineError,
+          });
         }
         await get().syncCloud();
       })();
@@ -479,8 +507,13 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     syncCloud: async () => {
       if (!get().hydrated) return;
       try {
-        const next = withoutSamples(await pullCloudCatalog(get().sessions));
+        const pulled = await pullCloud(get().sessions);
+        const next = withoutSamples(pulled.sessions);
         applyCatalog(next, true);
+        if (pulled.switched) {
+          // A different account: the previous account's rows leave this device.
+          writeSessions(next, { prune: true, skip: isSkeleton });
+        }
         persist(get().sessions);
       } catch {
         /* signed out or offline */
@@ -494,7 +527,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       const now = Date.now();
       const liveId = get().liveId;
       const sessions = get().sessions.map((s) =>
-        !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
+        s.id === liveId && !s.endedAt ? { ...s, endedAt: now, updatedAt: stamp(s) } : s,
       );
       persist(sessions);
       set({
