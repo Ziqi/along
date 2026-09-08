@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import type { AppState } from "../state/app-state.ts";
 import type { Caption } from "../types.ts";
 import { TRANSLATE_DEBOUNCE_MS, UNTRANSLATED, createCaptionPipeline } from "./caption-pipeline.ts";
-import type { AiApi } from "./context.ts";
+import { noNav, type AiApi } from "./context.ts";
 
 type Fake = {
   listening: boolean;
@@ -75,7 +75,7 @@ describe("caption pipeline", () => {
       return { ok: true, items: data.lines.map((l) => ({ id: l.id, zh: `译:${l.en}` })), ms: 12 };
     };
     const lines: string[] = [];
-    const pipe = createCaptionPipeline({ store, api: api(translate), now: Date.now }, { onLine: () => lines.push("x") });
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now: Date.now }, { onLine: () => lines.push("x") });
 
     const id = pipe.ingest("We should raise prices next quarter.");
     assert.equal(id, "DL-1");
@@ -94,7 +94,7 @@ describe("caption pipeline", () => {
   it("drops lines while not listening", () => {
     const store = fakeStore();
     store.state.listening = false;
-    const pipe = createCaptionPipeline({ store, api: api(async () => ({ ok: false, code: "empty", error: "" })), now: Date.now }, { onLine: () => {} });
+    const pipe = createCaptionPipeline({ store, api: api(async () => ({ ok: false, code: "empty", error: "" })), nav: noNav, now: Date.now }, { onLine: () => {} });
     assert.equal(pipe.ingest("hello there friend"), "");
     assert.equal(store.state.captions.length, 0);
   });
@@ -106,7 +106,7 @@ describe("caption pipeline", () => {
       n += 1;
       return { ok: true, items: [], ms: 1 };
     };
-    const pipe = createCaptionPipeline({ store, api: api(translate), now: Date.now }, { onLine: () => {} });
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now: Date.now }, { onLine: () => {} });
     pipe.ingest("The market does not care about your feelings.");
     mock.timers.tick(TRANSLATE_DEBOUNCE_MS);
     await settle();
@@ -131,7 +131,7 @@ describe("caption pipeline", () => {
           resolve: () => resolve({ ok: true, items: [{ id: line.id, zh: `译${line.id}` }], ms: 1 }),
         });
       });
-    const pipe = createCaptionPipeline({ store, api: api(translate), now: Date.now }, { onLine: () => {} });
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now: Date.now }, { onLine: () => {} });
     pipe.ingest("first sentence about the economy today");
     pipe.ingest("second sentence about the weather outside");
     pipe.ingest("third sentence about the homework tonight");
@@ -160,7 +160,7 @@ describe("caption pipeline", () => {
       new Promise((resolve) => {
         release = () => resolve({ ok: true, items: [{ id: data.lines[0]!.id, zh: "晚到的翻译" }], ms: 1 });
       });
-    const pipe = createCaptionPipeline({ store, api: api(translate), now: Date.now }, { onLine: () => {} });
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now: Date.now }, { onLine: () => {} });
     pipe.ingest("a sentence the student wants translated");
     mock.timers.tick(TRANSLATE_DEBOUNCE_MS);
     await settle();

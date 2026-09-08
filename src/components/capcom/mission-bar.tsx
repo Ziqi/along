@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "@tanstack/react-router";
 import { Mic, Moon, MoreHorizontal, Pause, PenLine, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Mark } from "@/components/capcom/mark";
@@ -19,15 +20,16 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const listening = useCapcom((s) => s.listening);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
-  const view = useCapcom((s) => s.view);
+  const pathname = useLocation({ select: (l) => l.pathname });
   const goHome = goHomeSafe;
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const live = listening || mic === "live";
   const arming = listening && mic === "arming";
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const paused = !live && !arming && openClass;
-  const atHome = view === "live" && !openClass;
-  const reading = view === "recap";
+  // `/` is the classroom; every other face under the shell is the handout side.
+  const reading = pathname !== "/";
+  const atHome = !reading && !openClass;
   const showRecap = sessions.length > 0 || openClass;
   const classMode = useCapcom((s) => s.classMode);
   const setClassMode = useCapcom((s) => s.setClassMode);

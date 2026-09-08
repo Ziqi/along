@@ -11,7 +11,8 @@ export function createNoteRuntime(ctx: EngineContext, hooks: { onNote: () => voi
   const { store, api } = ctx;
   let gen = 0;
 
-  async function capture(raw: string, src: Jot["src"], pair?: { en?: string; zh?: string }) {
+  /** `targetId` pins the note to one class (the handout page); otherwise it goes to the open class. */
+  async function capture(raw: string, src: Jot["src"], pair?: { en?: string; zh?: string }, targetId?: string) {
     const text = raw.replace(/\s+/g, " ").trim();
     if (!text && !pair?.en && !pair?.zh) return;
     const isZh = /[\u4e00-\u9fff]/.test(pair?.zh || text);
@@ -20,7 +21,7 @@ export function createNoteRuntime(ctx: EngineContext, hooks: { onNote: () => voi
       en: pair?.en || (isZh ? "" : text),
       zh: pair?.zh || (isZh ? text : ""),
     };
-    const id = store.getState().addJot(draft);
+    const id = store.getState().addJot(draft, targetId);
     if (!id) return;
     const mine = gen;
     store.getState().ping("已记入纪要");

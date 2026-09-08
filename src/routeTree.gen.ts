@@ -9,19 +9,42 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ShellIndexRouteImport } from './routes/_shell.index'
+import { Route as ShellReviewRouteImport } from './routes/_shell.review'
+import { Route as ShellClassIndexRouteImport } from './routes/_shell.class.index'
+import { Route as ShellClassIdRouteImport } from './routes/_shell.class.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const ShellRoute = ShellRouteImport.update({
+  id: '/_shell',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ShellIndexRoute = ShellIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellReviewRoute = ShellReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellClassIndexRoute = ShellClassIndexRouteImport.update({
+  id: '/class/',
+  path: '/class/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellClassIdRoute = ShellClassIdRouteImport.update({
+  id: '/class/$id',
+  path: '/class/$id',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -30,42 +53,61 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof ShellIndexRoute
   '/login': typeof LoginRoute
+  '/review': typeof ShellReviewRoute
+  '/class/$id': typeof ShellClassIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/class/': typeof ShellClassIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/review': typeof ShellReviewRoute
+  '/': typeof ShellIndexRoute
+  '/class/$id': typeof ShellClassIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/class': typeof ShellClassIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_shell': typeof ShellRouteWithChildren
   '/login': typeof LoginRoute
+  '/_shell/review': typeof ShellReviewRoute
+  '/_shell/': typeof ShellIndexRoute
+  '/_shell/class/$id': typeof ShellClassIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_shell/class/': typeof ShellClassIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/api/auth/$'
+  fullPaths:
+    '/' | '/login' | '/review' | '/class/$id' | '/api/auth/$' | '/class/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/api/auth/$'
-  id: '__root__' | '/' | '/login' | '/api/auth/$'
+  to: '/login' | '/review' | '/' | '/class/$id' | '/api/auth/$' | '/class'
+  id:
+    | '__root__'
+    | '/_shell'
+    | '/login'
+    | '/_shell/review'
+    | '/_shell/'
+    | '/_shell/class/$id'
+    | '/api/auth/$'
+    | '/_shell/class/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  ShellRoute: typeof ShellRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_shell': {
+      id: '/_shell'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof ShellRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -74,6 +116,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_shell/': {
+      id: '/_shell/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof ShellIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/review': {
+      id: '/_shell/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof ShellReviewRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/class/': {
+      id: '/_shell/class/'
+      path: '/class'
+      fullPath: '/class/'
+      preLoaderRoute: typeof ShellClassIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/class/$id': {
+      id: '/_shell/class/$id'
+      path: '/class/$id'
+      fullPath: '/class/$id'
+      preLoaderRoute: typeof ShellClassIdRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -85,8 +155,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ShellRouteChildren {
+  ShellReviewRoute: typeof ShellReviewRoute
+  ShellIndexRoute: typeof ShellIndexRoute
+  ShellClassIdRoute: typeof ShellClassIdRoute
+  ShellClassIndexRoute: typeof ShellClassIndexRoute
+}
+
+const ShellRouteChildren: ShellRouteChildren = {
+  ShellReviewRoute: ShellReviewRoute,
+  ShellIndexRoute: ShellIndexRoute,
+  ShellClassIdRoute: ShellClassIdRoute,
+  ShellClassIndexRoute: ShellClassIndexRoute,
+}
+
+const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  ShellRoute: ShellRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

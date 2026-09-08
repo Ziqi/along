@@ -4,7 +4,7 @@ import type { AppState } from "../state/app-state.ts";
 import type { Caption, CoachCard } from "../types.ts";
 import { coachMinGapMs } from "../class-mode.ts";
 import { COACH_DEBOUNCE_MS, createCoachRuntime } from "./coach-runtime.ts";
-import type { AiApi } from "./context.ts";
+import { noNav, type AiApi } from "./context.ts";
 
 type Fake = {
   captions: Caption[];
@@ -122,6 +122,7 @@ describe("coach runtime", () => {
         calls.push(data.last);
         return card("rates");
       }),
+      nav: noNav,
       now: Date.now,
     });
     rt.bump();
@@ -139,6 +140,7 @@ describe("coach runtime", () => {
     const rt = createCoachRuntime({
       store,
       api: api(() => new Promise((resolve) => pending.push(resolve))),
+      nav: noNav,
       now: Date.now,
     });
     rt.bump();
@@ -173,6 +175,7 @@ describe("coach runtime", () => {
     const rt = createCoachRuntime({
       store,
       api: api(() => new Promise((resolve) => (release = resolve))),
+      nav: noNav,
       now: Date.now,
     });
     rt.request("我想问利率");
@@ -195,6 +198,7 @@ describe("coach runtime", () => {
         calls += 1;
         return card("rates");
       }),
+      nav: noNav,
       now: Date.now,
     });
     rt.bump();
@@ -217,6 +221,7 @@ describe("coach runtime", () => {
         calls += 1;
         return { ok: false as const, code: "timeout" as const, error: "这轮慢了" };
       }),
+      nav: noNav,
       now: Date.now,
     });
     rt.request();

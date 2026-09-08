@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import type { ClassRecap, ClassSession, Jot, RecapOutline, View } from "@/lib/types";
+import type { ClassRecap, ClassSession, Jot, RecapOutline } from "@/lib/types";
 import { isRemoved, markRemoved, markRemovedJot } from "@/lib/persist";
 import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
@@ -32,12 +32,14 @@ export type SessionsSlice = {
   liveId: string | null;
   classMode: ClassMode;
   jots: Jot[];
-  view: View;
+  /** True once the catalog has been read from this device at least once. */
+  hydrated: boolean;
   recapPending: boolean;
   recapStage: RecapStage | null;
   recapError: string | null;
   setClassMode: (mode: ClassMode) => void;
-  addJot: (draft: { en?: string; zh?: string; src: Jot["src"] }) => string | null;
+  /** Add a note to `targetId`, else to the open class (starting one if the mic is on). */
+  addJot: (draft: { en?: string; zh?: string; src: Jot["src"] }, targetId?: string) => string | null;
   patchJot: (id: string, patch: Partial<Pick<Jot, "en" | "zh" | "pending">>) => void;
   removeJot: (id: string) => void;
   renameSession: (id: string, title: string) => void;
@@ -48,7 +50,6 @@ export type SessionsSlice = {
   updateRecap: (id: string, patch: Partial<ClassRecap>) => void;
   ensureSession: () => string;
   setSession: (id: string) => void;
-  setView: (view: View) => void;
   setRecap: (recap: ClassRecap, sessionId?: string) => void;
   setLiveDraft: (
     sid: string,
@@ -98,7 +99,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     liveId: null,
     classMode: "interactive",
     jots: [],
-    view: "live",
+    hydrated: false,
     recapPending: false,
     recapStage: null,
     recapError: null,
@@ -111,14 +112,13 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       persist(sessions);
       set({ classMode, sessions });
     },
-    addJot: (draft) => {
+    addJot: (draft, targetId) => {
       const en = (draft.en ?? "").replace(/\s+/g, " ").trim();
       const zh = (draft.zh ?? "").replace(/\s+/g, " ").trim();
       if (!en && !zh) return null;
-      const viewing = get().view === "recap" ? get().sessionId : null;
       const open = get().sessions.find((s) => s.id === get().liveId && !s.endedAt);
       const sid =
-        viewing ??
+        targetId ??
         open?.id ??
         (get().listening || get().mic === "arming" ? get().ensureSession() : get().sessionId);
       if (!sid) return null;
@@ -130,8 +130,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       const notes = [...current, jot].slice(-40);
       const sessions = get().sessions.map((s) => (s.id === sid ? { ...s, notes, updatedAt: Date.now() } : s));
       persist(sessions);
-      const live = get().liveId === sid;
-      set({ sessions, jots: live || !viewing ? notes : get().jots });
+      set({ sessions, jots: get().liveId === sid ? notes : get().jots });
       return jot.id;
     },
     patchJot: (id, patch) => {
@@ -201,14 +200,13 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     goHome: () => {
       const open = get().sessions.some((s) => s.id === get().liveId && !s.endedAt);
       if (open) {
-        set({ view: "live", jotOpen: false });
+        set({ jotOpen: false });
         return;
       }
       set({
         ...HUD_BLANK,
         listening: get().listening,
         engineError: get().engineError,
-        view: "live",
         jotOpen: false,
         jots: [],
         liveId: null,
@@ -270,16 +268,18 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         sessions,
         liveId: next.id,
         jots: [],
-        sessionId: get().view === "recap" ? get().sessionId : next.id,
+        sessionId: get().sessionId ?? next.id,
       });
       return next.id;
     },
+    // `jots` stays the live class's notes: loading another class's notes here
+    // would let the next `stashLive` write them into the class being heard.
     setSession: (id) => {
       const hit = get().sessions.find((s) => s.id === id);
       if (!hit) return;
-      set({ sessionId: id, jots: hit.notes, recapError: null });
+      if (get().sessionId === id) return;
+      set({ sessionId: id, recapError: null });
     },
-    setView: (view) => set({ view }),
     setRecap: (recap, sessionId) => {
       const sid = sessionId ?? get().sessionId;
       const sessions = get().sessions.map((s) =>
@@ -374,6 +374,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           sessions[0]?.id ??
           null;
         set({
+          hydrated: true,
           sessions: sessions.filter((s) => !isRemoved(s.id)),
           liveId: open?.id ?? (keepTape ? cur.liveId : null),
           sessionId: keepSession,

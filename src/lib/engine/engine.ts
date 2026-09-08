@@ -1,8 +1,9 @@
 import { parseClassMode, type ClassMode } from "../class-mode.ts";
+import type { AppNav } from "../nav.ts";
 import { createCaptionPipeline } from "./caption-pipeline.ts";
 import { nextPhase, type ClassEvent } from "./class-machine.ts";
 import { createCoachRuntime } from "./coach-runtime.ts";
-import type { AiApi, EngineStore } from "./context.ts";
+import { noNav, type AiApi, type EngineStore } from "./context.ts";
 import { createDeepRuntime } from "./deep-runtime.ts";
 import { createListenRuntime } from "./listen-runtime.ts";
 import { createNoteRuntime } from "./note-runtime.ts";
@@ -13,6 +14,7 @@ export const TICK_MS = 2800;
 export type EngineDeps = {
   store: EngineStore;
   api: AiApi;
+  nav?: AppNav;
   now?: () => number;
 };
 
@@ -23,8 +25,8 @@ export type EngineDeps = {
  * mounted; the store is its projection.
  */
 export function createEngine(deps: EngineDeps) {
-  const ctx = { store: deps.store, api: deps.api, now: deps.now ?? Date.now };
-  const { store } = ctx;
+  const ctx = { store: deps.store, api: deps.api, nav: deps.nav ?? noNav, now: deps.now ?? Date.now };
+  const { store, nav } = ctx;
 
   const openClass = () => {
     const s = store.getState();
@@ -83,7 +85,7 @@ export function createEngine(deps: EngineDeps) {
     if (!dispatch("arm")) return;
     const s = store.getState();
     const open = s.sessions.find((x) => x.id === s.liveId && !x.endedAt) ?? null;
-    s.setView("live");
+    nav.home();
     if (!open) {
       s.resetHud();
       if (mode) s.setClassMode(mode);
@@ -106,8 +108,12 @@ export function createEngine(deps: EngineDeps) {
     closeMic();
     const sid = s.liveId ?? s.sessionId;
     s.clear({ keepRecap: true });
-    if (sid) s.setSession(sid);
-    s.setView("recap");
+    if (sid) {
+      s.setSession(sid);
+      nav.classPage(sid);
+    } else {
+      nav.catalog();
+    }
     dispatch("ended");
     const session = store.getState().sessions.find((x) => x.id === sid);
     const ready = (session?.transcript.length ?? 0) >= 2;
@@ -123,18 +129,20 @@ export function createEngine(deps: EngineDeps) {
       dispatch("reset");
     }
     s.goHome();
+    nav.home();
   }
 
-  /** 纪要 from the top bar: stash the live class and show it. */
+  /** 纪要 from the top bar: stash the live class and open its handout (or the latest one). */
   function openRecap() {
     const s = store.getState();
-    if (s.liveId) {
-      s.stashLive();
-      s.setSession(s.liveId);
-    } else if (!s.sessionId && s.sessions[0]) {
-      s.setSession(s.sessions[0].id);
+    const id = s.liveId ?? s.sessionId ?? s.sessions[0]?.id ?? null;
+    if (s.liveId) s.stashLive();
+    if (id) {
+      s.setSession(id);
+      nav.classPage(id);
+    } else {
+      nav.catalog();
     }
-    s.setView("recap");
     captions.retryPending();
   }
 

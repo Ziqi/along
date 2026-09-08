@@ -9,6 +9,7 @@ import type {
   recapClass,
 } from "../capcom-ai.ts";
 import { parseClassMode, type ClassMode } from "../class-mode.ts";
+import type { AppNav } from "../nav.ts";
 
 /** A server function seen as a plain async function, so tests can hand in fakes. */
 type Call<F> = F extends (...args: infer A) => infer R ? (...args: A) => R : never;
@@ -30,8 +31,12 @@ export type EngineStore = { getState: () => AppState };
 export type EngineContext = {
   store: EngineStore;
   api: AiApi;
+  nav: AppNav;
   now: () => number;
 };
+
+/** A navigator that goes nowhere, for tests and the server. */
+export const noNav: AppNav = { home() {}, classPage() {}, catalog() {}, review() {} };
 
 /** The class mode of the class being heard (falls back to the picker's value). */
 export function liveMode(store: EngineStore): ClassMode {

@@ -7,6 +7,7 @@ import {
   quickTranslate,
   recapClass,
 } from "@/lib/capcom-ai";
+import { appNav } from "@/lib/nav";
 import { useCapcom } from "@/lib/store";
 import { createEngine } from "./engine";
 
@@ -14,9 +15,10 @@ export type { ClassEvent, ClassPhase } from "./class-machine";
 export { isAwake, isInClass } from "./class-machine";
 export type { Engine } from "./engine";
 
-/** The one engine of this tab, bound to the store and the real server functions. */
+/** The one engine of this tab, bound to the store, the router (once mounted) and the real server functions. */
 export const engine = createEngine({
   store: useCapcom,
+  nav: appNav,
   api: {
     translate: liveTranslate,
     quick: quickTranslate,

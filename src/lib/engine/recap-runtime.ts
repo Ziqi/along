@@ -78,7 +78,7 @@ export function toRecap(
  * one generation counter). Both drop stale results after pause / end.
  */
 export function createRecapRuntime(ctx: EngineContext) {
-  const { store, api, now } = ctx;
+  const { store, api, nav, now } = ctx;
   let outlineGen = 0;
   let outlineBusy = false;
   let recapGen = 0;
@@ -132,7 +132,7 @@ export function createRecapRuntime(ctx: EngineContext) {
     const sid = targetId ?? live.liveId ?? live.sessionId;
     if (!sid) {
       live.setRecapError("没有可整理的课。");
-      live.setView("recap");
+      nav.catalog();
       return;
     }
     // A second 整理 on the class already being written is the same request.
@@ -142,8 +142,9 @@ export function createRecapRuntime(ctx: EngineContext) {
     const fromLive = isLive ? live.captions.filter((c) => c.en && !c.error).map((c) => ({ en: c.en, zh: c.zh })) : [];
     const lines = fromLive.length >= 2 ? fromLive : (session?.transcript ?? []);
     if (lines.length < 2) {
+      live.setSession(sid);
       live.setRecapError(targetId ? "这份没有足够实录，没法再出。" : "再听两句再出纪要。");
-      live.setView("recap");
+      nav.classPage(sid);
       return;
     }
     const topics = hintTopics?.length
@@ -159,8 +160,8 @@ export function createRecapRuntime(ctx: EngineContext) {
     const pack = packCoach(coaches, essays);
     const mine = ++recapGen;
     live.setRecapPending(true);
-    live.setView("recap");
     live.setSession(sid);
+    nav.classPage(sid);
     const skeleton = emptyRecap(session?.title || "整理中", topics);
     if (session?.recap?.outline?.length) skeleton.outline = session.recap.outline;
     skeleton.coachPack = pack;
