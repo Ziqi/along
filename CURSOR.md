@@ -172,7 +172,7 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 ### P2 — 手机 / 电脑纪要两套
 
-未登录 = 本机缓存。登录后 `recap-cloud` 按 user 存 40 堂。删除必须 `DELETE` 行 + persist removed id，否则 hydrate 会把课救回来。
+未登录 = 本机缓存。登录后 `recap-cloud` 按 user 存 40 堂，服务端每次推送后只保留最新 40 行。删除 = 本机 removed id + 服务端 `class_session_tombstones` 行；upsert 遇到墓碑直接跳过，另一台设备 hydrate 时会拉到墓碑并删掉本机副本，课不会复活。
 
 ### P2 — DeepSearch
 
