@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import type { AppState } from "../state/app-state.ts";
 import type { Caption } from "../types.ts";
-import { TRANSLATE_DEBOUNCE_MS, UNTRANSLATED, createCaptionPipeline } from "./caption-pipeline.ts";
+import { RATE_HOLD_MS, TRANSLATE_DEBOUNCE_MS, UNTRANSLATED, createCaptionPipeline } from "./caption-pipeline.ts";
 import { noNav, type AiApi } from "./context.ts";
 
 type Fake = {
@@ -152,6 +152,68 @@ describe("caption pipeline", () => {
     assert.equal(store.state.captions[2]?.zh, "译DL-3");
     assert.equal(open.length, 3, "a free slot pulls the last waiting line");
     assert.equal(open[2]!.line.id, "DL-1");
+  });
+
+  it("no key at all: one answer is enough to mark the line 未译", async () => {
+    const store = fakeStore();
+    let n = 0;
+    const translate: Translate = async () => {
+      n += 1;
+      return { ok: false, code: "unavailable", error: "AI 暂不可用" };
+    };
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now: Date.now }, { onLine: () => {} });
+    pipe.ingest("A sentence nobody can translate without a key.");
+    mock.timers.tick(TRANSLATE_DEBOUNCE_MS);
+    await settle();
+    for (let i = 0; i < 3; i += 1) {
+      pipe.retryPending();
+      await settle();
+    }
+    assert.equal(n, 1);
+    assert.equal(store.state.captions[0]?.error, UNTRANSLATED);
+  });
+
+  it("太频繁 is not a try: the queue rests and asks again, and the line is never marked 未译", async () => {
+    let clock = 1_000_000;
+    const now = () => clock;
+    const store = fakeStore();
+    let refusals = 2;
+    const calls: number[] = [];
+    const translate: Translate = async ({ data }) => {
+      calls.push(clock);
+      if (refusals > 0) {
+        refusals -= 1;
+        return { ok: false, code: "rate_limited", error: "太频繁了，稍等一下。" };
+      }
+      return { ok: true, items: [{ id: data.lines[0]!.id, zh: "终于译了" }], ms: 1 };
+    };
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now }, { onLine: () => {} });
+    pipe.ingest("Quarterly pressure bends long-term plans.");
+    clock += TRANSLATE_DEBOUNCE_MS;
+    mock.timers.tick(TRANSLATE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(calls.length, 1);
+    assert.ok(pipe.holding > 0, "the queue is resting");
+    assert.equal(store.state.captions[0]?.error, undefined);
+
+    // The heartbeat keeps knocking during the rest; nothing goes out.
+    for (let i = 0; i < 3; i += 1) {
+      pipe.retryPending();
+      await settle();
+    }
+    assert.equal(calls.length, 1, "no call while resting");
+
+    // After the rest, one more refusal, one more rest, then success.
+    clock += RATE_HOLD_MS;
+    mock.timers.tick(RATE_HOLD_MS);
+    await settle();
+    assert.equal(calls.length, 2);
+    clock += RATE_HOLD_MS;
+    mock.timers.tick(RATE_HOLD_MS);
+    await settle();
+    assert.equal(calls.length, 3);
+    assert.equal(store.state.captions[0]?.zh, "终于译了");
+    assert.equal(pipe.holding, 0);
   });
 
   it("abort forgets queued lines and retry counts; a late result still lands", async () => {

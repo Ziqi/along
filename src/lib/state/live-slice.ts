@@ -16,6 +16,10 @@ export type LiveSlice = {
   captions: Caption[];
   interim: string;
   mic: MicState;
+  /** Which recognizer is on the mic: xAI's, or the browser's own as a fallback. */
+  sttBackend: "xai" | "browser" | null;
+  /** Why the browser recognizer is on, for the student to read; null when xAI is. */
+  sttNote: string | null;
   listening: boolean;
   autoCoach: boolean;
   startedAt: number | null;
@@ -42,6 +46,7 @@ export type LiveSlice = {
   markError: (id: string, error: string) => void;
   setInterim: (text: string) => void;
   setMic: (mic: MicState) => void;
+  setSttBackend: (backend: "xai" | "browser" | null, note?: string | null) => void;
   setListening: (on: boolean) => void;
   setAutoCoach: (on: boolean) => void;
   setIntent: (text: string) => void;
@@ -104,6 +109,8 @@ export const HUD_BLANK = {
   lastLatency: null,
   engineError: null,
   listening: false,
+  sttBackend: null,
+  sttNote: null,
 };
 
 export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, get) => ({
@@ -111,6 +118,8 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   captions: [],
   interim: "",
   mic: "idle",
+  sttBackend: null,
+  sttNote: null,
   listening: false,
   autoCoach: true,
   startedAt: null,
@@ -183,6 +192,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   },
   setInterim: (text) => set({ interim: text }),
   setMic: (mic) => set({ mic }),
+  setSttBackend: (backend, note = null) => set({ sttBackend: backend, sttNote: backend === "browser" ? note : null }),
   setListening: (on) => set({ listening: on }),
   setAutoCoach: (on) => set({ autoCoach: on }),
   setIntent: (text) => set({ intent: text }),

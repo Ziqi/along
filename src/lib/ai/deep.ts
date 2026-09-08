@@ -64,7 +64,7 @@ export const expandTopic = createServerFn({ method: "POST" })
   )
   .middleware([aiGuard])
   .handler(async ({ data, context }): Promise<DeepOk | AiFail> => {
-    const gate = takeAiToken(context.caller.key, "deep");
+    const gate = takeAiToken(context.caller, "deep");
     if (!gate.ok) return aiFail("rate_limited");
     if (!data.topic && !data.lastHeard && !data.options.length) return aiFail("empty");
     const draft = heuristicEssay({

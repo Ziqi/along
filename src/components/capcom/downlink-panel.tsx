@@ -9,9 +9,12 @@ export function DownlinkPanel() {
   const listening = useCapcom((s) => s.listening);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
+  const sttBackend = useCapcom((s) => s.sttBackend);
+  const sttNote = useCapcom((s) => s.sttNote);
   const scroller = useRef<HTMLDivElement>(null);
   const live = mic === "live";
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
+  const onBrowser = listening && sttBackend === "browser";
 
   useEffect(() => {
     const el = scroller.current;
@@ -27,6 +30,14 @@ export function DownlinkPanel() {
       <span className="hud-corners-br" />
       <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
         <h2 className="text-sm font-medium max-lg:sr-only">听课</h2>
+        {onBrowser ? (
+          <span
+            className="rounded-sm border border-hold/50 px-1.5 py-0.5 text-xs font-medium text-hold"
+            title={sttNote ?? undefined}
+          >
+            浏览器听写
+          </span>
+        ) : null}
         <div className="meter ml-auto" data-live={live} aria-hidden="true">
           <span />
           <span />
@@ -35,6 +46,12 @@ export function DownlinkPanel() {
           <span />
         </div>
       </header>
+
+      {onBrowser && sttNote ? (
+        <p className="shrink-0 border-b border-line px-4 py-2 text-sm text-hold text-pretty md:px-5" role="status">
+          {sttNote}
+        </p>
+      ) : null}
 
       <div
         ref={scroller}

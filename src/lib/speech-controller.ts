@@ -1,4 +1,4 @@
-type SpeechHandlers = {
+export type SpeechHandlers = {
   onPartial: (text: string) => void;
   onFinal: (text: string) => void;
   onError: (code: string) => void;
@@ -40,6 +40,9 @@ export function speechSupported() {
   return getCtor() !== null;
 }
 
+/** A pause this long mid-utterance puts the words heard so far on screen. */
+export const SOFT_FINAL_MS = 1100;
+
 function bestText(piece: RecogEvent["results"][number]) {
   let best = "";
   const n = Math.min(piece.length || 1, 3);
@@ -50,6 +53,49 @@ function bestText(piece: RecogEvent["results"][number]) {
   return best;
 }
 
+const wordsOf = (s: string) =>
+  s
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter(Boolean);
+
+/**
+ * The part of `text` that has not been shown yet, given `committed` was
+ * already emitted for the same utterance. The browser recognizer's interim
+ * results are cumulative — "M Taylor", "M Taylor Swift", "M Taylor Swift is
+ * huge" — so once a soft final has put the first words on screen, every later
+ * result must contribute only its tail, or the same words appear line after
+ * line. The recognizer may also revise words it already gave us; those stay
+ * as shown (no retraction), and only what comes after them goes out. A result
+ * that shares almost nothing with what was committed is a new utterance and
+ * goes out whole.
+ */
+export function unsaidTail(committed: string, text: string): string {
+  const done = wordsOf(committed);
+  if (!done.length) return text.trim();
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const norm = words.map((w) => wordsOf(w)[0] ?? "");
+  // Anchor on the last committed words: the recognizer may have inserted or
+  // dropped a word earlier in the utterance, so look around the expected spot.
+  for (let k = Math.min(3, done.length); k >= 1; k -= 1) {
+    const anchor = done.slice(-k);
+    const expected = done.length - k;
+    const from = Math.max(0, expected - 3);
+    const to = Math.min(norm.length - k, expected + 3);
+    for (let start = from; start <= to; start += 1) {
+      if (anchor.every((w, i) => norm[start + i] === w)) {
+        return words.slice(start + k).join(" ").trim();
+      }
+    }
+  }
+  const overlap = Math.min(done.length, norm.length);
+  let same = 0;
+  for (let i = 0; i < overlap; i += 1) if (norm[i] === done[i]) same += 1;
+  if (same * 2 < overlap) return text.trim();
+  return words.slice(done.length).join(" ").trim();
+}
+
 export class SpeechController {
   private rec: Recog | null = null;
   private wanted = false;
@@ -58,6 +104,8 @@ export class SpeechController {
   private lang: string;
   private softTimer: number | null = null;
   private lastInterim = "";
+  /** Words of the current utterance already sent as a soft final. */
+  private committed = "";
 
   constructor(handlers: SpeechHandlers, lang = "en-US") {
     this.handlers = handlers;
@@ -98,11 +146,21 @@ export class SpeechController {
     }
   }
 
+  /** Send what the current utterance has said beyond what is already on screen. */
+  private emit(text: string, minLength: number) {
+    const piece = unsaidTail(this.committed, text);
+    if (piece.length >= minLength) {
+      this.handlers.onFinal(piece);
+      this.committed = text.trim();
+    }
+  }
+
   private flushInterim() {
     this.clearSoft();
     const piece = this.lastInterim.trim();
     this.lastInterim = "";
-    if (piece.length >= 3) this.handlers.onFinal(piece);
+    if (piece) this.emit(piece, 3);
+    this.committed = "";
     this.handlers.onPartial("");
   }
 
@@ -127,19 +185,22 @@ export class SpeechController {
       if (finalText) {
         this.clearSoft();
         this.lastInterim = "";
-        this.handlers.onFinal(finalText);
+        // The utterance is closed: say its tail, then start the next one clean.
+        this.emit(finalText, 3);
+        this.committed = "";
       }
       const inter = interim.trim();
       this.lastInterim = inter;
-      this.handlers.onPartial(inter);
-      if (inter.length >= 8) {
+      this.handlers.onPartial(unsaidTail(this.committed, inter));
+      if (unsaidTail(this.committed, inter).length >= 8) {
         if (this.softTimer != null) window.clearTimeout(this.softTimer);
         this.softTimer = window.setTimeout(() => {
           const piece = this.lastInterim.trim();
-          this.lastInterim = "";
           this.softTimer = null;
-          if (piece.length >= 8) this.handlers.onFinal(piece);
-        }, 1100);
+          // A quiet second mid-utterance: put the new words on screen now, but
+          // remember them, so the utterance's final does not print them again.
+          if (piece) this.emit(piece, 8);
+        }, SOFT_FINAL_MS);
       }
     };
     rec.onerror = (ev) => {

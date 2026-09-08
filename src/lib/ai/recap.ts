@@ -213,7 +213,7 @@ export const recapClass = createServerFn({ method: "POST" })
   )
   .middleware([aiGuard])
   .handler(async ({ data, context }): Promise<RecapOk | AiFail> => {
-    const gate = takeAiToken(context.caller.key, "recap");
+    const gate = takeAiToken(context.caller, "recap");
     if (!gate.ok) return aiFail("rate_limited");
     if (data.lines.length < 2) return aiFail("too_short");
     const tape = compactTape(data.lines).slice(0, 36);
@@ -417,7 +417,7 @@ export const liveOutline = createServerFn({ method: "POST" })
       }
     | AiFail
   > => {
-    const gate = takeAiToken(context.caller.key, "outline");
+    const gate = takeAiToken(context.caller, "outline");
     if (!gate.ok) return aiFail("rate_limited");
     if (data.lines.length < 2 && data.notes.length < 1) return aiFail("too_short");
     const result = await chatFlash({

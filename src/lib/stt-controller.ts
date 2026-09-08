@@ -1,4 +1,4 @@
-type SpeechHandlers = {
+export type SttHandlers = {
   onPartial: (text: string) => void;
   onFinal: (text: string) => void;
   onError: (code: string) => void;
@@ -58,7 +58,7 @@ function sleep(ms: number) {
 
 export class SttController {
   private wanted = false;
-  private handlers: SpeechHandlers;
+  private handlers: SttHandlers;
   private stream: MediaStream | null = null;
   private ctx: AudioContext | null = null;
   private ws: WebSocket | null = null;
@@ -72,7 +72,7 @@ export class SttController {
     void this.connect().catch(() => this.handlers.onError("stt"));
   };
 
-  constructor(handlers: SpeechHandlers, mint: () => Promise<string>) {
+  constructor(handlers: SttHandlers, mint: () => Promise<string>) {
     this.handlers = handlers;
     this.mint = mint;
   }

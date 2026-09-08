@@ -65,7 +65,7 @@ export const liveCoach = createServerFn({ method: "POST" })
   )
   .middleware([aiGuard])
   .handler(async ({ data, context }): Promise<CoachOk | AiFail> => {
-    const gate = takeAiToken(context.caller.key, "coach");
+    const gate = takeAiToken(context.caller, "coach");
     if (!gate.ok) return aiFail("rate_limited");
     if (!data.last && !data.intent) return aiFail("empty");
     const system = coachSystem(data.mode);

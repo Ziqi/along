@@ -9,7 +9,7 @@ import { logAi } from "./llm/transport";
 export const mintSttSecret = createServerFn({ method: "POST" })
   .middleware([aiGuard])
   .handler(async ({ context }): Promise<{ ok: true; token: string } | AiFail> => {
-    const gate = takeAiToken(context.caller.key, "stt");
+    const gate = takeAiToken(context.caller, "stt");
     if (!gate.ok) return aiFail("rate_limited");
     if (!xaiKey()) return aiFail("unavailable");
     const started = Date.now();

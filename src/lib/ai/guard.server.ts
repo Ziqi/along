@@ -1,5 +1,6 @@
 import { getRequest } from "@tanstack/react-start/server";
 import { getSessionUser } from "@/lib/auth/verify.server";
+import type { AiCaller } from "./bucket";
 
 /**
  * Caller identity for the AI server functions.
@@ -8,12 +9,12 @@ import { getSessionUser } from "@/lib/auth/verify.server";
  * must only be reached through the dynamic import in `guard.ts`.
  *
  * Class can be taken without signing in, so the identity is the verified user
- * id when there is a session and the client IP otherwise. Session lookups are
- * cached briefly per credential so a caption every few seconds does not cost
- * a database round-trip each time.
+ * id when there is a session, else the browser's device id, else the client
+ * IP. The IP is kept beside it either way: a classroom shares one IP, so the
+ * per-IP bucket is only a wide backstop against scripts (see `bucket.ts`).
+ * Session lookups are cached briefly per credential so a caption every few
+ * seconds does not cost a database round-trip each time.
  */
-export type AiCaller = { key: string; userId: string | null };
-
 const SESSION_TTL_MS = 60_000;
 const sessionCache = new Map<string, { userId: string | null; until: number }>();
 
@@ -24,7 +25,11 @@ function clientIp(request: Request | null | undefined) {
   return first || h?.get("x-real-ip")?.trim() || "local";
 }
 
-export async function resolveAiCaller(bearerToken?: string): Promise<AiCaller> {
+function cleanDeviceId(raw: string | undefined) {
+  return raw && /^[A-Za-z0-9_-]{8,40}$/.test(raw) ? raw : "";
+}
+
+export async function resolveAiCaller(bearerToken?: string, deviceId?: string): Promise<AiCaller> {
   const request = getRequest();
   const cookie = request?.headers.get("cookie") ?? "";
   const credential = bearerToken ? `b:${bearerToken}` : cookie ? `c:${cookie}` : "";
@@ -46,5 +51,8 @@ export async function resolveAiCaller(bearerToken?: string): Promise<AiCaller> {
       }
     }
   }
-  return { key: userId ? `u:${userId}` : `ip:${clientIp(request)}`, userId };
+  const ipKey = `ip:${clientIp(request)}`;
+  const device = cleanDeviceId(deviceId);
+  const key = userId ? `u:${userId}` : device ? `d:${device}` : ipKey;
+  return { key, ipKey, userId };
 }

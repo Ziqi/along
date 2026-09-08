@@ -107,17 +107,23 @@ export function createEngine(deps: EngineDeps) {
     if (!dispatch("end")) return;
     const s = store.getState();
     const topics = s.coaches.map((c) => c.topic).filter(Boolean);
-    abortLive();
-    closeMic();
-    const sid = s.liveId ?? s.sessionId;
-    s.clear({ keepRecap: true });
-    if (sid) {
-      s.setSession(sid);
-      nav.classPage(sid);
-    } else {
-      nav.catalog();
+    let sid: string | null = null;
+    try {
+      abortLive();
+      closeMic();
+      sid = s.liveId ?? s.sessionId;
+      s.clear({ keepRecap: true });
+      if (sid) {
+        s.setSession(sid);
+        nav.classPage(sid);
+      } else {
+        nav.catalog();
+      }
+    } finally {
+      // Whatever happened above, "ending" must not be where the class stays:
+      // from there neither 开始听 nor 首页 is allowed.
+      dispatch("ended");
     }
-    dispatch("ended");
     const session = store.getState().sessions.find((x) => x.id === sid);
     const ready = (session?.transcript.length ?? 0) >= 2;
     const polished = Boolean(session?.recap && !session.recap.draft && session.recap.lede);

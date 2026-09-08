@@ -26,7 +26,7 @@ export const liveTranslate = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<
     { ok: true; items: { id: string; zh: string }[]; ms: number } | AiFail
   > => {
-    const gate = takeAiToken(context.caller.key, "translate");
+    const gate = takeAiToken(context.caller, "translate");
     if (!gate.ok) return aiFail("rate_limited");
     const line = data.lines[0];
     if (!line) return aiFail("empty");
@@ -65,7 +65,7 @@ export const quickTranslate = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<
     { ok: true; out: string; dir: "zh-en" | "en-zh"; ms: number } | AiFail
   > => {
-    const gate = takeAiToken(context.caller.key, "quick");
+    const gate = takeAiToken(context.caller, "quick");
     if (!gate.ok) return aiFail("rate_limited");
     if (!data.text) return aiFail("empty");
     const toEn = hasHan(data.text);
@@ -94,7 +94,7 @@ export const sayIt = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<
     { ok: true; en: string; zh: string; ms: number } | AiFail
   > => {
-    const gate = takeAiToken(context.caller.key, "quick");
+    const gate = takeAiToken(context.caller, "quick");
     if (!gate.ok) return aiFail("rate_limited");
     if (!data.text) return aiFail("empty");
     const result = await chatFlash({
