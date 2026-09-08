@@ -86,13 +86,12 @@ Live classroom companion: captions, a coach that follows how you listen, DeepSea
 ```bash
 git clone https://github.com/Ziqi/along.git
 cd along
-git checkout cursor/class-mode-coach-5dd6
 npm install
 export XAI_API_KEY=your_key
 npm start
 ```
 
-这一版还在 `cursor/class-mode-coach-5dd6`（叠在跟听可靠性那支上面）。`main` 尚未合入。Chrome 听写最稳。`npm start` 会检查开发服务是不是已经在跑。
+可发布的版本只在 `main`；`cursor/*` 分支是合并前的工作分支，用完即删。Chrome 听写最稳。`npm start` 会检查开发服务是不是已经在跑。
 
 ```bash
 npm stop

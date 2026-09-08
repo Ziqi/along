@@ -53,10 +53,13 @@
 ```
 src/lib/types.ts                 全部数据结构（ClassSession, ClassRecap, CoachCard…）
 src/lib/store.ts                 Zustand。liveId ≠ sessionId。结课 / 再出一份 / 置顶 / persist
-src/lib/persist.ts               localStorage + IndexedDB（along.sessions）
-src/lib/recap-cloud.ts           登录后 pull/push class_sessions；删除要真 DELETE
+src/lib/persist.ts               localStorage + IndexedDB（along.sessions）+ 本机墓碑
+src/lib/session-sync.ts          云端推送计划：一处去抖、只推变了的堂次、只补未确认的墓碑
+src/lib/session-limits.ts        40 堂 / 512 KB / schemaVersion 三个上限，客户端与服务端共用
+src/lib/recap-cloud.ts           登录后 pull/push class_sessions；删除写 tombstone 行，服务端保留 40 行
 src/lib/recap-kit.ts             纪要装配器：GOLD_CONTENT / GOLD_STUDY / assembleRecap / isFilled / packCoach
-src/lib/capcom-ai.ts             全部 serverFn：STT secret、翻译、教练、DeepSearch、recapClass
+src/lib/ai/                      AI 入口的门：同源校验、调用者识别（登录 id 或 IP）、每人每分钟令牌桶
+src/lib/capcom-ai.ts             全部 serverFn：STT secret、翻译、教练、DeepSearch、recapClass（全部挂 aiGuard）
 src/lib/essay-kit.ts             DeepSearch 装配
 src/lib/speech-controller.ts     麦克风 + 流式 STT
 src/lib/stt-controller.ts
@@ -101,7 +104,7 @@ scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 
 ---
 
-## 5. 纪要：产品定义（P0，连续失败中）
+## 5. 纪要：产品定义
 
 纪要 = **老师读完整堂课之后出的一份讲义**，不是目录，不是教练卡复印件。
 
@@ -118,13 +121,14 @@ scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
 2. **语言点** — 由模型当英语老师选词、难词、划线（`marks`）、用法、例句。不要词频表，不要 BASIC 词表替老师做主
 3. **附录** — `packCoach` 把课上教练和 DeepSearch **原样**附在后面。互动 / 旁听叫开口原件；只听叫课中剖析。不要抄进第 1 块
 
-完成判定 `isFilled(recap)`（`src/lib/recap-kit.ts`）：
+完成判定（`src/lib/recap-kit.ts`），分两道门：
 
-- `lede` 超过 40 字
-- 至少一节 `body` 超过 80 字
-- **有教练卡 ≠ 写完**。以前 `attachCoachPack` 用 `pack.length` 把目录标成完稿，这是 9 月 7 日现场事故。
+- 正文门 `isEssayFilled`：`lede` 与 `ledeZh` 都超过 40 字；至少 **2 节** 同时有成段英文 `body`（不是纯 1.2.3 列表）、超过 40 字的 `bodyZh`、且标题不是听写碎片。
+- 服务端再叠一层 `essayReadyForClass`：正文不得整段粘贴教练三条开口句；正文必须用到课堂原料（随手记 / DeepSearch 事实 / 教练概括至少命中其一）。
+- 语言点门 `isStudyFilled`：words / collos / patterns / grammar / lines 五类里 **≥4 行**齐全（en、zh、use、example 都有），其中词与搭配 **≥2 行**。
+- `isFilled = isEssayFilled && isStudyFilled`。**有教练卡 ≠ 写完**。以前 `attachCoachPack` 用 `pack.length` 把目录标成完稿，这是 9 月 7 日现场事故。
 
-`requestRecap`：两次尝试；仍不够就 `setRecapError("纪要没写出来…")`，**禁止**把 skeleton 目录存成完成稿。
+`recapClass`：正文 Flash ∥ grok-4.6 并行一次，不过关再 slim 重写一次，**两次仍不过就返回错误**，不在后台连打第三次；第三次交给人点「整理本堂」。`requestRecap` 收到错误就 `setRecapError("纪要没写出来…")`，**禁止**把 skeleton 目录存成完成稿。
 
 UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· 再出`。
 
@@ -132,26 +136,20 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 ## 6. 现场事故（按优先级改）
 
-### P0 — 纪要连续写不出来（SpaceX 讲义已写出）
+### P0（已收口）— 纪要连续写不出来
 
-**现象**  
-「Long-Term Vision vs Quarterly Pressure」结课 / 再出一份 / 整理本堂，连续 ≥4 次只有目录或直接红字「纪要没写出来」。标题变成 `…01:02 · 再出`。用户已经等不了。
+**当时现象**  
+「Long-Term Vision vs Quarterly Pressure」结课 / 再出一份 / 整理本堂，连续 ≥4 次只有目录或直接红字「纪要没写出来」。标题变成 `…01:02 · 再出`。
 
-**已做、仍不够**
+**现状（`main`）**
 
-- packet 已包含实录、笔记、教练、DeepSearch
-- Flash + grok-4.6 并行写内容；不够再 slim「按标题写正文」
-- `isFilled` 过关才跑语言点
-- 失败不再拿目录充数
+- packet 包含实录、笔记、教练卡 + DeepSearch；教练概括也算「原料」，没检索、没笔记时正文仍须用到它
+- 正文 Flash ∥ grok-4.6 并行 → 不过门再 slim 一次（grok-4.6）→ 仍不过就停，返回错误，把第三次交给人
+- `isEssayFilled` 过关才写语言点；语言点 Flash → 不够再 grok-4.6 一次 → 缺中文补一次翻译
+- 失败不再拿目录充数；`extractJsonObject` 会抢救被截断的 JSON；`promoteOutline` 不把无正文 heading 当 section
+- 开口句判定放宽到「整句粘贴」才打回，引用一句好例子不再触发重写
 
-**请查**
-
-1. `recapClass` 实际返回了什么（截断 JSON？只有 `outline`？超时？）
-2. packet 是否太大，12s 内写不完讲义 → 加大 `max_tokens` / `timeoutMs`，或内容先写 3 节再补
-3. `extractJsonObject` 是否把残缺 JSON 收成「只有 heading」
-4. slim 仍用 Flash，是否该用 grok-4.6 专门写正文（用户要的就是讲义质量）
-5. 装配器 `promoteOutline` 不要把无正文的 heading 当成 section
-6. 过关后 `GOLD_STUDY` 必须由模型选词并填满 `zh/use/useZh/example/exampleZh`，禁止 `studyFromTape` 词频回填当主词表
+回归时仍要核对的点：`recapClass` 返回体是否完整（截断 / 只有 outline / 超时），以及 `GOLD_STUDY` 词表是否由模型选词、每行 `zh/use/useZh/example/exampleZh` 齐全。
 
 **验收（对着那堂 SpaceX 课）**
 
@@ -230,4 +228,4 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 3. Grok Build 会 `git pull`，在沙箱里跑 `npm start`（8080），预览出现在 grok.me
 4. 不要指望 Grok Build 能读到你浏览器 localStorage 里的那堂课；验收用新结课或「整理本堂」
 
-当前可试的界面分支：`cursor/class-ui-plain-5dd6`（叠在课型教练上）。`main` 尚未合入。不要指望沙箱能读到你浏览器里的那堂课；验收用新结课或「整理本堂」。
+可试、可发布的版本只有 `main`。`cursor/*` 是合并前的工作分支，合入即删，文档里不要再指向它们。不要指望沙箱能读到你浏览器里的那堂课；验收用新结课或「整理本堂」。
