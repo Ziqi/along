@@ -85,9 +85,10 @@ export function RecapPage(route: RecapRouteProps) {
   const removeSession = useCapcom((s) => s.removeSession);
   const starSession = useCapcom((s) => s.starSession);
   const updateRecap = useCapcom((s) => s.updateRecap);
-  const pending = useCapcom((s) => s.recapPending);
+  const recapPending = useCapcom((s) => s.recapPending);
   const recapStage = useCapcom((s) => s.recapStage);
-  const error = useCapcom((s) => s.recapError);
+  const recapError = useCapcom((s) => s.recapError);
+  const recapTarget = useCapcom((s) => s.recapTarget);
   const captions = useCapcom((s) => s.captions);
   const liveId = useCapcom((s) => s.liveId);
   const ping = useCapcom((s) => s.ping);
@@ -100,6 +101,12 @@ export function RecapPage(route: RecapRouteProps) {
   const sample = useMemo(() => (sessionId && !stored ? sampleById(sessionId) : null), [sessionId, stored]);
   const session = stored ?? sample;
   const readOnly = Boolean(sample);
+  // The write in flight and its error belong to one class; another handout
+  // open meanwhile shows neither.
+  const aboutThis = !recapTarget || recapTarget === session?.id;
+  const pending = recapPending && aboutThis;
+  const error = aboutThis ? recapError : null;
+  const writingElsewhere = recapPending && !aboutThis;
   const missing = Boolean(sessionId && hydrated && !session);
   const recap = session?.recap ?? null;
   const living = Boolean(session && !session.endedAt);
@@ -220,6 +227,7 @@ export function RecapPage(route: RecapRouteProps) {
                   key={`${session.id}-${session.title}`}
                   defaultValue={session.title}
                   rows={2}
+                  maxLength={56}
                   readOnly={readOnly || mode === "drill"}
                   onBlur={(e) => {
                     if (!readOnly) rename(session.id, session.title, e.target.value);
@@ -239,7 +247,7 @@ export function RecapPage(route: RecapRouteProps) {
                     <Button type="button" variant="secondary" size="xs" onClick={() => nav.read(session.id)}>
                       看纪要
                     </Button>
-                  ) : editing ? (
+                  ) : editing && !readOnly ? (
                     <Button type="button" variant="primary" size="xs" onClick={() => nav.setEditing(false)}>
                       完成
                     </Button>
@@ -249,9 +257,10 @@ export function RecapPage(route: RecapRouteProps) {
                       variant="primary"
                       size="sm"
                       onClick={() => void requestRecap(session.id)}
-                      disabled={pending || !canRun}
+                      disabled={pending || writingElsewhere || !canRun}
+                      title={writingElsewhere ? "另一堂还在整理" : !canRun && !pending ? "实录不到两句，没法整理" : undefined}
                     >
-                      {pending ? "在写" : "整理本堂"}
+                      {pending ? "在写" : writingElsewhere ? "另一堂在写" : "整理本堂"}
                     </Button>
                   ) : (
                     <>

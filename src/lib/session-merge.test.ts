@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mergeOne, mergeSessions, normalizeSessions } from "./session-merge.ts";
+import { mergeOne, mergeSessions, mergeTape, normalizeSessions, unionById } from "./session-merge.ts";
 import type { ClassRecap, ClassSession, TopicEssay } from "./types.ts";
 
 function recap(patch: Partial<ClassRecap> = {}): ClassRecap {
@@ -123,6 +123,39 @@ test("a finished handout is never covered by a later draft or rename", () => {
     session("a", { recap: recap({ lede: "", draft: true, at: 2, title: "new" }) }),
   );
   assert.equal(c.recap?.title, "new");
+});
+
+test("mergeTape: the screen's tail is appended to the stored tape, never written over it", () => {
+  const line = (i: number, zh = "") => ({ en: `Line number ${i} of the lecture.`, zh });
+  const stored = Array.from({ length: 200 }, (_, i) => line(i, `第 ${i} 句`));
+  // The HUD keeps only the newest 180: lines 25..204 after 205 heard.
+  const screen = Array.from({ length: 180 }, (_, i) => line(25 + i));
+  const merged = mergeTape(stored, screen);
+  assert.equal(merged.length, 205);
+  assert.equal(merged[0]!.en, line(0).en, "the opening survives");
+  assert.equal(merged[204]!.en, line(204).en);
+  assert.equal(merged[100]!.zh, "第 100 句", "stored translations stay");
+  // After a reload with nothing seeded: three new lines only.
+  const fresh = [line(200), line(201), line(202)];
+  assert.equal(mergeTape(stored, fresh).length, 203);
+  // The screen still starts where the tape starts and is longer: it is the fuller copy.
+  const full = [...stored, line(200)];
+  assert.equal(mergeTape(stored, full), full);
+  // A translation that landed on screen fills a stored gap.
+  const gap = [...stored.slice(0, 199), line(199, "")];
+  const filled = mergeTape(gap, [line(199, "第 199 句"), line(200)]);
+  assert.equal(filled[199]!.zh, "第 199 句");
+  assert.equal(filled.length, 201);
+  assert.deepEqual(mergeTape([], fresh), fresh);
+  assert.deepEqual(mergeTape(stored, []), stored);
+});
+
+test("unionById keeps stored cards and appends new ones once", () => {
+  const a = { id: "c1", n: 1 };
+  const b = { id: "c2", n: 2 };
+  const c = { id: "c3", n: 3 };
+  assert.deepEqual(unionById([a, b], [b, c]), [a, b, c]);
+  assert.deepEqual(unionById([], [c, c]), [c]);
 });
 
 test("the tape and the cards keep the longer copy; the hour never gets shorter", () => {

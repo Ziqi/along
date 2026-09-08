@@ -1,3 +1,4 @@
+import { withDeadline } from "../live-queue.ts";
 import type { EngineContext } from "./context.ts";
 
 export type SayResult = { ok: true; id: string; en: string; zh: string } | { ok: false; error: string };
@@ -9,6 +10,9 @@ export type SayResult = { ok: true; id: string; en: string; zh: string } | { ok:
  * student wanted to say beside what the coach offered. A failed ask leaves
  * nothing behind; the text stays in the box to try again.
  */
+/** The server allows 9 s for the model; past this the pad is free for the next line. */
+export const SAY_TIMEOUT_MS = 15_000;
+
 export function createSayRuntime(ctx: EngineContext, hooks: { onNote: () => void }) {
   const { store, api } = ctx;
   let gen = 0;
@@ -25,7 +29,7 @@ export function createSayRuntime(ctx: EngineContext, hooks: { onNote: () => void
     const mine = gen;
     const recent = s.captions.slice(-6).map((c) => c.en).filter(Boolean);
     try {
-      const result = await api.say({ data: { text, recent } });
+      const result = await withDeadline(api.say({ data: { text, recent } }), SAY_TIMEOUT_MS);
       if (!result.ok) {
         store.getState().removeJot(id);
         return { ok: false, error: sayError(result.code, result.error) };

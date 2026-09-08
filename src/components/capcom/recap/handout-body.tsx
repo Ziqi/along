@@ -91,7 +91,7 @@ export function HandoutBody({
       ) : null}
 
       {sections.map((sec, i) => (
-        <section key={`${sec.heading}-${i}`} className="flex flex-col gap-2">
+        <section key={editing ? i : `${sec.heading}-${i}`} className="flex flex-col gap-2">
           {editing ? (
             <>
               <EditText
@@ -178,7 +178,7 @@ export function HandoutBody({
 
       {readOnly ? null : <NotesEditor session={session} />}
 
-      <LiveTape lines={liveLines && liveLines.length ? liveLines : session.transcript} />
+      <LiveTape lines={liveLines && liveLines.length ? liveLines : session.transcript} live={Boolean(liveLines && liveLines.length)} />
     </>
   );
 }

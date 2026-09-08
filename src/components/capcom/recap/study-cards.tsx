@@ -23,7 +23,7 @@ export function StudyCards({
       <h3 className="text-lg font-medium tracking-tight">{kicker}</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         {items.map((it, i) => (
-          <article key={`${it.en}-${i}`} className="flex flex-col gap-2 border border-line bg-elevated px-4 py-3">
+          <article key={editing ? i : `${it.en}-${i}`} className="flex flex-col gap-2 border border-line bg-elevated px-4 py-3">
             {editing ? (
               <>
                 <EditText value={it.en} rows={2} className="text-base font-medium" onSave={(v) => patch(i, "en", v)} />

@@ -1,5 +1,5 @@
 /** The class transcript, folded under the handout. */
-export function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
+export function LiveTape({ lines, live = false }: { lines: { en: string; zh: string }[]; live?: boolean }) {
   const shown = lines.filter((l) => l.en);
   if (!shown.length) return null;
   return (
@@ -9,11 +9,11 @@ export function LiveTape({ lines }: { lines: { en: string; zh: string }[] }) {
       <ul className="mt-4 flex max-h-72 flex-col gap-3 overflow-y-auto">
         {shown.map((l, i) => (
           <li key={`${i}-${l.en.slice(0, 24)}`}>
-            <p className="text-sm leading-snug text-fg text-pretty">{l.en}</p>
+            <p className="text-sm leading-snug text-fg text-pretty break-words">{l.en}</p>
             {l.zh ? (
               <p className="mt-0.5 text-sm leading-snug text-muted text-pretty">{l.zh}</p>
             ) : (
-              <p className="mt-0.5 text-xs text-dim">译…</p>
+              <p className="mt-0.5 text-xs text-dim">{live ? "译…" : "未译"}</p>
             )}
           </li>
         ))}

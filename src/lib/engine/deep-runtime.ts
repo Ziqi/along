@@ -1,7 +1,10 @@
 import { heuristicEssay } from "../essay-kit.ts";
+import { withDeadline } from "../live-queue.ts";
 import { liveMode, type EngineContext } from "./context.ts";
 
 export const ESSAY_CAP = 2;
+/** Server budget is search 15 s + talk 12 s (+10 s fallback); past this the slot is freed. */
+export const DEEP_TIMEOUT_MS = 45_000;
 
 /**
  * DeepSearch for one coach card. Two searches may run at once; further clicks
@@ -54,16 +57,19 @@ export function createDeepRuntime(ctx: EngineContext) {
       true,
     );
     try {
-      const result = await api.expand({
-        data: {
-          lastHeard: bits.lastHeard,
-          recent: bits.recent,
-          topic: bits.topic,
-          move: bits.move,
-          options: bits.options,
-          mode: card.mode ?? liveMode(store),
-        },
-      });
+      const result = await withDeadline(
+        api.expand({
+          data: {
+            lastHeard: bits.lastHeard,
+            recent: bits.recent,
+            topic: bits.topic,
+            move: bits.move,
+            options: bits.options,
+            mode: card.mode ?? liveMode(store),
+          },
+        }),
+        DEEP_TIMEOUT_MS,
+      );
       if (gens.get(id) !== mine) return;
       if (!result.ok) {
         const live = store.getState();
@@ -95,7 +101,13 @@ export function createDeepRuntime(ctx: EngineContext) {
         card.id,
       );
     } catch {
-      if (gens.get(id) === mine) store.getState().setEssayError("检索超时，再点一次。");
+      // A thrown call (network, 5xx, our deadline) must not leave the
+      // placeholder draft behind: the card would say 检索中 forever.
+      if (gens.get(id) === mine) {
+        const live = store.getState();
+        live.setEssay(null, card.id);
+        live.setEssayError("检索超时，再点一次。");
+      }
     } finally {
       if (gens.get(id) === mine) {
         inflight.delete(id);

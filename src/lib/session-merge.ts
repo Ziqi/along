@@ -292,6 +292,61 @@ export function mergeEssays(a: Record<string, TopicEssay>, b: Record<string, Top
   return out;
 }
 
+const tapeKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ").trim();
+
+/**
+ * The stored tape plus what the screen holds now. The screen keeps only the
+ * newest lines of a long class (and after a reload it may hold only lines
+ * heard since), so it is never simply written over the tape: when it still
+ * begins where the tape begins it is the fuller copy and replaces it;
+ * otherwise the lines the tape already has are matched by overlap and only
+ * the new tail is appended. A translation that landed on screen for a line
+ * the tape has is carried over.
+ */
+export function mergeTape(
+  stored: { en: string; zh: string }[],
+  live: { en: string; zh: string }[],
+): { en: string; zh: string }[] {
+  if (!stored.length) return live;
+  if (!live.length) return stored;
+  const sameStart = tapeKey(live[0]!.en) === tapeKey(stored[0]!.en);
+  if (sameStart && live.length >= stored.length) return live;
+  // Longest suffix of `stored` that equals a prefix of `live`.
+  const maxK = Math.min(stored.length, live.length);
+  let k = 0;
+  for (let n = maxK; n >= 1; n -= 1) {
+    let ok = true;
+    for (let i = 0; i < n; i += 1) {
+      if (tapeKey(stored[stored.length - n + i]!.en) !== tapeKey(live[i]!.en)) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      k = n;
+      break;
+    }
+  }
+  const head = stored.slice(0, stored.length - k);
+  const overlap = stored.slice(stored.length - k).map((s, i) => {
+    const l = live[i]!;
+    return l.zh && !s.zh ? { ...s, zh: l.zh } : s;
+  });
+  return [...head, ...overlap, ...live.slice(k)];
+}
+
+/** Union by id, keeping the stored order and appending what is new. */
+export function unionById<T extends { id: string }>(stored: T[], live: T[]): T[] {
+  const seen = new Set(stored.map((x) => x.id));
+  const out = [...stored];
+  for (const x of live) {
+    if (seen.has(x.id)) continue;
+    seen.add(x.id);
+    out.push(x);
+  }
+  return out;
+}
+
 /** Two copies of one class → one. See the module note for the policy. */
 export function mergeOne(
   a: ClassSession,

@@ -104,6 +104,11 @@ export const HUD_BLANK = {
   essays: {} as Record<string, TopicEssay>,
   essayPending: false,
   essayTarget: null,
+  // A 检索 that failed in the last class is not this class's business, and
+  // 停写 does not carry over: every class opens with the coach following.
+  essayError: null,
+  autoCoach: true,
+  intent: "",
   seq: 0,
   startedAt: null,
   lastLatency: null,
@@ -161,7 +166,10 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
       });
       return last.id;
     }
-    if (last && Date.now() - last.at < 2400 && shouldMerge(last.en, text)) {
+    // Join a fragment onto the previous line only while that line is still
+    // untranslated: once its Chinese has landed, joining would wipe it and
+    // buy a second translation for the same words.
+    if (last && last.pending && Date.now() - last.at < 2400 && shouldMerge(last.en, text)) {
       const merged = `${last.en} ${text}`.replace(/\s+/g, " ").trim();
       set({
         captions: get().captions.map((c) =>

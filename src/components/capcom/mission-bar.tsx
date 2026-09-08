@@ -39,7 +39,10 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const reading = pathname !== "/";
   const inClassHere = openClass && !reading;
   const atHome = !reading && !openClass;
-  const showRecap = sessions.length > 0 || openClass;
+  // Always reachable: with no class of their own yet, the handout side shows
+  // the two sample handouts, which is how a new student sees what 结课 yields.
+  const showRecap = true;
+  const recapLabel = sessions.length > 0 || openClass ? "纪要" : "示例讲义";
   const classMode = useCapcom((s) => s.classMode);
   const setClassMode = useCapcom((s) => s.setClassMode);
   const [theme, setTheme] = useState<Theme>("day");
@@ -162,7 +165,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
           ) : null}
           {showRecap && !reading ? (
             <Button type="button" variant="quiet" size="lg" onClick={() => openRecap()}>
-              纪要
+              {recapLabel}
             </Button>
           ) : null}
           {inClassHere ? (
@@ -184,7 +187,7 @@ export function MissionBar({ onArm, onSafe }: Props) {
           panelClassName="w-44"
         >
           {reading ? <MenuItem onSelect={goHomeSafe}>{homeLabel}</MenuItem> : null}
-          {showRecap && !reading ? <MenuItem onSelect={() => openRecap()}>纪要</MenuItem> : null}
+          {showRecap && !reading ? <MenuItem onSelect={() => openRecap()}>{recapLabel}</MenuItem> : null}
           {inClassHere ? <MenuItem onSelect={() => setConfirmEnd(true)}>结课</MenuItem> : null}
           <MenuItem onSelect={toggleTheme}>
             {themeIcon}

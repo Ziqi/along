@@ -115,10 +115,10 @@ export function DownlinkPanel() {
                     {formatClock(c.at)}
                   </p>
                   <div className="min-w-0">
-                    <p className="text-lg text-fg text-pretty">{c.en}</p>
+                    <p className="text-lg text-fg text-pretty break-words">{c.en}</p>
                     <p
                       className={
-                        "mt-1 text-base text-pretty " +
+                        "mt-1 text-base text-pretty break-words " +
                         (c.pending || !/[\u4e00-\u9fff]/.test(c.zh)
                           ? "text-dim"
                           : c.error

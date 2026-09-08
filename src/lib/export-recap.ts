@@ -147,7 +147,9 @@ export function downloadText(filename: string, text: string, mime: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  // Safari may still be opening the blob when click() returns; revoking at
+  // once can abort the download.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 function esc(s: string) {
@@ -295,9 +297,23 @@ ${tape}
   doc.write(html);
   doc.close();
   const go = () => {
-    frame.contentWindow?.focus();
-    frame.contentWindow?.print();
-    window.setTimeout(() => frame.remove(), 4000);
+    const win = frame.contentWindow;
+    if (!win) {
+      frame.remove();
+      return;
+    }
+    // Remove the frame when the print dialog closes; the timer is only a
+    // backstop for browsers that never fire afterprint.
+    let gone = false;
+    const done = () => {
+      if (gone) return;
+      gone = true;
+      frame.remove();
+    };
+    win.addEventListener("afterprint", done);
+    win.focus();
+    win.print();
+    window.setTimeout(done, 60_000);
   };
   if (doc.readyState === "complete") window.setTimeout(go, 50);
   else frame.onload = go;

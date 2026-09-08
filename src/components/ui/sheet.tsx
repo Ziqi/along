@@ -61,7 +61,7 @@ export function Sheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-fg/30 p-3 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-fg/30 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center"
       onPointerDown={onBackdrop}
     >
       <div
@@ -71,7 +71,10 @@ export function Sheet({
         aria-label={label}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className={cn("w-full max-w-md border border-line bg-elevated p-4 shadow-lg outline-none", className)}
+        className={cn(
+          "max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto border border-line bg-elevated p-4 shadow-lg outline-none",
+          className,
+        )}
       >
         {children}
       </div>

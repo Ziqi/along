@@ -196,6 +196,51 @@ describe("listen runtime", () => {
     assert.match(h.store.state.sttNote ?? "", /403/);
   });
 
+  it("the two tries are per connection: a blip an hour after a live connection gets its own retry", async () => {
+    const h = harness(async () => ({ ok: true, token: "t" }));
+    h.listen.start();
+    await settle();
+    h.stts[0]!.handlers.onError("stt"); // first connection never came up
+    mock.timers.tick(STT_RETRY_MS);
+    await settle();
+    h.stts[1]!.handlers.onState(true); // second one is live
+    assert.equal(h.store.state.sttBackend, "xai");
+    h.stts[1]!.handlers.onError("stt"); // an hour later the socket dies
+    mock.timers.tick(STT_RETRY_MS);
+    await settle();
+    assert.equal(h.stts.length, 3, "a third xAI controller, not the browser");
+    assert.equal(h.speeches.length, 0);
+  });
+
+  it("start() twice before the mic answers keeps exactly one controller", async () => {
+    const h = harness(async () => ({ ok: true, token: "t" }));
+    h.listen.start();
+    h.listen.start();
+    await settle();
+    assert.equal(h.stts.length, 2, "two mic requests were made");
+    assert.equal(h.stts[0]!.stopped, 1, "the first is stopped as soon as the second arrives");
+    assert.equal(h.stts[1]!.stopped, 0);
+  });
+
+  it("a browser recognizer that errors is stopped with the class", async () => {
+    const h = harness(async () => ({ ok: false, code: "unavailable", error: "AI 暂不可用" }));
+    h.listen.start();
+    await settle();
+    for (let i = 0; i < STT_ATTEMPTS; i += 1) {
+      await assert.rejects(h.mints[i]!());
+      h.stts[i]!.handlers.onError("stt");
+      if (i < STT_ATTEMPTS - 1) {
+        mock.timers.tick(STT_RETRY_MS);
+        await settle();
+      }
+    }
+    const speech = h.speeches[0]!;
+    speech.handlers.onState(true);
+    speech.handlers.onError("network");
+    assert.equal(speech.stopped, 1, "not left running while the class shows paused");
+    assert.equal(h.store.state.listening, false);
+  });
+
   it("a stale controller cannot drop the one on the mic", async () => {
     const h = harness(async () => ({ ok: true, token: "t" }));
     h.listen.start();

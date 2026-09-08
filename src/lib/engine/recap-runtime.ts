@@ -1,9 +1,13 @@
 import { parseClassMode } from "../class-mode.ts";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "../recap-kit.ts";
 import type { ClassRecap, RecapCoach, RecapTable } from "../types.ts";
+import { withDeadline } from "../live-queue.ts";
 import { debounceSlot, type EngineContext } from "./context.ts";
 
 export const LIVE_OUTLINE_DEBOUNCE_MS = 12000;
+/** Client-side ceilings so a hung request never pins 整理中 or the outline lock until a reload. */
+export const OUTLINE_TIMEOUT_MS = 30_000;
+export const RECAP_TIMEOUT_MS = 100_000;
 
 type StudyLike = { en: string; zh?: string; use?: string; useZh?: string; example?: string; exampleZh?: string };
 
@@ -95,19 +99,19 @@ export function createRecapRuntime(ctx: EngineContext) {
     s.stashLive();
     const next = store.getState();
     const ses = next.sessions.find((x) => x.id === sid);
-    const fromLive = next.captions.filter((c) => c.en && !c.error).map((c) => ({ en: c.en, zh: c.zh }));
+    const fromLive = next.captions.filter((c) => c.en).map((c) => ({ en: c.en, zh: c.error ? "" : c.zh }));
     const lines = fromLive.length >= 2 ? fromLive : (ses?.transcript ?? []);
     if (lines.length < 2 && !ses?.notes.length) return;
     const mine = ++outlineGen;
     outlineBusy = true;
     try {
-      const result = await api.outline({
+      const result = await withDeadline(api.outline({
         data: {
           lines,
           topics: next.coaches.map((c) => c.topic).filter(Boolean),
           notes: (ses?.notes ?? next.jots).map((j) => j.zh || j.en),
         },
-      });
+      }), OUTLINE_TIMEOUT_MS);
       if (mine !== outlineGen) return;
       if (!result.ok) return;
       const outline = result.outline
@@ -135,11 +139,16 @@ export function createRecapRuntime(ctx: EngineContext) {
       nav.catalog();
       return;
     }
-    // A second 整理 on the class already being written is the same request.
-    if (live.recapPending && live.sessionId === sid) return;
+    // A second 整理 on the class already being written is the same request;
+    // one for another class would bump the generation and throw the first
+    // result away, so it waits.
+    if (live.recapPending) {
+      if (live.recapTarget !== sid) live.ping("另一堂还在整理，等它写完。");
+      return;
+    }
     const session = live.sessions.find((x) => x.id === sid);
     const isLive = live.liveId === sid;
-    const fromLive = isLive ? live.captions.filter((c) => c.en && !c.error).map((c) => ({ en: c.en, zh: c.zh })) : [];
+    const fromLive = isLive ? live.captions.filter((c) => c.en).map((c) => ({ en: c.en, zh: c.error ? "" : c.zh })) : [];
     const lines = fromLive.length >= 2 ? fromLive : (session?.transcript ?? []);
     if (lines.length < 2) {
       live.setSession(sid);
@@ -159,7 +168,7 @@ export function createRecapRuntime(ctx: EngineContext) {
     const essays = isLive ? live.essays : (session?.essays ?? {});
     const pack = packCoach(coaches, essays);
     const mine = ++recapGen;
-    live.setRecapPending(true);
+    live.setRecapPending(true, sid);
     live.setSession(sid);
     nav.classPage(sid);
     const skeleton = emptyRecap(session?.title || "整理中", topics);
@@ -195,7 +204,7 @@ export function createRecapRuntime(ctx: EngineContext) {
       let essay: ClassRecap | null = null;
       store.getState().setRecapStage("essay");
       try {
-        const result = await api.recap({ data: { ...packet, phase: "essay" } });
+        const result = await withDeadline(api.recap({ data: { ...packet, phase: "essay" } }), RECAP_TIMEOUT_MS);
         if (!fresh()) return;
         if (result.ok) {
           const next = attachCoachPack(toRecap(result, session?.recap?.outline ?? skeleton.outline, pack, now()), pack);
@@ -218,7 +227,7 @@ export function createRecapRuntime(ctx: EngineContext) {
       if (!fresh()) return;
       store.getState().setRecapStage("study");
       try {
-        const result = await api.recap({
+        const result = await withDeadline(api.recap({
           data: {
             ...packet,
             phase: "study",
@@ -232,7 +241,7 @@ export function createRecapRuntime(ctx: EngineContext) {
               takeaways: essay.takeaways,
             },
           },
-        });
+        }), RECAP_TIMEOUT_MS);
         if (!fresh()) return;
         if (result.ok) {
           const next = attachCoachPack(toRecap(result, essay.outline, pack, now()), pack);

@@ -91,6 +91,13 @@ export class SttController {
   private mint: () => Promise<string>;
   private onVis = () => {
     if (typeof document === "undefined" || document.hidden || !this.wanted) return;
+    // A lock screen or another app suspends the audio graph; wake it, and if
+    // it will not wake, say so rather than stream silence as if all were well.
+    if (this.ctx && this.ctx.state !== "running") {
+      void Promise.race([this.ctx.resume(), sleep(3000).then(() => "late" as const)]).then((r) => {
+        if (r === "late" && this.wanted && this.ctx?.state !== "running") this.handlers.onError("stt");
+      });
+    }
     if (this.ws?.readyState === WebSocket.OPEN && this.ready) return;
     void this.connect().catch(() => this.handlers.onError("stt"));
   };
@@ -117,6 +124,7 @@ export class SttController {
         ]));
     } catch (err) {
       this.wanted = false;
+      this.tearDown();
       const code = err instanceof Error && err.message === "mic-timeout" ? "stt" : micErrorCode(err);
       this.handlers.onError(code);
       this.handlers.onState(false);
@@ -125,6 +133,11 @@ export class SttController {
     if (!this.wanted) {
       this.tearDown();
       return;
+    }
+    for (const track of this.stream.getAudioTracks()) {
+      track.onended = () => {
+        if (this.wanted) this.handlers.onError("stt");
+      };
     }
     try {
       await this.connect();
@@ -157,7 +170,18 @@ export class SttController {
     const ws = new WebSocket(`wss://api.x.ai/v1/stt?${qs}`, [
       `xai-client-secret.${token}`,
     ]);
+    // Only one socket at a time: a previous one still opening is abandoned
+    // here so its later close cannot flip `ready` on the live connection.
+    const prev = this.ws;
     this.ws = ws;
+    if (prev && prev !== ws) {
+      prev.onopen = prev.onmessage = prev.onerror = prev.onclose = null;
+      try {
+        prev.close();
+      } catch {
+        /* ignore */
+      }
+    }
     ws.binaryType = "arraybuffer";
     const opened = new Promise<void>((resolve, reject) => {
       const t = window.setTimeout(() => reject(new Error("ws-timeout")), 8000);
@@ -171,6 +195,7 @@ export class SttController {
       });
     });
     ws.onmessage = (ev) => {
+      if (this.ws !== ws) return;
       if (typeof ev.data !== "string") return;
       let msg: SttEvent;
       try {
@@ -201,9 +226,11 @@ export class SttController {
       }
     };
     ws.onerror = () => {
+      if (this.ws !== ws) return;
       if (this.wanted) this.handlers.onError("stt");
     };
     ws.onclose = () => {
+      if (this.ws !== ws) return;
       this.ready = false;
       if (!this.wanted) return;
       if (typeof document !== "undefined" && document.hidden) return;

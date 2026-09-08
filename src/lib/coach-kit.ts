@@ -126,7 +126,7 @@ export function coachEmptyCopy(
     return "正在写：同意、对比、例子；问句则直接答、补一层、举个例。";
   }
   if (phase === "retrying") return "正在再写一遍。";
-  if (phase === "paused") return "已停写。点跟听再写。已经写好的卡还在。";
+  if (phase === "paused") return "已停写。点跟听再写。";
   if (phase === "failed") return "没写出来。点重写再试。";
   if (phase === "following") {
     if (mode === "listen") return "已经在听。落下完整一句，就写这句、剖析、背景。";

@@ -1,3 +1,4 @@
+import { withDeadline } from "../live-queue.ts";
 import type { Jot } from "../types.ts";
 import type { EngineContext } from "./context.ts";
 
@@ -7,6 +8,8 @@ import type { EngineContext } from "./context.ts";
  * always lands (it is the student's own line); only the outline redraw is
  * skipped when the class ended in between.
  */
+export const QUICK_TIMEOUT_MS = 15_000;
+
 export function createNoteRuntime(ctx: EngineContext, hooks: { onNote: () => void }) {
   const { store, api } = ctx;
   let gen = 0;
@@ -32,7 +35,7 @@ export function createNoteRuntime(ctx: EngineContext, hooks: { onNote: () => voi
     }
     let result: Awaited<ReturnType<typeof api.quick>>;
     try {
-      result = await api.quick({ data: { text: draft.en || draft.zh } });
+      result = await withDeadline(api.quick({ data: { text: draft.en || draft.zh } }), QUICK_TIMEOUT_MS);
     } catch {
       store.getState().patchJot(id, { pending: false });
       return;

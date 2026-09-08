@@ -62,16 +62,28 @@ function MissionShellInner({ children }: { children: ReactNode }) {
   }, [hydrateSessions]);
 
   // Coming back to the tab: pick up what another device pushed meanwhile.
+  // Leaving it (hidden, navigating away, the phone locking): write the class
+  // being heard to disk first, so nothing since the last stash is lost.
   useEffect(() => {
     let last = Date.now();
     function onVisible() {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        useCapcom.getState().stashLive({ diskOnly: true });
+        return;
+      }
       if (Date.now() - last < 30_000) return;
       last = Date.now();
       void useCapcom.getState().syncCloud();
     }
+    function onLeave() {
+      useCapcom.getState().stashLive({ diskOnly: true });
+    }
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    window.addEventListener("pagehide", onLeave);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pagehide", onLeave);
+    };
   }, []);
 
   useEffect(() => {
@@ -89,7 +101,7 @@ function MissionShellInner({ children }: { children: ReactNode }) {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       const s = useCapcom.getState();
-      if (e.key === "n" || e.key === "N") {
+      if ((e.key === "n" || e.key === "N") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const open = s.sessions.some((x) => x.id === s.liveId && !x.endedAt);
         if (!open) return;
         e.preventDefault();

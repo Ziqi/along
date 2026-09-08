@@ -76,6 +76,9 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
   let retry: ReturnType<typeof setTimeout> | null = null;
 
   function onError(code: string) {
+    // Whatever failed stops here: a browser recognizer left running after
+    // its own error keeps the mic dot red on a class the machine has paused.
+    dropController();
     const s = store.getState();
     s.setListening(false);
     s.setSttBackend(null);
@@ -107,7 +110,13 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
     if (live) {
       s.setMic("live");
       s.setEngineError(null);
-      if (backend === "xai") s.setSttBackend("xai");
+      if (backend === "xai") {
+        s.setSttBackend("xai");
+        // A live connection settles the count: the two tries are per
+        // connection, so a blip an hour later gets its own retry rather than
+        // dropping the class to the browser for good.
+        attempts = 0;
+      }
       hooks.dispatch("mic_live");
     }
   }
@@ -172,6 +181,9 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
       stream?.getTracks().forEach((t) => t.stop());
       return;
     }
+    // 暂停 then 继续听 while the first mic request was still pending would
+    // otherwise leave two controllers, both streaming audio.
+    dropController();
     attempts += 1;
     // A dead controller can report the same failure twice (socket error, then
     // the open timeout); only the controller on the mic may drive the runtime.

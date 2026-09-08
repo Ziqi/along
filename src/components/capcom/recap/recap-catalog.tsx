@@ -93,18 +93,21 @@ export function RecapCatalog({
                     >
                       <Pin className={"size-3.5 " + (s.starred ? "fill-fg text-fg" : "text-dim")} />
                     </Button>
-                    <Button
-                      type="button"
-                      variant="quiet"
-                      size="icon-xs"
-                      aria-label="删这份纪要"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemove(s.id);
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                    {/* The class being heard is closed with 结课, not deleted from under the mic. */}
+                    {s.id === liveId && !s.endedAt ? null : (
+                      <Button
+                        type="button"
+                        variant="quiet"
+                        size="icon-xs"
+                        aria-label="删这份纪要"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemove(s.id);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </li>
               ))}

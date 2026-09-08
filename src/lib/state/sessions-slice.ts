@@ -1,7 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { ClassRecap, ClassSession, Jot, RecapOutline } from "@/lib/types";
 import { isRemoved, isRemovedJot, markRemoved, markRemovedJot } from "@/lib/persist";
-import { mergeNotes } from "@/lib/session-merge";
+import { mergeNotes, mergeTape, unionById } from "@/lib/session-merge";
 import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
 import { isSampleId } from "@/lib/samples";
 import { sortSessions, toggleStar } from "@/lib/session-order";
@@ -41,6 +41,8 @@ export type SessionsSlice = {
   recapPending: boolean;
   recapStage: RecapStage | null;
   recapError: string | null;
+  /** Which class the pending write / last error is about; other handouts show neither. */
+  recapTarget: string | null;
   setClassMode: (mode: ClassMode) => void;
   /** Add a note to `targetId`, else to the open class (starting one if the mic is on). */
   addJot: (
@@ -67,7 +69,7 @@ export type SessionsSlice = {
       ms: number;
     },
   ) => void;
-  setRecapPending: (on: boolean) => void;
+  setRecapPending: (on: boolean, target?: string) => void;
   setRecapStage: (stage: RecapStage | null) => void;
   setRecapError: (msg: string | null) => void;
   /** Write the class being heard into its session. `diskOnly` skips the cloud push (the periodic safety copy). */
@@ -85,6 +87,10 @@ const idOf = (p: string) => {
   return `${p}-${Date.now().toString(36)}-${nid.toString(36)}`;
 };
 
+/** An "open" class nobody has touched for this long is not being heard anywhere. */
+const OPEN_STALE_MS = 6 * 3600_000;
+const isStaleOpen = (s: ClassSession, now = Date.now()) => !s.endedAt && now - (s.updatedAt ?? 0) > OPEN_STALE_MS;
+
 /**
  * The stamp for an edit made now. Never earlier than the copy's current stamp:
  * after a merge that stamp may come from another device's clock, and an edit
@@ -101,10 +107,18 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
    * the class being heard: captions, notes and the phase of a live class in this
    * tab win over what the catalog says about it.
    */
-  const applyCatalog = (sessions: ClassSession[], hydrated: boolean) => {
+  const applyCatalog = (sessions: ClassSession[], hydrated: boolean, adoptOpen = false) => {
     if (!sessions.length && get().sessions.length) return;
     const cur = get();
-    const open = sessions.find((s) => s.id === cur.liveId && !s.endedAt) ?? null;
+    // This tab's class first. On a fresh load (`adoptOpen`, the disk stages
+    // only) a class left open on this device comes back as paused, so 继续听
+    // continues the same hour; a class open on another device (cloud pull)
+    // is never adopted here.
+    const open =
+      sessions.find((s) => s.id === cur.liveId && !s.endedAt) ??
+      (adoptOpen && !cur.liveId
+        ? (sortSessions(sessions.filter((s) => !s.endedAt && !isStaleOpen(s)))[0] ?? null)
+        : null);
     const tape = open?.transcript ?? [];
     const keepTape = cur.captions.length > 0;
     const keepSession =
@@ -129,6 +143,11 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
             pending: false,
           })),
       seq: keepTape ? cur.seq : tape.length,
+      // The cards and DeepSearch of an open class come back with its tape,
+      // so the next stash does not replace them with only what came after.
+      coaches: keepTape || !open ? cur.coaches : unionById(open.coaches ?? [], cur.coaches),
+      coach: keepTape || !open ? cur.coach : (cur.coach ?? open.coaches?.at(-1) ?? null),
+      essays: open ? { ...(open.essays ?? {}), ...cur.essays } : cur.essays,
       classMode: open ? parseClassMode(open.classMode) : cur.classMode,
       phase: phaseFromCatalog(cur.phase, Boolean(open)),
     });
@@ -173,6 +192,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     recapPending: false,
     recapStage: null,
     recapError: null,
+    recapTarget: null,
     setClassMode: (mode) => {
       const classMode = parseClassMode(mode);
       const liveId = get().liveId;
@@ -285,6 +305,9 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         set({ jotOpen: false });
         return;
       }
+      // The handout being written (recapPending / recapStage / recapError)
+      // belongs to the paper, not the HUD: leaving for the home screen must
+      // not hide the write or invite a duplicate 整理.
       set({
         ...HUD_BLANK,
         listening: get().listening,
@@ -292,9 +315,6 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         jotOpen: false,
         jots: [],
         liveId: null,
-        recapPending: false,
-        recapStage: null,
-        recapError: null,
       });
     },
     removeSession: (id) => {
@@ -347,7 +367,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       // from another device is that device's business.
       const mine = get().liveId;
       const closed = get().sessions.map((s) =>
-        s.id === mine && !s.endedAt ? { ...s, endedAt: now, updatedAt: stamp(s) } : s,
+        !s.endedAt && (s.id === mine || isStaleOpen(s, now)) ? { ...s, endedAt: now, updatedAt: stamp(s) } : s,
       );
       const sessions = sortSessions([next, ...closed]).slice(0, SESSION_KEEP);
       persist(sessions);
@@ -415,9 +435,10 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       persist(sessions);
       set({ sessions });
     },
-    setRecapPending: (on) =>
+    setRecapPending: (on, target) =>
       set({
         recapPending: on,
+        recapTarget: on ? (target ?? get().recapTarget) : get().recapTarget,
         recapStage: on ? get().recapStage : null,
         recapError: on ? null : get().recapError,
       }),
@@ -426,9 +447,10 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
     stashLive: (opts) => {
       const sid = get().liveId;
       if (!sid) return;
+      // A line whose Chinese failed was still heard: keep the English.
       const transcript = get()
-        .captions.filter((c) => c.en && !c.error)
-        .map((c) => ({ en: c.en, zh: c.zh }));
+        .captions.filter((c) => c.en)
+        .map((c) => ({ en: c.en, zh: c.error ? "" : c.zh }));
       const coachTopics = get()
         .coaches.map((c) => ({ en: c.topic.trim(), zh: c.topicZh || "" }))
         .filter((t) => t.en);
@@ -439,12 +461,14 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           : coachTopics.length
             ? blankRecap(s.title, coachTopics)
             : null;
+        // The session accumulates; the screen holds only the newest lines and
+        // whatever was heard since a reload, so it never overwrites the tape.
         return {
           ...s,
           notes: mergeNotes(get().jots, s.notes ?? [], isRemovedJot),
-          transcript: transcript.length ? transcript : (s.transcript ?? []),
-          coaches: get().coaches.length ? get().coaches : (s.coaches ?? []),
-          essays: Object.keys(get().essays).length ? get().essays : (s.essays ?? {}),
+          transcript: mergeTape(s.transcript ?? [], transcript),
+          coaches: unionById(s.coaches ?? [], get().coaches),
+          essays: { ...(s.essays ?? {}), ...get().essays },
           recap,
           updatedAt: stamp(s),
         };
@@ -465,7 +489,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       // with shells for a moment. Re-read the disk and merge instead.
       if (!get().hydrated) {
         try {
-          applyCatalog(withoutSamples(loadSessions()), false);
+          applyCatalog(withoutSamples(loadSessions()), false, true);
         } catch {
           /* no index yet */
         }
@@ -486,7 +510,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
           next = withoutSamples(next);
           // Just read everything: safe to drop records that are not in this list.
           writeSessions(next, { prune: true, skip: isSkeleton });
-          applyCatalog(next, true);
+          applyCatalog(next, true, true);
         } catch (err) {
           // The read failed: keep showing the index, write nothing derived
           // from it back (a shell would cover the real class), and say so.
@@ -508,7 +532,8 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       if (!get().hydrated) return;
       try {
         const pulled = await pullCloud(get().sessions);
-        const next = withoutSamples(pulled.sessions);
+        // Edits made during the round trip live in `get().sessions` now.
+        const next = withoutSamples(mergeSessions(get().sessions, pulled.sessions));
         applyCatalog(next, true);
         if (pulled.switched) {
           // A different account: the previous account's rows leave this device.
@@ -527,7 +552,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       const now = Date.now();
       const liveId = get().liveId;
       const sessions = get().sessions.map((s) =>
-        s.id === liveId && !s.endedAt ? { ...s, endedAt: now, updatedAt: stamp(s) } : s,
+        !s.endedAt && (s.id === liveId || isStaleOpen(s, now)) ? { ...s, endedAt: now, updatedAt: stamp(s) } : s,
       );
       persist(sessions);
       set({
