@@ -179,6 +179,23 @@ describe("listen runtime", () => {
     assert.deepEqual(h.events, ["mic_live"]);
   });
 
+  it("a key xAI refuses is named as such, so nobody hunts for a network problem", async () => {
+    const h = harness(async () => ({ ok: false, code: "upstream", error: "xAI 错误 403", status: 403 }));
+    h.listen.start();
+    await settle();
+    for (let i = 0; i < STT_ATTEMPTS; i += 1) {
+      await assert.rejects(h.mints[i]!(), /403/);
+      h.stts[i]!.handlers.onError("stt");
+      if (i < STT_ATTEMPTS - 1) {
+        mock.timers.tick(STT_RETRY_MS);
+        await settle();
+      }
+    }
+    assert.equal(h.store.state.sttBackend, "browser");
+    assert.match(h.store.state.sttNote ?? "", /拒绝了.*钥匙/);
+    assert.match(h.store.state.sttNote ?? "", /403/);
+  });
+
   it("a stale controller cannot drop the one on the mic", async () => {
     const h = harness(async () => ({ ok: true, token: "t" }));
     h.listen.start();

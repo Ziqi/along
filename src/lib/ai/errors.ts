@@ -67,3 +67,13 @@ export function isTerminalAiError(code: AiErrorCode | undefined) {
     code === "no_stt_secret"
   );
 }
+
+/** xAI refused the key itself: no credits, no licence, revoked. Asking again changes nothing. */
+export function isKeyRefused(fail: { code: AiErrorCode; status?: number }) {
+  return fail.code === "upstream" && (fail.status === 401 || fail.status === 402 || fail.status === 403);
+}
+
+/** A failure that the same request will get again: a terminal code, or a refused key. */
+export function isTerminalAiFail(fail: { code: AiErrorCode; status?: number }) {
+  return isTerminalAiError(fail.code) || isKeyRefused(fail);
+}

@@ -173,6 +173,25 @@ describe("caption pipeline", () => {
     assert.equal(store.state.captions[0]?.error, UNTRANSLATED);
   });
 
+  it("a key xAI refuses (403) is asked once, not three times", async () => {
+    const store = fakeStore();
+    let n = 0;
+    const translate: Translate = async () => {
+      n += 1;
+      return { ok: false, code: "upstream", error: "xAI 错误 403", status: 403 };
+    };
+    const pipe = createCaptionPipeline({ store, api: api(translate), nav: noNav, now: Date.now }, { onLine: () => {} });
+    pipe.ingest("A sentence the account has no credits to translate.");
+    mock.timers.tick(TRANSLATE_DEBOUNCE_MS);
+    await settle();
+    for (let i = 0; i < 3; i += 1) {
+      pipe.retryPending();
+      await settle();
+    }
+    assert.equal(n, 1);
+    assert.equal(store.state.captions[0]?.error, UNTRANSLATED);
+  });
+
   it("太频繁 is not a try: the queue rests and asks again, and the line is never marked 未译", async () => {
     let clock = 1_000_000;
     const now = () => clock;

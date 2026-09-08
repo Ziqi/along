@@ -8,7 +8,7 @@ import {
   needsTranslate,
   withDeadline,
 } from "../live-queue.ts";
-import { isTerminalAiError } from "../ai/errors.ts";
+import { isTerminalAiFail } from "../ai/errors.ts";
 import { debounceSlot, type EngineContext } from "./context.ts";
 
 export const TRANSLATE_DEBOUNCE_MS = 600;
@@ -83,8 +83,8 @@ export function createCaptionPipeline(ctx: EngineContext, hooks: { onLine: () =>
         store.getState().setZh(line.id, { zh, ms: result.ok ? result.ms : 0, en: line.en });
       } else if (!result.ok && result.code === "rate_limited") {
         rested = true;
-      } else if (!result.ok && isTerminalAiError(result.code)) {
-        // No key, or nothing to translate: asking twice more changes nothing.
+      } else if (!result.ok && isTerminalAiFail(result)) {
+        // No key, a refused key, or nothing to translate: asking twice more changes nothing.
         tries.set(line.id, TRANS_TRIES);
         fail(line);
       } else {

@@ -1,4 +1,4 @@
-import type { AiErrorCode } from "../ai/errors.ts";
+import { isKeyRefused, type AiErrorCode } from "../ai/errors.ts";
 import { SpeechController, speechSupported, type SpeechHandlers } from "../speech-controller.ts";
 import { micErrorCode, micSupported, requestMic, SttController, type SttHandlers } from "../stt-controller.ts";
 import type { ClassEvent } from "./class-machine.ts";
@@ -40,10 +40,16 @@ const framed = () => {
   }
 };
 
+/** Why xAI STT could not be reached: the mint's failure, or "stt" for a socket that never came up. */
+export type SttReason = { code: AiErrorCode | "stt"; status?: number };
+
 /** What to tell the student when the browser's recognizer is on instead of xAI's. */
-export function browserSpeechNote(reason: AiErrorCode | "stt" | null): string {
+export function browserSpeechNote(reason: SttReason | null): string {
   const tail = "浏览器听写慢、不准、会漏句。点暂停再点继续听，会再试实时听写。";
-  switch (reason) {
+  if (reason && reason.code !== "stt" && isKeyRefused({ code: reason.code, status: reason.status })) {
+    return `xAI 拒绝了这个部署的听写钥匙（错误 ${reason.status}，多半是没额度或没权限），用的是浏览器听写。${tail}`;
+  }
+  switch (reason?.code) {
     case "rate_limited":
       return `实时听写这一分钟请求太多，先用浏览器听写。${tail}`;
     case "unavailable":
@@ -66,7 +72,7 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
   const { store, api } = ctx;
   let controller: Backend | null = null;
   let attempts = 0;
-  let lastMintFail: AiErrorCode | null = null;
+  let lastMintFail: SttReason | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
 
   function onError(code: string) {
@@ -118,7 +124,7 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
     if (prev) store.getState().setInterim("");
   }
 
-  function wireBrowserSpeech(reason: AiErrorCode | "stt" | null) {
+  function wireBrowserSpeech(reason: SttReason | null) {
     const s = store.getState();
     s.setSttBackend("browser", browserSpeechNote(reason));
     s.setEngineError(null);
@@ -144,7 +150,7 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
   function sttFailed() {
     dropController();
     if (!store.getState().listening) return;
-    const reason = lastMintFail ?? "stt";
+    const reason: SttReason = lastMintFail ?? { code: "stt" };
     if (attempts < STT_ATTEMPTS) {
       store.getState().setEngineError("实时听写没接上，再试一次…");
       clearRetry();
@@ -192,7 +198,7 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
       async () => {
         const minted = await api.mintStt();
         if (!minted.ok) {
-          lastMintFail = minted.code;
+          lastMintFail = { code: minted.code, status: minted.status };
           throw new Error(minted.error);
         }
         lastMintFail = null;
@@ -218,7 +224,7 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
           .catch((err) => {
             const code = micErrorCode(err);
             if (code !== "denied" && deps.speechSupported()) {
-              wireBrowserSpeech("stt");
+              wireBrowserSpeech({ code: "stt" });
               return;
             }
             onError(code);
@@ -226,7 +232,7 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
         return;
       }
       if (deps.speechSupported()) {
-        wireBrowserSpeech("stt");
+        wireBrowserSpeech({ code: "stt" });
         return;
       }
       const s = store.getState();
