@@ -4,7 +4,7 @@ export function isHeardQuestion(last: string) {
   const t = last.replace(/\s+/g, " ").trim();
   if (!t) return false;
   if (/[?？]/.test(t)) return true;
-  return /^(wh(at|y|o|ere|en|ich)|how|do |does |did |is |are |can |could |would |will |should )/i.test(
+  return /^(wh(at|y|o|ere|en|ich)|how|do|does|did|is|are|can|could|would|will|should)(\s|$)/i.test(
     t,
   );
 }
@@ -125,6 +125,11 @@ export function coachEmptyCopy(
     return "正在写：同意、对比、例子；问句则直接答、补一层、举个例。";
   }
   if (phase === "retrying") return "上一拍慢了，正在重写。先别空着等。";
+  if (phase === "following") {
+    if (mode === "listen") return "已经在听。落下完整一句，就写这句、剖析、背景。";
+    if (mode === "audit") return "已经在听。落下完整一句，就写成「若要开口」。";
+    return "已经在听。落下完整一句，就写三条开口。";
+  }
   if (mode === "listen") return "只听。落下值得留的一句，就写这句、剖析、这一拍的背景。点上方主题可跳回。";
   if (mode === "audit")
     return "旁听。你若要接，给同意、对比、例子。问句则直接答、补一层、举个例。";
@@ -137,7 +142,7 @@ export function humanCoachError(err: string, phase: "retrying" | "failed" = "fai
   if (!t || t === "timeout" || t === "deadline") {
     return retrying ? "这轮慢了，正在重写" : "这轮慢了，点重写再试。";
   }
-  if (t === "AI 暂不可用") {
+  if (t === "AI 暂不可用" || /xAI 错误 40[13]/.test(t)) {
     return retrying ? "教练没接到模型，正在重写" : "教练没接到模型，点重写再试。";
   }
   if (/429/.test(t)) {
@@ -145,4 +150,14 @@ export function humanCoachError(err: string, phase: "retrying" | "failed" = "fai
   }
   if (t === "empty") return "再听一句完整的，我再写。";
   return t;
+}
+
+/** Timeouts and thin cards can retry. A missing model cannot. */
+export function isRetryableCoachError(err: string) {
+  const t = err.trim();
+  if (!t) return true;
+  if (t === "AI 暂不可用" || t === "empty") return false;
+  if (/没接到模型/.test(t)) return false;
+  if (/xAI 错误 40[13]/.test(t)) return false;
+  return true;
 }

@@ -93,6 +93,25 @@ describe("assembleCoach", () => {
     assert.deepEqual(card.options.map((o) => o.label), ["直接答", "补一层", "举个例"]);
   });
 
+  it("keeps a listen 这句 even when it is the caption itself", () => {
+    const card = assembleCoach({
+      mode: "listen",
+      last: heard,
+      parsed: {
+        topic: "Wait times",
+        options: [
+          { label: "这句", en: heard },
+          { label: "剖析", en: "Longer than last year sets a clean year-on-year contrast." },
+          { label: "背景", en: "A clinic hour comparing public queues across cities." },
+        ],
+      },
+    });
+    assert.equal(card.ok, true);
+    if (!card.ok) return;
+    assert.equal(card.options[0]?.en, heard);
+    assert.equal(card.options[0]?.label, "这句");
+  });
+
   it("relabels listen cards and drops extras", () => {
     const card = assembleCoach({
       mode: "listen",

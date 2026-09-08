@@ -114,7 +114,7 @@ function rowOf(label: string, en: string, zh: string, keys: unknown): CoachLine 
   const line = clip(en, 180);
   if (!line) return null;
   return {
-    label: clip(label, 6),
+    label: label.replace(/\s+/g, " ").trim(),
     en: line,
     zh: clip(zh, 40),
     keys: parseCoachKeys(keys, line),
@@ -169,20 +169,25 @@ function slotOf(label: string, names: string[]): number {
   if (/背景|context/.test(t)) return names[2] === "背景" ? 2 : -1;
   if (/直接答|^答$|answer/.test(t)) return names[0] === "直接答" ? 0 : -1;
   if (/补一层|补一句/.test(t)) return names[1] === "补一层" ? 1 : -1;
-  if (/举个例|example/.test(t)) return names.includes("举个例") ? names.indexOf("举个例") : -1;
+  if (/举个例/.test(t)) return names.includes("举个例") ? names.indexOf("举个例") : -1;
   if (/同意|agree/.test(t)) return names[0] === "同意" ? 0 : -1;
   if (/对比|contrast/.test(t)) return names[1] === "对比" ? 1 : -1;
-  if (/例子/.test(t)) return names[2] === "例子" ? 2 : -1;
+  if (/例子|example/.test(t)) return names[2] === "例子" ? 2 : names.includes("举个例") ? names.indexOf("举个例") : -1;
   if (/延展|extend/.test(t)) return names[0] === "延展" ? 0 : -1;
   if (/追深|deeper/.test(t)) return names[1] === "追深" ? 1 : -1;
   return -1;
 }
 
-function placeLines(rows: CoachLine[], names: string[], last: string): CoachLine[] {
+function placeLines(
+  rows: CoachLine[],
+  names: string[],
+  last: string,
+  allowEcho = false,
+): CoachLine[] {
   const slots: Array<CoachLine | null> = names.map(() => null);
   const leftover: CoachLine[] = [];
   for (const row of rows) {
-    if (echoesHeard(row.en, last)) continue;
+    if (!allowEcho && echoesHeard(row.en, last)) continue;
     const i = slotOf(row.label, names);
     if (i >= 0 && !slots[i]) slots[i] = row;
     else leftover.push(row);
@@ -232,7 +237,12 @@ export function assembleCoach(input: {
     lastHeard: input.last,
   });
   const labels = coachOptionLabels(mode, move);
-  const options = placeLines(collectRows(input.parsed?.options), labels, input.last);
+  const options = placeLines(
+    collectRows(input.parsed?.options),
+    labels,
+    input.last,
+    mode === "listen",
+  );
   if (options.some((o) => !o.en)) {
     return { ok: false, error: "教练没给出三条，再听一句。" };
   }

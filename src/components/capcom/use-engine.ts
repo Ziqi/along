@@ -15,6 +15,7 @@ import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
 import {
   humanCoachError,
+  isRetryableCoachError,
   shouldAskCoach,
   shouldKeepCoachCard,
   shouldRescueCoach,
@@ -232,10 +233,11 @@ async function flushCoach(
       return;
     }
     if (!result.ok) {
+      const retryable = isRetryableCoachError(result.error);
       useCapcom.getState().setCoachError(
-        humanCoachError(result.error, opts?.retry ? "failed" : "retrying"),
+        humanCoachError(result.error, !opts?.retry && retryable ? "retrying" : "failed"),
       );
-      if (!opts?.retry) again = "retry";
+      if (!opts?.retry && retryable) again = "retry";
       return;
     }
     if (!result.options.length) {
@@ -301,6 +303,7 @@ async function flushCoach(
 function rescueCoach() {
   const s = useCapcom.getState();
   const last = s.captions.at(-1);
+  if (s.coachError && !isRetryableCoachError(s.coachError)) return;
   if (
     !shouldRescueCoach({
       autoCoach: s.autoCoach,

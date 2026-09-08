@@ -6,6 +6,7 @@ import {
   coachUiPhase,
   humanCoachError,
   isHeardQuestion,
+  isRetryableCoachError,
   resolveCoachSame,
   shouldAskCoach,
   shouldKeepCoachCard,
@@ -17,6 +18,8 @@ const opts = (en: string) => [{ en }, { en: `${en} two` }, { en: `${en} three` }
 describe("coach same / keep", () => {
   it("treats questions as a new beat even when the model says same", () => {
     assert.equal(isHeardQuestion("Who can wait for the payoff?"), true);
+    assert.equal(isHeardQuestion("However the quarter missed again this morning."), false);
+    assert.equal(isHeardQuestion("Whoever arrives first still waits."), false);
     assert.equal(
       resolveCoachSame({
         modelSame: true,
@@ -215,5 +218,13 @@ describe("coach pane copy", () => {
     assert.equal(humanCoachError("timeout", "failed"), "这轮慢了，点重写再试。");
     assert.match(humanCoachError("AI 暂不可用"), /没接到模型/);
     assert.equal(humanCoachError("AI 暂不可用").includes("连不上"), false);
+    assert.equal(isRetryableCoachError("AI 暂不可用"), false);
+    assert.equal(isRetryableCoachError("教练没接到模型，点重写再试。"), false);
+    assert.equal(isRetryableCoachError("timeout"), true);
+  });
+
+  it("tells the student a caption is in before the first card", () => {
+    assert.match(coachEmptyCopy("following", "audit"), /已经在听/);
+    assert.match(coachEmptyCopy("following", "listen"), /这句/);
   });
 });

@@ -109,7 +109,7 @@ export function UplinkPanel() {
             onClick={() => setCoachLive(!autoCoach)}
           >
             {autoCoach ? <Pause className="size-3" /> : <Play className="size-3" />}
-            {autoCoach ? "暂停" : "跟听"}
+            {autoCoach ? "停写" : "跟听"}
           </Button>
           {latest || captions.length ? (
             <Button
