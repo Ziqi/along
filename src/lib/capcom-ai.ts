@@ -1029,7 +1029,7 @@ export const recapClass = createServerFn({ method: "POST" })
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
       kindNote +
-      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus optional 1. 2. 3. A list alone is not a section. Contrast hours need a two-column table on that section. Fold DeepSearch names/numbers and student notes into the matching paragraph. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
+      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus optional 1. 2. 3. A list alone is not a section. Contrast hours need a two-column table on that section. Fold coach briefs, DeepSearch names/numbers, and student notes into the matching paragraph. If there is no search and no note, the coach brief still belongs in the essay. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
       ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"...","table":{"leftHead":"...","leftHeadZh":"...","rightHead":"...","rightHeadZh":"...","rows":[{"left":"...","leftZh":"...","right":"...","rightZh":"..."}]}}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. Omit table when the hour is not a contrast.';
     const userPacket = JSON.stringify(packet);
     const [content, grok] = await Promise.all([
@@ -1060,7 +1060,7 @@ export const recapClass = createServerFn({ method: "POST" })
         : data.topics.slice(0, 4));
       const slim = await chat46recap({
         system:
-          "The outline is not a handout. WRITE the 讲义 for THIS class. Fold coach claims, DeepSearch names/numbers, and student notes into the paragraphs. Do not paste the three coach openings. Title is 3–8 words, not a caption. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. Three sections is enough. Each body = prose paragraph + optional 1. 2. 3. bodyZh = 简体. Table only for a real contrast. Star *handout words*. Finish the JSON.",
+          "The outline is not a handout. WRITE the 讲义 for THIS class. Fold coach briefs, DeepSearch names/numbers, and student notes into the paragraphs. If there is no search and no note, use the coach brief. Do not paste the three coach openings. Title is 3–8 words, not a caption. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. Three sections is enough. Each body = prose paragraph + optional 1. 2. 3. bodyZh = 简体. Table only for a real contrast. Star *handout words*. Finish the JSON.",
         user: JSON.stringify({ headings: heads, packet }),
         maxTokens: 3600,
         timeoutMs: 28000,
@@ -1070,21 +1070,6 @@ export const recapClass = createServerFn({ method: "POST" })
         parsed = mergeAiJson(parsed, extractJsonObject(slim.text) ?? {});
         recap = stamp(parsed);
         recap.latencyMs += slim.ms;
-      }
-    }
-    if (!essayReadyForClass(recap, sources)) {
-      const three = await chat46recap({
-        system:
-          "Write THREE section 讲义 only for THIS class. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body is prose (90+ words) plus optional 1. 2. 3. A list alone fails. Put DeepSearch facts and student notes in the matching paragraph. Do not paste coach openings. 简体 in *Zh. Table only if the hour is a contrast.",
-        user: JSON.stringify(packet),
-        maxTokens: 2800,
-        timeoutMs: 24000,
-        json: true,
-      });
-      if (three.ok) {
-        parsed = mergeAiJson(parsed, extractJsonObject(three.text) ?? {});
-        recap = stamp(parsed);
-        recap.latencyMs += three.ms;
       }
     }
     if (!essayReadyForClass(recap, sources)) {
