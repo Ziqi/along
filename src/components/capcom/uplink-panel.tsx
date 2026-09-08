@@ -3,7 +3,7 @@ import { Check, Copy, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
 import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
-import { requestCoach, requestEssay, setCoachLive, captureNote } from "@/components/capcom/use-engine";
+import { captureNote, requestCoach, requestEssay, setCoachLive } from "@/lib/engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { essayOf } from "@/lib/recap-kit";
 import {

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
-import { endClass, openRecap, goHomeSafe } from "@/components/capcom/use-engine";
+import { endClass, goHomeSafe, openRecap } from "@/lib/engine";
 import { CLASS_MODES, modeLabel, parseClassMode, type ClassMode } from "@/lib/class-mode";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";

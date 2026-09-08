@@ -17,6 +17,7 @@ import {
   releasePersistQueue,
 } from "@/lib/session-persist";
 import { probeStorage, writeLocalSessions } from "@/lib/persist";
+import { phaseFromCatalog } from "@/lib/engine/class-machine";
 import type { AppState } from "./app-state";
 import { HUD_BLANK } from "./live-slice";
 
@@ -222,7 +223,13 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       persist(sessions);
       const sessionId = get().sessionId === id ? (sessions[0]?.id ?? null) : get().sessionId;
       const liveId = get().liveId === id ? null : get().liveId;
-      set({ sessions, sessionId, liveId, jots: liveId ? get().jots : [] });
+      set({
+        sessions,
+        sessionId,
+        liveId,
+        jots: liveId ? get().jots : [],
+        phase: liveId ? get().phase : phaseFromCatalog(get().phase, false),
+      });
     },
     updateRecap: (id, patch) => {
       const sessions = get().sessions.map((s) => {
@@ -383,6 +390,7 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
               })),
           seq: keepTape ? cur.seq : tape.length,
           classMode: open ? parseClassMode(open.classMode) : cur.classMode,
+          phase: phaseFromCatalog(cur.phase, Boolean(open)),
         });
       };
       const withSample = (sessions: ClassSession[]) => {

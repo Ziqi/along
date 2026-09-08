@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Trash2, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortSessions, useCapcom } from "@/lib/store";
-import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/components/capcom/use-engine";
+import { captureNote, forkAndRecap, goHomeSafe, requestRecap } from "@/lib/engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
 import { collectDrillCards, splitProse } from "@/lib/recap-kit";
 import { recapStageView, type RecapStage } from "@/lib/recap-stage";

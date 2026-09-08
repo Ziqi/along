@@ -1,7 +1,7 @@
 import { useRef, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { useCapcom } from "@/lib/store";
-import { captureNote } from "@/components/capcom/use-engine";
+import { captureNote } from "@/lib/engine";
 
 export function JotPad() {
   const open = useCapcom((s) => s.jotOpen);

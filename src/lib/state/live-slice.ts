@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { Caption, CoachCard, MicState, TopicEssay } from "@/lib/types";
 import { COACH_KEEP } from "@/lib/live-queue";
+import type { ClassPhase } from "@/lib/engine/class-machine";
 import type { AppState } from "./app-state";
 
 /**
@@ -10,6 +11,8 @@ import type { AppState } from "./app-state";
  * open `ClassSession`.
  */
 export type LiveSlice = {
+  /** Where the class machine is; written by the engine only. */
+  phase: ClassPhase;
   captions: Caption[];
   interim: string;
   mic: MicState;
@@ -31,6 +34,7 @@ export type LiveSlice = {
   intent: string;
   engineError: string | null;
   seq: number;
+  setPhase: (phase: ClassPhase) => void;
   pushFinal: (en: string) => string;
   setZh: (id: string, patch: { zh: string; ms: number; en?: string }) => void;
   markError: (id: string, error: string) => void;
@@ -101,6 +105,7 @@ export const HUD_BLANK = {
 };
 
 export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, get) => ({
+  phase: "idle",
   captions: [],
   interim: "",
   mic: "idle",
@@ -122,6 +127,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   intent: "",
   engineError: null,
   seq: 0,
+  setPhase: (phase) => set({ phase }),
   pushFinal: (en) => {
     const text = en.replace(/\s+/g, " ").trim();
     if (!text || !isSpeech(text)) return "";

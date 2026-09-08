@@ -3,11 +3,8 @@ import { DownlinkPanel } from "@/components/capcom/downlink-panel";
 import { UplinkPanel } from "@/components/capcom/uplink-panel";
 import { RecapPage } from "@/components/capcom/recap-page";
 import { JotPad } from "@/components/capcom/jot-pad";
-import {
-  arm,
-  safe,
-  useCapcomEngine,
-} from "@/components/capcom/use-engine";
+import { useCapcomEngine } from "@/components/capcom/use-engine";
+import { arm, safe } from "@/lib/engine";
 import { useCapcom } from "@/lib/store";
 import { applyTheme, readTheme } from "@/lib/theme";
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
