@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { sortSessions, useCapcom } from "@/lib/store";
 import { requestRecap, forkAndRecap, captureNote, goHomeSafe } from "@/components/capcom/use-engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
-import { splitProse } from "@/lib/recap-kit";
+import { collectDrillCards, splitProse } from "@/lib/recap-kit";
 import { recapStageView, type RecapStage } from "@/lib/recap-stage";
 import type { ClassSession, RecapCoach, RecapPair, RecapStudy, RecapTable } from "@/lib/types";
 import { isStudyAppendix, isStudyCard, modeLabel, parseClassMode, recapAppendixCopy } from "@/lib/class-mode";
@@ -49,6 +49,10 @@ export function RecapPage() {
   const hasPaper = Boolean(recap?.lede || sections.length);
   const needWrite = pending || Boolean(error) || !hasPaper;
   const stats = useMemo(() => tally(sessions), [sessions]);
+  const thisClassCards = useMemo(
+    () => collectDrillCards(session ? [session] : [], session?.id),
+    [session],
+  );
   const listed = useMemo(() => sortSessions(sessions), [sessions]);
   const marks = useMemo(() => {
     const fromAi = recap?.marks ?? [];
@@ -356,7 +360,7 @@ export function RecapPage() {
                         size="sm"
                         className="h-7 min-h-7 px-2"
                         onClick={() => setMode("drill")}
-                        disabled={!stats.cards}
+                        disabled={!thisClassCards.length && !stats.cards}
                       >
                         复习
                       </Button>
@@ -524,7 +528,7 @@ export function RecapPage() {
                         <p className="text-sm text-muted">语言点</p>
                         <h2 className="mt-2 text-xl font-medium tracking-tight">语言点</h2>
                         <p className="mt-1 text-sm text-muted">
-                          读完整堂课之后选出的词、搭配、句式。划线也由这份讲义决定。每条都有用法和中文。
+                          从这一堂里抽出的词、搭配、句式。每条都能指回刚听过的说法，并带用法和例句。
                         </p>
                       </div>
                       <StudyCards
@@ -1165,30 +1169,6 @@ function tally(sessions: ClassSession[]) {
   };
 }
 
-type Drill = { id: string; kind: string; en: string; zh: string };
-
-function collect(sessions: ClassSession[], onlyId?: string): Drill[] {
-  const out: Drill[] = [];
-  for (const s of sessions) {
-    if (onlyId && s.id !== onlyId) continue;
-    const recap = s.recap;
-    if (!recap) continue;
-    for (const [kind, list] of [
-      ["句式", recap.patterns ?? []],
-      ["搭配", recap.collos ?? []],
-      ["语法", recap.grammar ?? []],
-      ["句子", recap.lines ?? []],
-      ["单词", recap.words ?? []],
-    ] as const) {
-      for (const it of list) {
-        if (!it.en) continue;
-        out.push({ id: `${s.id}-${kind}-${it.en}`, kind, en: it.en, zh: it.zh });
-      }
-    }
-  }
-  return out;
-}
-
 function DrillDeck({
   sessions,
   currentId,
@@ -1199,8 +1179,12 @@ function DrillDeck({
   const [all, setAll] = useState(false);
   const [i, setI] = useState(0);
   const [show, setShow] = useState(false);
-  const deck = collect(sessions, all ? undefined : currentId);
+  const here = collectDrillCards(sessions, currentId);
+  const deck = all ? collectDrillCards(sessions) : here;
   const card = deck[i];
+  const back = card
+    ? [card.zh, card.useZh || card.use, card.example].filter((x) => x && x.trim())
+    : [];
 
   useEffect(() => {
     setI(0);
@@ -1213,21 +1197,54 @@ function DrillDeck({
   }
 
   if (!deck.length) {
-    return <p className="text-base text-muted">这堂还没有可复习的句式、句子或单词。</p>;
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="arm" size="sm" className="h-7 min-h-7 px-2" onClick={() => setAll(false)}>
+            本堂
+          </Button>
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            className="h-7 min-h-7 px-2"
+            onClick={() => setAll(true)}
+            disabled={!collectDrillCards(sessions).length}
+          >
+            全部堂次
+          </Button>
+        </div>
+        <p className="text-base text-muted">
+          这堂还没有可翻的词条。语言点写完会先抽这一堂，不是跨课词表。
+        </p>
+      </div>
+    );
   }
   if (!card) return null;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-2">
-        <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2" onClick={() => setAll(false)}>
+        <Button
+          type="button"
+          variant={all ? "quiet" : "arm"}
+          size="sm"
+          className="h-7 min-h-7 px-2"
+          onClick={() => setAll(false)}
+        >
           本堂
         </Button>
-        <Button type="button" variant="quiet" size="sm" className="h-7 min-h-7 px-2" onClick={() => setAll(true)}>
+        <Button
+          type="button"
+          variant={all ? "arm" : "quiet"}
+          size="sm"
+          className="h-7 min-h-7 px-2"
+          onClick={() => setAll(true)}
+        >
           全部堂次
         </Button>
         <p className="text-xs text-dim">
-          {i + 1} / {deck.length} · {card.kind}
+          {all ? "跨课" : "这一堂"} · {i + 1} / {deck.length} · {card.kind}
         </p>
       </div>
       <button
@@ -1236,15 +1253,21 @@ function DrillDeck({
         className="min-h-40 border border-line px-5 py-8 text-left"
       >
         <p className="text-xl font-medium leading-snug tracking-tight text-pretty">{card.en}</p>
-        {show && card.zh ? (
-          <p className="mt-4 text-base leading-relaxed text-muted text-pretty">{card.zh}</p>
+        {show ? (
+          <div className="mt-4 flex flex-col gap-2">
+            {back.map((line) => (
+              <p key={line} className="text-base leading-relaxed text-muted text-pretty">
+                {line}
+              </p>
+            ))}
+          </div>
         ) : (
-          <p className="mt-4 text-sm text-dim">点开看中文</p>
+          <p className="mt-4 text-sm text-dim">点开看中文和用法</p>
         )}
       </button>
       <div className="flex gap-2">
         <Button type="button" variant="ghost" size="lg" onClick={() => setShow(true)}>
-          看中文
+          看背面
         </Button>
         <Button type="button" variant="arm" size="lg" onClick={next}>
           会了
