@@ -77,7 +77,7 @@ export function polishBody(text: string) {
   const paras: string[] = [];
   const points: string[] = [];
   for (const line of raw) {
-    if (/^\d+[\.)]\s+/.test(line)) points.push(line.replace(/^\d+[\.)]\s+/, ""));
+    if (/^\d+[.)]\s+/.test(line)) points.push(line.replace(/^\d+[.)]\s+/, ""));
     else if (/^[-•]\s+/.test(line)) points.push(line.replace(/^[-•]\s+/, ""));
     else paras.push(line);
   }
@@ -97,7 +97,7 @@ export function splitProse(text: string): ProseBlock[] {
       i += 1;
       continue;
     }
-    if (/^\d+[\.)]\s+/.test(line)) {
+    if (/^\d+[.)]\s+/.test(line)) {
       const items: string[] = [];
       while (i < raw.length) {
         const cur = raw[i]?.trim() ?? "";
@@ -105,8 +105,8 @@ export function splitProse(text: string): ProseBlock[] {
           i += 1;
           break;
         }
-        if (/^\d+[\.)]\s+/.test(cur)) {
-          items.push(cur.replace(/^\d+[\.)]\s+/, ""));
+        if (/^\d+[.)]\s+/.test(cur)) {
+          items.push(cur.replace(/^\d+[.)]\s+/, ""));
           i += 1;
           continue;
         }
@@ -140,7 +140,7 @@ export function splitProse(text: string): ProseBlock[] {
         i += 1;
         break;
       }
-      if (/^\d+[\.)]\s+/.test(cur) || /^[-•]\s+/.test(cur)) break;
+      if (/^\d+[.)]\s+/.test(cur) || /^[-•]\s+/.test(cur)) break;
       items.push(cur);
       i += 1;
     }
@@ -248,7 +248,7 @@ export function hasProseParagraph(body: string) {
     .split(/\n\n+/)
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter(Boolean);
-  return parts.some((p) => !/^\d+[\.)]\s/.test(p) && p.length > 80);
+  return parts.some((p) => !/^\d+[.)]\s/.test(p) && p.length > 80);
 }
 
 function fallbackTitle(base: ClassRecap) {

@@ -71,7 +71,6 @@ export function abortLive() {
   coachInflight = false;
   coachQueued = false;
   lastCoachOkAt = 0;
-  recapGen += 1;
   const s = useCapcom.getState();
   s.setCoachPending(false);
   s.setEssayPending(false);
@@ -646,7 +645,6 @@ export async function requestRecap(targetId?: string, hintTopics?: string[]) {
   if (session?.recap?.outline?.length) skeleton.outline = session.recap.outline;
   skeleton.coachPack = pack;
   live.setRecap(skeleton, sid);
-  useCapcom.getState().setRecapPending(true);
   const coachPayload = pack.map((c) => ({
     topic: c.topic,
     brief: c.briefEn,
@@ -757,7 +755,7 @@ export async function endClass() {
   safe();
   const sid = store.liveId ?? store.sessionId;
   store.stashLive();
-  store.clear({ keepBay: true });
+  store.clear({ keepRecap: true });
   if (sid) store.setSession(sid);
   store.setView("recap");
   const session = useCapcom.getState().sessions.find((s) => s.id === sid);

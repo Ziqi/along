@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type {
-  Bay,
   Caption,
   ClassRecap,
   ClassSession,
@@ -392,7 +391,6 @@ type AppState = {
   sessions: ClassSession[];
   sessionId: string | null;
   liveId: string | null;
-  bay: Bay;
   view: View;
   recapPending: boolean;
   recapStage: RecapStage | null;
@@ -432,7 +430,6 @@ type AppState = {
   updateRecap: (id: string, patch: Partial<ClassRecap>) => void;
   ensureSession: () => string;
   setSession: (id: string) => void;
-  setBay: (bay: Bay) => void;
   setView: (view: View) => void;
   setRecap: (recap: ClassRecap, sessionId?: string) => void;
   setLiveDraft: (
@@ -454,7 +451,7 @@ type AppState = {
   setEngineError: (msg: string | null) => void;
   armClock: () => void;
   resetHud: () => void;
-  clear: (opts?: { keepBay?: boolean }) => void;
+  clear: (opts?: { keepRecap?: boolean }) => void;
 };
 
 export const useCapcom = create<AppState>((set, get) => {
@@ -480,7 +477,6 @@ export const useCapcom = create<AppState>((set, get) => {
     sessions: [],
     sessionId: null,
     liveId: null,
-    bay: null,
     view: "live",
     recapPending: false,
     recapStage: null,
@@ -728,12 +724,11 @@ export const useCapcom = create<AppState>((set, get) => {
     goHome: () => {
       const open = get().sessions.some((s) => s.id === get().liveId && !s.endedAt);
       if (open) {
-        set({ view: "live", bay: null, jotOpen: false });
+        set({ view: "live", jotOpen: false });
         return;
       }
       set({
         view: "live",
-        bay: null,
         jotOpen: false,
         captions: [],
         interim: "",
@@ -822,7 +817,6 @@ export const useCapcom = create<AppState>((set, get) => {
       if (!hit) return;
       set({ sessionId: id, jots: hit.notes, recapError: null });
     },
-    setBay: (bay) => set({ bay }),
     setView: (view) => set({ view }),
     setRecap: (recap, sessionId) => {
       const sid = sessionId ?? get().sessionId;
@@ -1090,10 +1084,9 @@ export const useCapcom = create<AppState>((set, get) => {
         jots: [],
         sessions,
         liveId: null,
-        sessionId: opts?.keepBay ? liveId ?? get().sessionId : get().sessionId,
-        bay: opts?.keepBay ? get().bay : null,
-        recapPending: opts?.keepBay ? get().recapPending : false,
-        recapError: opts?.keepBay ? get().recapError : null,
+        sessionId: opts?.keepRecap ? liveId ?? get().sessionId : get().sessionId,
+        recapPending: opts?.keepRecap ? get().recapPending : false,
+        recapError: opts?.keepRecap ? get().recapError : null,
         seq: 0,
         startedAt: null,
         lastLatency: null,

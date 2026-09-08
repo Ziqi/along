@@ -22,7 +22,7 @@ import { extractJsonObject } from "@/lib/json-object";
 import { assembleCoach } from "@/lib/coach-assemble";
 import { parseClassMode } from "@/lib/class-mode";
 import { COACH_FALLBACK_MS, COACH_PRIMARY_MS } from "@/lib/live-queue";
-import type { RecapTable } from "@/lib/types";
+import type { RecapStudy, RecapTable } from "@/lib/types";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
 const FLASH = "grok-4.20-0309-non-reasoning";
@@ -680,75 +680,6 @@ export const quickTranslate = createServerFn({ method: "POST" })
     return { ok: true, out: result.text.trim(), dir, ms: result.ms };
   });
 
-function parseTerms(v: unknown, n = 4): { en: string; zh: string }[] {
-  if (!Array.isArray(v)) return [];
-  const out: { en: string; zh: string }[] = [];
-  for (const it of v) {
-    if (typeof it === "string") {
-      const parts = it.split(/\s*[—–\-]\s*/);
-      const en = (parts[0] ?? "").trim();
-      const zh = (parts[1] ?? "").trim();
-      if (en) out.push({ en, zh });
-    } else if (it && typeof it === "object") {
-      const row = it as { en?: unknown; zh?: unknown };
-      const en = typeof row.en === "string" ? row.en.trim() : "";
-      const zh = typeof row.zh === "string" ? row.zh.trim() : "";
-      if (en) out.push({ en, zh });
-    }
-  }
-  return out.slice(0, n);
-}
-
-function parseSections(v: unknown): {
-  heading: string;
-  headingZh: string;
-  body: string;
-  bodyZh: string;
-}[] {
-  if (!Array.isArray(v)) return [];
-  const out: {
-    heading: string;
-    headingZh: string;
-    body: string;
-    bodyZh: string;
-  }[] = [];
-  for (const it of v) {
-    if (!it || typeof it !== "object") continue;
-    const row = it as {
-      heading?: unknown;
-      headingZh?: unknown;
-      body?: unknown;
-      bodyZh?: unknown;
-    };
-    const heading = typeof row.heading === "string" ? row.heading.trim() : "";
-    const bodyRaw = typeof row.body === "string" ? row.body.trim() : "";
-    const pointRows = Array.isArray((row as { points?: unknown }).points)
-      ? ((row as { points: unknown[] }).points)
-      : [];
-    const fromPoints = pointRows
-      .map((p, i) => {
-        if (typeof p === "string") return `${i + 1}. ${p.trim()}`;
-        if (!p || typeof p !== "object") return "";
-        const r = p as { en?: unknown; zh?: unknown; n?: unknown };
-        const en = typeof r.en === "string" ? r.en.trim() : "";
-        const zh = typeof r.zh === "string" ? r.zh.trim() : "";
-        if (!en) return "";
-        return zh ? `${i + 1}. ${en}\n${zh}` : `${i + 1}. ${en}`;
-      })
-      .filter(Boolean);
-    const body = [bodyRaw, fromPoints.join("\n")].filter(Boolean).join("\n\n");
-    if (heading && body)
-      out.push({
-        heading,
-        headingZh: typeof row.headingZh === "string" ? row.headingZh.trim() : "",
-        body,
-        bodyZh: typeof row.bodyZh === "string" ? row.bodyZh.trim() : "",
-      });
-    if (out.length === 6) break;
-  }
-  return out;
-}
-
 function parseOutline(v: unknown): { heading: string; bullets: string[] }[] {
   if (!Array.isArray(v)) return [];
   const out: { heading: string; bullets: string[] }[] = [];
@@ -779,49 +710,6 @@ function parsePairs(v: unknown, n: number): { en: string; zh: string }[] {
   return out;
 }
 
-function parseStudy(v: unknown, n: number): {
-  en: string;
-  zh: string;
-  use: string;
-  useZh: string;
-  example: string;
-  exampleZh: string;
-}[] {
-  if (!Array.isArray(v)) return [];
-  const out: {
-    en: string;
-    zh: string;
-    use: string;
-    useZh: string;
-    example: string;
-    exampleZh: string;
-  }[] = [];
-  for (const it of v) {
-    if (!it || typeof it !== "object") continue;
-    const row = it as {
-      en?: unknown;
-      zh?: unknown;
-      use?: unknown;
-      useZh?: unknown;
-      example?: unknown;
-      exampleZh?: unknown;
-      note?: unknown;
-    };
-    const en = typeof row.en === "string" ? row.en.trim() : "";
-    if (!en) continue;
-    out.push({
-      en,
-      zh: typeof row.zh === "string" ? row.zh.trim() : "",
-      use: typeof row.use === "string" ? row.use.trim() : typeof row.note === "string" ? row.note.trim() : "",
-      useZh: typeof row.useZh === "string" ? row.useZh.trim() : "",
-      example: typeof row.example === "string" ? row.example.trim() : "",
-      exampleZh: typeof row.exampleZh === "string" ? row.exampleZh.trim() : "",
-    });
-    if (out.length === n) break;
-  }
-  return out;
-}
-
 type RecapSectionOk = {
   heading: string;
   headingZh: string;
@@ -838,11 +726,11 @@ type RecapOk = {
   sections: RecapSectionOk[];
   outline: { heading: string; bullets: string[] }[];
   topics: { en: string; zh: string }[];
-  patterns: ReturnType<typeof parseStudy>;
-  lines: ReturnType<typeof parseStudy>;
-  words: ReturnType<typeof parseStudy>;
-  collos: ReturnType<typeof parseStudy>;
-  grammar: ReturnType<typeof parseStudy>;
+  patterns: RecapStudy[];
+  lines: RecapStudy[];
+  words: RecapStudy[];
+  collos: RecapStudy[];
+  grammar: RecapStudy[];
   skills: { en: string; zh: string }[];
   takeaways: { en: string; zh: string }[];
   marks: string[];

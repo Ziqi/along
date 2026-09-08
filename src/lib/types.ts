@@ -179,7 +179,6 @@ export type ClassSession = {
   starredAt: number | null;
 };
 
-export type Bay = null;
 export type View = "live" | "recap";
 
 export type MicState = "idle" | "arming" | "live" | "denied" | "unsupported";
