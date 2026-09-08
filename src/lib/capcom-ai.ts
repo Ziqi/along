@@ -1,6 +1,21 @@
 import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
-import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
+import {
+  applyZh,
+  assembleRecap,
+  compactTape,
+  emptyRecap,
+  essayReadyForClass,
+  GOLD_CONTENT,
+  GOLD_STUDY,
+  isFilled,
+  isStudyFilled,
+  keepClassStudy,
+  mergeAiJson,
+  missingZh,
+  pickRicherJson,
+  studyHayFromClass,
+} from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
 import { assembleCoach } from "@/lib/coach-assemble";
 import { parseClassMode } from "@/lib/class-mode";
@@ -984,15 +999,20 @@ export const recapClass = createServerFn({ method: "POST" })
       topics: data.topics,
       class_mode: data.mode,
     };
-    const listenNote = listenOnly
-      ? " This hour was listen-only (podcast / Coursera / recording). Do not write lines to say to a teacher. Coach cards are 这句 / 剖析 / 背景 and stay in a class-notes appendix, not a speaking appendix."
-      : "";
+    const kindNote = listenOnly
+      ? " class_mode=listen. Write listening notes: what this beat argued and why a line is worth keeping. Never write as if they spoke to a teacher. 这句 / 剖析 / 背景 stay in a class-notes appendix."
+      : ` class_mode=${data.mode}. Write the hour's claim and tension, and how they could have joined. Still an essay — do not reprint agree/contrast/example or answer/add-a-layer/example.`;
     const listenStudy = listenOnly
-      ? " skills = sentence frames worth stealing later, not lines to say to a teacher."
-      : "";
+      ? " skills = sentence frames worth stealing later, not lines to say to a teacher. Prefer collocations from 剖析."
+      : " skills = upgrades they could say, still as study rows, not a copy of 1. 2. 3.";
     const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
+    const heard = tape.map((l) => l.en);
+    const sources = { notes: data.notes, coach: data.coach };
+    const stamp = (ai: Record<string, unknown>) => assembleRecap(base, ai, { heard });
+    const closeStudy = (next: ReturnType<typeof stamp>) =>
+      keepClassStudy(next, studyHayFromClass({ tape, notes: data.notes, coach: data.coach, recap: next }));
     let parsed: Record<string, unknown> = {};
-    let recap = assembleRecap(base, parsed);
+    let recap = stamp(parsed);
     if (data.phase === "study" && data.prior) {
       parsed = {
         title: data.prior.title,
@@ -1003,13 +1023,13 @@ export const recapClass = createServerFn({ method: "POST" })
         topics: data.prior.topics,
         takeaways: data.prior.takeaways,
       };
-      recap = assembleRecap(base, parsed);
+      recap = stamp(parsed);
     } else {
     const contentSys =
       "CONTENT slot of a class 讲义. English primary, 简体中文 in *Zh. " +
       GOLD_CONTENT +
-      listenNote +
-      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus 1. 2. 3. Contrast hours need a two-column table on that section. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
+      kindNote +
+      " Write 3 or 4 sections only. Each body = one paragraph of class claims (90-160 words) plus optional 1. 2. 3. A list alone is not a section. Contrast hours need a two-column table on that section. Fold DeepSearch names/numbers and student notes into the matching paragraph. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
       ' Return ONLY JSON: {"title":"...","lede":"...","ledeZh":"...","outline":[{"heading":"...","bullets":["..."]}],"sections":[{"heading":"...","headingZh":"...","body":"...","bodyZh":"...","table":{"leftHead":"...","leftHeadZh":"...","rightHead":"...","rightHeadZh":"...","rows":[{"left":"...","leftZh":"...","right":"...","rightZh":"..."}]}}],"takeaways":[{"en":"...","zh":"..."}],"topics":[{"en":"...","zh":"..."}]}. Omit table when the hour is not a contrast.';
     const userPacket = JSON.stringify(packet);
     const [content, grok] = await Promise.all([
@@ -1032,15 +1052,15 @@ export const recapClass = createServerFn({ method: "POST" })
     const fromFlash = content.ok ? extractJsonObject(content.text) ?? {} : {};
     const fromGrok = grok.ok ? extractJsonObject(grok.text) ?? {} : {};
     parsed = pickRicherJson(fromFlash, mergeAiJson(fromFlash, fromGrok));
-    recap = assembleRecap(base, parsed);
+    recap = stamp(parsed);
     recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
-    if (!isEssayFilled(recap)) {
+    if (!essayReadyForClass(recap, sources)) {
       const heads = (recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4).length
         ? recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4)
         : data.topics.slice(0, 4));
       const slim = await chat46recap({
         system:
-          "The outline is not a handout. WRITE the 讲义 for THIS class, whatever the subject. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. Three sections is enough. Each body = 1 paragraph of class claims + 1. 2. 3. bodyZh = 简体 of that body. If the hour is a contrast, include the two-column table. Star *handout words*. Finish the JSON.",
+          "The outline is not a handout. WRITE the 讲义 for THIS class. Fold coach claims, DeepSearch names/numbers, and student notes into the paragraphs. Do not paste the three coach openings. Title is 3–8 words, not a caption. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. Three sections is enough. Each body = prose paragraph + optional 1. 2. 3. bodyZh = 简体. Table only for a real contrast. Star *handout words*. Finish the JSON.",
         user: JSON.stringify({ headings: heads, packet }),
         maxTokens: 3600,
         timeoutMs: 28000,
@@ -1048,34 +1068,30 @@ export const recapClass = createServerFn({ method: "POST" })
       });
       if (slim.ok) {
         parsed = mergeAiJson(parsed, extractJsonObject(slim.text) ?? {});
-        recap = assembleRecap(base, parsed);
+        recap = stamp(parsed);
         recap.latencyMs += slim.ms;
       }
     }
-    if (!isEssayFilled(recap)) {
+    if (!essayReadyForClass(recap, sources)) {
       const three = await chat46recap({
         system:
-          "Write THREE section 讲义 only for THIS class. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body 90+ words + 1. 2. 3. 简体 in *Zh. Star the terms you would underline. Add a two-column table if the hour is a contrast.",
-        user: JSON.stringify({
-          topics: data.topics.slice(0, 3),
-          notes: data.notes,
-          transcript: tape.slice(0, 20),
-        }),
+          "Write THREE section 讲义 only for THIS class. Complete JSON, no truncation. Keys: title, lede, ledeZh, sections[3], takeaways. Each body is prose (90+ words) plus optional 1. 2. 3. A list alone fails. Put DeepSearch facts and student notes in the matching paragraph. Do not paste coach openings. 简体 in *Zh. Table only if the hour is a contrast.",
+        user: JSON.stringify(packet),
         maxTokens: 2800,
         timeoutMs: 24000,
         json: true,
       });
       if (three.ok) {
         parsed = mergeAiJson(parsed, extractJsonObject(three.text) ?? {});
-        recap = assembleRecap(base, parsed);
+        recap = stamp(parsed);
         recap.latencyMs += three.ms;
       }
     }
-    if (!isEssayFilled(recap)) {
+    if (!essayReadyForClass(recap, sources)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
     }
     }
-    if (!isEssayFilled(recap)) {
+    if (!essayReadyForClass(recap, sources)) {
       return { ok: false, error: "纪要没写出来，再点一次整理。" };
     }
     if (data.phase === "essay") {
@@ -1118,12 +1134,12 @@ export const recapClass = createServerFn({ method: "POST" })
     for (const k of studyKeys) {
       if (Array.isArray(studyParsed[k]) && (studyParsed[k] as unknown[]).length) parsed[k] = studyParsed[k];
     }
-    recap = assembleRecap(base, parsed);
+    recap = closeStudy(stamp(parsed));
     recap.latencyMs += study.ok ? study.ms : 0;
     if (!isStudyFilled(recap)) {
       const again = await chat46recap({
         system:
-          "Language points only. YOU are the teacher. Must include at least 3 words and 2 collocations from THIS class, plus patterns. Patterns-only is not enough. Not think/like/good/people. Each row needs en, zh, use, useZh, example, exampleZh. Return ONLY JSON {marks,words,collos,patterns,grammar,lines,skills}.",
+          "Language points only for THIS hour. Each row must point at a word that appears in the transcript, coach, DeepSearch, notes, or the essay. Not think/like/good/people. Do not paste the three coach openings. At least 3 words and 2 collocations. Each row: en, zh, use, useZh, example, exampleZh. Return ONLY JSON {marks,words,collos,patterns,grammar,lines,skills}.",
         user: studyUser,
         maxTokens: 2800,
         timeoutMs: 24000,
@@ -1134,7 +1150,7 @@ export const recapClass = createServerFn({ method: "POST" })
         for (const k of studyKeys) {
           if (Array.isArray(extra[k]) && (extra[k] as unknown[]).length) parsed[k] = extra[k];
         }
-        recap = assembleRecap(base, parsed);
+        recap = closeStudy(stamp(parsed));
         recap.latencyMs += again.ms;
       }
     }

@@ -3,19 +3,29 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   assembleRecap,
+  collectDrillCards,
   emptyRecap,
   essayOf,
+  essayPastesCoachOpenings,
+  essayReadyForClass,
+  essayUsesSources,
   extractStars,
+  GOLD_CONTENT,
+  GOLD_STUDY,
+  hasProseParagraph,
   isEssayFilled,
   isFilled,
   isStudyFilled,
+  keepClassStudy,
   lexiconReady,
+  looksLikeHeardFragment,
   mergeAiJson,
   packCoach,
   pickRicherJson,
   polishBody,
   scoreContentJson,
   splitProse,
+  studyPointsAtClass,
 } from "./recap-kit.ts";
 import type { CoachCard, TopicEssay } from "./types.ts";
 import { extractJsonObject } from "./json-object.ts";
@@ -306,6 +316,9 @@ describe("handout gate and document close", () => {
     const src = readFileSync(new URL("./capcom-ai.ts", import.meta.url), "utf8");
     assert.equal(src.includes("spacexContentJson"), false);
     assert.equal(src.includes("looksLikeSpacexPacket"), false);
+    assert.match(src, /essayReadyForClass/);
+    assert.match(src, /keepClassStudy/);
+    assert.equal(src.includes("transcript: tape.slice(0, 20)"), false);
   });
 
   it("keeps model stars and assembles a contrast table on a grammar hour", () => {
@@ -453,5 +466,154 @@ describe("DeepSearch keyed by coach card id", () => {
     assert.equal(packed.length, 2);
     assert.equal(packed[0]?.deep?.title, "First search");
     assert.equal(packed[1]?.deep?.title, "Second search");
+  });
+});
+
+describe("handout assembler close", () => {
+  it("drops caption crumbs as titles and headings", () => {
+    const heard = ["Even though hospitals are convenient, you still wait."];
+    assert.equal(looksLikeHeardFragment("uh you know wait times"), true);
+    assert.equal(looksLikeHeardFragment("even though hospitals are convenient you still wait there"), true);
+    assert.equal(looksLikeHeardFragment("Wait times"), false);
+
+    const recap = assembleRecap(
+      emptyRecap("整理中"),
+      {
+        title: "Even though hospitals are convenient, you still wait.",
+        lede: LONG_EN,
+        ledeZh: LONG_ZH,
+        sections: [
+          {
+            heading: "Even though hospitals are convenient, you still wait",
+            headingZh: "医院",
+            body: LONG_EN,
+            bodyZh: LONG_ZH,
+          },
+          { heading: "Wait times", headingZh: "等候", body: LONG_EN, bodyZh: LONG_ZH },
+        ],
+      },
+      { heard },
+    );
+    assert.equal(recap.title, "This hour");
+    assert.equal(recap.sections.some((s) => /even though hospitals/i.test(s.heading)), false);
+    assert.ok(recap.sections.some((s) => s.heading === "Wait times"));
+  });
+
+  it("does not count a numbered list as a finished section", () => {
+    const listOnly = "1. Name the wait.\n2. Name the contrast.\n3. Name the payoff.";
+    assert.equal(hasProseParagraph(listOnly), false);
+    const recap = assembleRecap(emptyRecap("Clock"), {
+      title: "Wait times",
+      lede: LONG_EN,
+      ledeZh: LONG_ZH,
+      sections: [
+        { heading: "Hospitals", headingZh: "医院", body: listOnly, bodyZh: LONG_ZH },
+        { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH },
+      ],
+    });
+    assert.equal(recap.sections.length, 1);
+    assert.equal(isEssayFilled(recap), false);
+  });
+
+  it("puts DeepSearch and notes into the essay gate, and rejects pasted openings", () => {
+    const opening =
+      "I agree the wait is the real cost, not the building, and that is why people leave.";
+    const paper = {
+      ...essayOnly(),
+      lede: "The hour compared hospital waits and asked who can sit through the queue.",
+      sections: [
+        {
+          heading: "Wait times",
+          headingZh: "等候",
+          body: `${LONG_EN} The 2015 figure and 我怕等太久 belong in this paragraph.`,
+          bodyZh: `${LONG_ZH} 学生记下我怕等太久。2015 年的数字也在这里。`,
+          table: null,
+        },
+        { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+      ],
+    };
+    assert.equal(essayUsesSources(paper, ["Falcon 9 first landed in 2015.", "我怕等太久"]), true);
+    assert.equal(essayUsesSources(paper, ["Falcon 9 first landed in 2015."]), true);
+    assert.equal(essayUsesSources({ ...paper, lede: LONG_EN, sections: essayOnly().sections }, ["Philippines wait 2015"]), false);
+    assert.equal(essayPastesCoachOpenings(paper, [opening]), false);
+    assert.equal(
+      essayPastesCoachOpenings(
+        {
+          ...paper,
+          sections: [{ ...paper.sections[0]!, body: `${LONG_EN} ${opening}` }, paper.sections[1]!],
+        },
+        [opening],
+      ),
+      true,
+    );
+    assert.equal(
+      essayReadyForClass(paper, {
+        notes: ["我怕等太久"],
+        coach: [
+          {
+            say: [opening],
+            deep: { title: "Wait", facts: ["Falcon 9 first landed in 2015."], terms: [] },
+          },
+        ],
+      }),
+      true,
+    );
+    assert.equal(
+      essayReadyForClass(
+        {
+          ...paper,
+          sections: [{ ...paper.sections[0]!, body: `${LONG_EN} ${opening}` }, paper.sections[1]!],
+        },
+        { notes: [], coach: [{ say: [opening] }] },
+      ),
+      false,
+    );
+  });
+
+  it("keeps study rows that point at this hour and drops dictionary leftovers", () => {
+    const hay = "even though hospitals wait times payoff quarterly earnings";
+    const keep = studyRow("wait times");
+    const drop = studyRow("beautiful");
+    assert.equal(studyPointsAtClass(keep, hay), true);
+    assert.equal(studyPointsAtClass(drop, hay), false);
+    const next = keepClassStudy(
+      {
+        ...essayOnly(),
+        words: [keep, drop, studyRow("payoff"), studyRow("horizon")],
+        collos: [studyRow("even though")],
+      },
+      hay,
+    );
+    assert.deepEqual(next.words.map((w) => w.en), ["wait times", "payoff"]);
+    assert.deepEqual(next.collos.map((w) => w.en), ["even though"]);
+    assert.equal(isStudyFilled(next), false);
+  });
+
+  it("review cards default to this class, not a shared word list", () => {
+    const here = {
+      id: "ses-now",
+      recap: { ...essayOnly(), words: [studyRow("wait times"), studyRow("payoff")] },
+    };
+    const other = {
+      id: "ses-old",
+      recap: { ...essayOnly(), words: [studyRow("spreadsheet"), studyRow("mandate")] },
+    };
+    const mine = collectDrillCards([here, other], "ses-now");
+    assert.equal(mine.every((c) => c.sessionId === "ses-now"), true);
+    assert.ok(mine.some((c) => c.en === "wait times"));
+    assert.equal(mine.some((c) => c.en === "spreadsheet"), false);
+    assert.ok(mine[0]?.use);
+    assert.ok(mine[0]?.example);
+    const all = collectDrillCards([here, other]);
+    assert.ok(all.some((c) => c.en === "spreadsheet"));
+    assert.ok(all.length > mine.length);
+  });
+
+  it("asks the model to synthesize sources and not paste openings", () => {
+    assert.match(GOLD_CONTENT, /NEVER paste/);
+    assert.match(GOLD_CONTENT, /DeepSearch/);
+    assert.match(GOLD_CONTENT, /listen/);
+    assert.match(GOLD_STUDY, /point back/);
+    assert.match(GOLD_STUDY, /think \/ like \/ good/);
   });
 });
