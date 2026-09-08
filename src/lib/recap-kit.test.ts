@@ -314,13 +314,14 @@ describe("handout gate and document close", () => {
   });
 
   it("does not paste the SpaceX gold into recapClass", () => {
-    const src = readFileSync(new URL("./capcom-ai.ts", import.meta.url), "utf8");
+    const src = readFileSync(new URL("./ai/recap.ts", import.meta.url), "utf8");
+    const prompts = readFileSync(new URL("./ai/prompts.ts", import.meta.url), "utf8");
     assert.equal(src.includes("spacexContentJson"), false);
     assert.equal(src.includes("looksLikeSpacexPacket"), false);
     assert.match(src, /essayReadyForClass/);
     assert.match(src, /keepClassStudy/);
     assert.equal(src.includes("transcript: tape.slice(0, 20)"), false);
-    assert.equal(src.includes("Write THREE section"), false);
+    assert.equal(prompts.includes("Write THREE section"), false);
     const engine = readFileSync(new URL("../components/capcom/use-engine.ts", import.meta.url), "utf8");
     assert.equal(engine.includes("attempt < 2"), false);
   });

@@ -232,9 +232,9 @@ async function flushCoach(
       return;
     }
     if (!result.ok) {
-      const retryable = isRetryableCoachError(result.error);
+      const retryable = isRetryableCoachError(result);
       useCapcom.getState().setCoachError(
-        humanCoachError(result.error, !opts?.retry && retryable ? "retrying" : "failed"),
+        humanCoachError(result, !opts?.retry && retryable ? "retrying" : "failed"),
       );
       if (!opts?.retry && retryable) again = "retry";
       return;

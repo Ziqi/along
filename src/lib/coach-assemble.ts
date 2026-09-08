@@ -23,7 +23,7 @@ export type AssembledCoach = {
   ms: number;
 };
 
-export type AssembleCoachFail = { ok: false; error: string };
+export type AssembleCoachFail = { ok: false; error: string; code: "coach_incomplete" };
 
 /** Canonical slots. The model writes English; this only stamps the three names. */
 export function coachOptionLabels(mode: ClassMode, move: CoachMove): [string, string, string] {
@@ -256,7 +256,7 @@ export function assembleCoach(input: {
     mode === "listen",
   );
   if (options.some((o) => !o.en)) {
-    return { ok: false, error: "教练没给出三条，再听一句。" };
+    return { ok: false, code: "coach_incomplete", error: "教练没给出三条，再听一句。" };
   }
   const extras =
     mode === "listen"

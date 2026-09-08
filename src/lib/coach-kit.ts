@@ -139,19 +139,34 @@ export function coachEmptyCopy(
   return "互动。讨论给同意、对比、例子。问句给直接答、补一层、举个例。";
 }
 
-export function humanCoachError(err: string, phase: "retrying" | "failed" = "failed") {
-  const t = err.trim();
+/** A server failure: the enum code when the server sent one, else the bare text. */
+export type CoachFailure = string | { code?: string; error: string; status?: number };
+
+const failText = (err: CoachFailure) => (typeof err === "string" ? err : err.error).trim();
+const failCode = (err: CoachFailure) => (typeof err === "string" ? "" : (err.code ?? ""));
+const failStatus = (err: CoachFailure) => (typeof err === "string" ? 0 : (err.status ?? 0));
+
+export function humanCoachError(err: CoachFailure, phase: "retrying" | "failed" = "failed") {
+  const t = failText(err);
+  const code = failCode(err);
+  const status = failStatus(err);
   const retrying = phase === "retrying";
-  if (!t || t === "timeout" || t === "deadline") {
+  if (!t || code === "timeout" || t === "timeout" || t === "deadline") {
     return retrying ? "这轮慢了，正在重写" : "这轮慢了，点重写再试。";
   }
-  if (t === "AI 暂不可用" || /xAI 错误 40[13]/.test(t)) {
+  if (
+    code === "unavailable" ||
+    t === "AI 暂不可用" ||
+    status === 401 ||
+    status === 403 ||
+    /xAI 错误 40[13]/.test(t)
+  ) {
     return "教练没接到模型，点重写再试。";
   }
-  if (/429/.test(t)) {
+  if (code === "rate_limited" || status === 429 || /429/.test(t)) {
     return retrying ? "写得太勤了，正在重写" : "写得太勤了，过几秒再点重写。";
   }
-  if (t === "empty") return "再听一句完整的，我再写。";
+  if (code === "empty" || t === "empty") return "再听一句完整的，我再写。";
   return t;
 }
 
@@ -162,9 +177,13 @@ export function coachFailHint(autoCoach: boolean) {
 }
 
 /** Timeouts and thin cards can retry. A missing model cannot. */
-export function isRetryableCoachError(err: string) {
-  const t = err.trim();
+export function isRetryableCoachError(err: CoachFailure) {
+  const t = failText(err);
+  const code = failCode(err);
+  const status = failStatus(err);
   if (!t) return true;
+  if (code === "unavailable" || code === "empty" || code === "rate_limited") return false;
+  if (status === 401 || status === 403) return false;
   if (t === "AI 暂不可用" || t === "empty") return false;
   if (/没接到模型/.test(t)) return false;
   if (/太频繁/.test(t)) return false;
