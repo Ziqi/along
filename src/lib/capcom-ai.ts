@@ -2,8 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
-import { resolveCoachSame } from "@/lib/coach-kit";
+import { assembleCoach } from "@/lib/coach-assemble";
 import { parseClassMode } from "@/lib/class-mode";
+import { COACH_FALLBACK_MS, COACH_PRIMARY_MS } from "@/lib/live-queue";
 import type { RecapTable } from "@/lib/types";
 
 /** Fastest chat model. "Flash" is this repo's nickname — not an xAI product. */
@@ -277,6 +278,9 @@ async function chat46low(params: {
   user: string;
   maxTokens: number;
   timeoutMs?: number;
+  fallbackTimeoutMs?: number;
+  skipFallback?: boolean;
+  json?: boolean;
 }): Promise<{ ok: true; text: string; ms: number } | ChatErr> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) return { ok: false, error: "AI 暂不可用" };
@@ -295,20 +299,32 @@ async function chat46low(params: {
         Authorization: `Bearer ${apiKey}`,
       },
       signal: ac.signal,
-      body: JSON.stringify({
-        model: "grok-4.6",
-        temperature: 0.3,
-        max_tokens: params.maxTokens,
-        reasoning_effort: "low",
-        messages,
-      }),
+      body: JSON.stringify(
+        chatPayload("grok-4.6", {
+          messages,
+          maxTokens: params.maxTokens,
+          temperature: 0.3,
+          json: params.json,
+          reasoning: "low",
+        }),
+      ),
     });
     clearTimeout(timer);
     if (res.ok) return readChat(res, started);
+    if (params.skipFallback) return { ok: false, error: `xAI 错误 ${res.status}` };
   } catch {
     clearTimeout(timer);
+    if (params.skipFallback) return { ok: false, error: "timeout" };
   }
-  return chatFlash({ ...params, temperature: 0.3 });
+  if (params.skipFallback) return { ok: false, error: "timeout" };
+  return chatFlash({
+    system: params.system,
+    user: params.user,
+    maxTokens: params.maxTokens,
+    temperature: 0.3,
+    timeoutMs: params.fallbackTimeoutMs ?? 10000,
+    json: params.json,
+  });
 }
 
 export const mintSttSecret = createServerFn({ method: "POST" }).handler(
@@ -448,46 +464,57 @@ export const liveCoach = createServerFn({ method: "POST" })
     | ChatErr
   > => {
     if (!data.last && !data.intent) return { ok: false, error: "empty" };
-    const result = await chat46low({
-      system: coachSystem(data.mode),
-      user: JSON.stringify({
-        last_heard: data.last || null,
-        recent_class: data.recent,
-        student_intent: data.intent || null,
-        prev_topic: data.prevTopic || null,
-        prev_topic_zh: data.prevTopicZh || null,
-        student_notes: data.notes.length ? data.notes : null,
-        class_mode: data.mode,
-      }),
+    const system = coachSystem(data.mode);
+    const user = JSON.stringify({
+      last_heard: data.last || null,
+      recent_class: data.recent,
+      student_intent: data.intent || null,
+      prev_topic: data.prevTopic || null,
+      prev_topic_zh: data.prevTopicZh || null,
+      student_notes: data.notes.length ? data.notes : null,
+      class_mode: data.mode,
+    });
+    const first = await chat46low({
+      system,
+      user,
       maxTokens: 700,
-      timeoutMs: 8000,
+      timeoutMs: COACH_PRIMARY_MS,
+      skipFallback: true,
+      json: true,
     });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    const move = pick(parsed, "move") === "join" ? "join" : "answer";
-    const same = resolveCoachSame({
-      modelSame: parsed?.same,
-      move,
-      lastHeard: data.last,
+    let packed = first.ok
+      ? assembleCoach({
+          parsed: extractJsonObject(first.text),
+          last: data.last,
+          prevTopic: data.prevTopic,
+          prevTopicZh: data.prevTopicZh,
+          mode: data.mode,
+          ms: first.ms,
+        })
+      : null;
+    if (packed?.ok) return packed;
+
+    const fallback = await chatFlash({
+      system,
+      user,
+      maxTokens: 700,
+      timeoutMs: COACH_FALLBACK_MS,
+      temperature: 0.3,
+      json: true,
     });
-    return {
-      ok: true,
-      same,
-      topic: same && data.prevTopic ? data.prevTopic : pick(parsed, "topic"),
-      topicZh: same && data.prevTopicZh ? data.prevTopicZh : pick(parsed, "topicZh"),
-      briefZh: pick(parsed, "briefZh"),
-      briefEn: pick(parsed, "briefEn"),
-      move,
-      options: parseCoachOptions(parsed?.options, move, 3, data.mode),
-      extras:
-        data.mode === "listen"
-          ? []
-          : parseCoachOptions(parsed?.extras, "join", 2, data.mode).map((o, i) => ({
-              ...o,
-              label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
-            })),
-      ms: result.ms,
-    };
+    if (fallback.ok) {
+      packed = assembleCoach({
+        parsed: extractJsonObject(fallback.text),
+        last: data.last,
+        prevTopic: data.prevTopic,
+        prevTopicZh: data.prevTopicZh,
+        mode: data.mode,
+        ms: fallback.ms,
+      });
+      if (packed.ok) return packed;
+    }
+    if (!first.ok && !fallback.ok) return fallback;
+    return packed && !packed.ok ? packed : { ok: false, error: "教练没给出三条，再听一句。" };
   });
 
 export const expandTopic = createServerFn({ method: "POST" })
@@ -621,87 +648,6 @@ export const quickTranslate = createServerFn({ method: "POST" })
     if (!result.ok) return result;
     return { ok: true, out: result.text.trim(), dir, ms: result.ms };
   });
-
-function parseKeys(v: unknown, en: string): string[] {
-  const out: string[] = [];
-  if (Array.isArray(v)) {
-    for (const it of v) {
-      const w = String(it ?? "").trim();
-      if (w.length > 1 && en.toLowerCase().includes(w.toLowerCase())) out.push(w);
-      if (out.length === 4) break;
-    }
-  }
-  if (out.length) return out;
-  const stop = new Set([
-    "that",
-    "this",
-    "with",
-    "from",
-    "have",
-    "would",
-    "could",
-    "should",
-    "about",
-    "there",
-    "their",
-    "what",
-    "when",
-    "your",
-    "will",
-    "just",
-    "them",
-    "they",
-    "then",
-    "than",
-    "also",
-    "into",
-    "more",
-    "some",
-    "been",
-    "being",
-    "because",
-  ]);
-  return en
-    .replace(/[^A-Za-z' ]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 5 && !stop.has(w.toLowerCase()))
-    .slice(0, 3);
-}
-
-function parseCoachOptions(
-  v: unknown,
-  move: "answer" | "join",
-  limit = 3,
-  mode = "interactive",
-): { label: string; en: string; zh: string; keys: string[] }[] {
-  const fallback =
-    limit === 2
-      ? ["延展", "追深"]
-      : mode === "listen"
-        ? ["这句", "剖析", "背景"]
-        : move === "join"
-          ? ["同意", "对比", "例子"]
-          : ["直接答", "补一层", "举个例"];
-  const out: { label: string; en: string; zh: string; keys: string[] }[] = [];
-  if (Array.isArray(v)) {
-    for (const it of v) {
-      if (!it || typeof it !== "object") continue;
-      const row = it as { label?: unknown; en?: unknown; zh?: unknown; keys?: unknown };
-      const en = typeof row.en === "string" ? row.en.trim() : "";
-      if (!en) continue;
-      const zh = typeof row.zh === "string" ? row.zh.trim() : "";
-      const label =
-        mode === "listen" && limit !== 2
-          ? fallback[out.length] ?? "这句"
-          : typeof row.label === "string" && row.label.trim()
-            ? row.label.trim().slice(0, 6)
-            : fallback[out.length] ?? "答";
-      out.push({ label, en, zh, keys: parseKeys(row.keys, en) });
-      if (out.length === limit) break;
-    }
-  }
-  return out;
-}
 
 function parseTerms(v: unknown, n = 4): { en: string; zh: string }[] {
   if (!Array.isArray(v)) return [];

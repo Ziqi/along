@@ -6,8 +6,12 @@ export function DownlinkPanel() {
   const captions = useCapcom((s) => s.captions);
   const interim = useCapcom((s) => s.interim);
   const mic = useCapcom((s) => s.mic);
+  const listening = useCapcom((s) => s.listening);
+  const liveId = useCapcom((s) => s.liveId);
+  const sessions = useCapcom((s) => s.sessions);
   const scroller = useRef<HTMLDivElement>(null);
   const live = mic === "live";
+  const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
 
   useEffect(() => {
     const el = scroller.current;
@@ -37,7 +41,11 @@ export function DownlinkPanel() {
         className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-5"
       >
         {empty ? (
-          <Preflight />
+          <Preflight
+            listening={listening}
+            arming={listening && mic === "arming"}
+            paused={openClass && !listening && mic !== "arming"}
+          />
         ) : (
           <ol className="flex flex-col gap-6">
             {captions.map((c) => (
@@ -83,12 +91,25 @@ export function DownlinkPanel() {
   );
 }
 
-function Preflight() {
+function Preflight({
+  listening,
+  arming,
+  paused,
+}: {
+  listening: boolean;
+  arming: boolean;
+  paused: boolean;
+}) {
+  const lead = arming
+    ? "正在开麦。允许之后，完整一句才会上屏。"
+    : listening
+      ? "已经在听。完整一句才会上屏。"
+      : paused
+        ? "听写停着。点继续听，完整一句才会上屏。"
+        : "点「开始听」，先选互动、旁听或只听。麦克风开了，完整一句才会上屏。";
   return (
     <div className="flex flex-col gap-3 py-1">
-      <p className="text-base leading-relaxed text-muted text-pretty">
-        点「开始听」，先选互动、旁听或只听。麦克风开了，完整一句才会上屏。
-      </p>
+      <p className="text-base leading-relaxed text-muted text-pretty">{lead}</p>
       <p className="text-base leading-relaxed text-muted text-pretty">
         暂停不停课。结课立刻进纪要。想换课型，先结课再开一堂。
       </p>

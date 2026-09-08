@@ -4,7 +4,10 @@ export const TRANS_CAP = 2;
 export const TRANS_KEEP = 8;
 export const TRANS_TIMEOUT_MS = 9000;
 export const TRANS_TRIES = 3;
-export const COACH_TIMEOUT_MS = 10000;
+/** grok-4.6 first, then the fast model. Outer deadline must cover both. */
+export const COACH_PRIMARY_MS = 10000;
+export const COACH_FALLBACK_MS = 10000;
+export const COACH_TIMEOUT_MS = COACH_PRIMARY_MS + COACH_FALLBACK_MS + 2000;
 export const COACH_KEEP = 40;
 export const PACK_KEEP = 20;
 

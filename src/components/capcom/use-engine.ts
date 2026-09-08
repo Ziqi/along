@@ -13,7 +13,13 @@ import {
 } from "@/lib/capcom-ai";
 import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
-import { shouldAskCoach, shouldKeepCoachCard, shouldRescueCoach } from "@/lib/coach-kit";
+import {
+  humanCoachError,
+  isRetryableCoachError,
+  shouldAskCoach,
+  shouldKeepCoachCard,
+  shouldRescueCoach,
+} from "@/lib/coach-kit";
 import { coachMinGapMs, parseClassMode, type ClassMode } from "@/lib/class-mode";
 import {
   COACH_TIMEOUT_MS,
@@ -174,7 +180,7 @@ export function retryPendingZh() {
 async function flushCoach(
   source: "auto" | "intent",
   spoken?: string,
-  opts?: { rescue?: boolean },
+  opts?: { rescue?: boolean; retry?: boolean },
 ) {
   const store = useCapcom.getState();
   const intent = source === "intent" ? (spoken ?? store.intent).trim() : "";
@@ -189,6 +195,7 @@ async function flushCoach(
   if (
     source === "auto" &&
     !opts?.rescue &&
+    !opts?.retry &&
     !shouldAskCoach({
       last,
       minGapMs: coachMinGapMs(mode),
@@ -200,6 +207,7 @@ async function flushCoach(
   const gen = ++coachGen;
   coachInflight = true;
   store.setCoachPending(true);
+  let again: "retry" | "queued" | null = null;
   try {
     const result = await withDeadline(
       liveCoach({
@@ -216,16 +224,27 @@ async function flushCoach(
       COACH_TIMEOUT_MS,
     );
     if (gen !== coachGen) return;
+    const live = useCapcom.getState();
+    if (!live.liveId && (live.listening || live.mic === "arming")) {
+      live.ensureSession();
+    }
     if (!useCapcom.getState().liveId) {
-      useCapcom.getState().setCoachPending(false);
+      useCapcom.getState().setCoachError("这堂还没挂上，点重写再试。");
       return;
     }
     if (!result.ok) {
-      useCapcom.getState().setCoachError(result.error);
+      const retryable = isRetryableCoachError(result.error);
+      useCapcom.getState().setCoachError(
+        humanCoachError(result.error, !opts?.retry && retryable ? "retrying" : "failed"),
+      );
+      if (!opts?.retry && retryable) again = "retry";
       return;
     }
     if (!result.options.length) {
-      useCapcom.getState().setCoachError("教练没给出三条，再听一句。");
+      useCapcom.getState().setCoachError(
+        opts?.retry ? "教练没给出三条，点重写再试。" : "教练没给出三条，正在重写",
+      );
+      if (!opts?.retry) again = "retry";
       return;
     }
     const prev = useCapcom.getState().coach;
@@ -241,6 +260,7 @@ async function flushCoach(
     ) {
       lastCoachOkAt = Date.now();
       useCapcom.getState().setCoachPending(false);
+      useCapcom.getState().setCoachError(null);
       return;
     }
     if (source === "intent") useCapcom.getState().setIntent("");
@@ -261,11 +281,18 @@ async function flushCoach(
       at: Date.now(),
     });
   } catch {
-    if (gen === coachGen) useCapcom.getState().setCoachError("这轮慢了，正在重写");
+    if (gen === coachGen) {
+      useCapcom.getState().setCoachError(
+        opts?.retry ? "这轮没写出来，点重写再试。" : "这轮慢了，正在重写",
+      );
+      if (!opts?.retry) again = "retry";
+    }
   } finally {
     if (gen === coachGen) {
       coachInflight = false;
-      if (coachQueued) {
+      if (again === "retry") {
+        void flushCoach(source, spoken, { ...opts, retry: true, rescue: true });
+      } else if (coachQueued) {
         coachQueued = false;
         void flushCoach("auto");
       }
@@ -276,6 +303,7 @@ async function flushCoach(
 function rescueCoach() {
   const s = useCapcom.getState();
   const last = s.captions.at(-1);
+  if (s.coachError && !isRetryableCoachError(s.coachError)) return;
   if (
     !shouldRescueCoach({
       autoCoach: s.autoCoach,
@@ -297,6 +325,9 @@ export function requestCoach(spoken?: string) {
 export function setCoachLive(on: boolean) {
   useCapcom.getState().setAutoCoach(on);
   if (!on) {
+    coachGen += 1;
+    coachInflight = false;
+    coachQueued = false;
     if (coachTimer != null) {
       window.clearTimeout(coachTimer);
       coachTimer = null;
@@ -304,7 +335,9 @@ export function setCoachLive(on: boolean) {
     useCapcom.getState().setCoachPending(false);
     return;
   }
-  void flushCoach("auto");
+  const live = useCapcom.getState();
+  const kick = Boolean(live.coachError) || !live.coach;
+  void flushCoach("auto", undefined, kick ? { rescue: true } : undefined);
 }
 
 export async function requestEssay(coachId?: string) {
@@ -312,8 +345,8 @@ export async function requestEssay(coachId?: string) {
   const card =
     (coachId ? store.coaches.find((c) => c.id === coachId) : null) ?? store.coach;
   const id = card?.id ?? "latest";
-  if (!card && !store.captions.length) {
-    store.setEssayError("先听一句，再 DeepSearch。");
+  if (!card) {
+    store.setEssayError("先写出三条，再 DeepSearch。");
     return;
   }
   if (essayInflight.has(id)) return;

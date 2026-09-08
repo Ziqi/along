@@ -581,8 +581,7 @@ export const useCapcom = create<AppState>((set, get) => {
         coachPending: false,
       });
     },
-    setCoachPending: (on) =>
-      set({ coachPending: on, coachError: on ? null : get().coachError }),
+    setCoachPending: (on) => set({ coachPending: on }),
     setCoachError: (msg) => set({ coachError: msg, coachPending: false }),
     setEssay: (essay, coachId, keepPending) => {
       const card =
