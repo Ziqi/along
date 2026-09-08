@@ -26,8 +26,8 @@ export function DownlinkPanel() {
       <span className="hud-corners-bl" />
       <span className="hud-corners-br" />
       <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <h2 className="text-sm font-medium">听课</h2>
-        <div className="meter" data-live={live} aria-hidden="true">
+        <h2 className="text-sm font-medium max-lg:sr-only">听课</h2>
+        <div className="meter ml-auto" data-live={live} aria-hidden="true">
           <span />
           <span />
           <span />

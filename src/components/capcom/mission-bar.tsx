@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { Mic, Moon, MoreHorizontal, Pause, PenLine, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Confirm } from "@/components/ui/confirm";
+import { Menu, MenuItem, MenuLink } from "@/components/ui/menu";
+import { Sheet } from "@/components/ui/sheet";
 import { Mark } from "@/components/capcom/mark";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 import { useCapcom } from "@/lib/store";
@@ -15,13 +18,18 @@ type Props = {
   onSafe: () => void;
 };
 
+/**
+ * The top bar. Its right end holds the one filled action for the moment:
+ * 开始听 before a class, 记要点 while one is open — that is what a student does
+ * most in class — with the mic toggle outlined beside it. 结课 is a quiet word
+ * that asks first; it must never be the loudest thing on the screen.
+ */
 export function MissionBar({ onArm, onSafe }: Props) {
   const mic = useCapcom((s) => s.mic);
   const listening = useCapcom((s) => s.listening);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
   const pathname = useLocation({ select: (l) => l.pathname });
-  const goHome = goHomeSafe;
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const live = listening || mic === "live";
   const arming = listening && mic === "arming";
@@ -29,13 +37,14 @@ export function MissionBar({ onArm, onSafe }: Props) {
   const paused = !live && !arming && openClass;
   // `/` is the classroom; every other face under the shell is the handout side.
   const reading = pathname !== "/";
+  const inClassHere = openClass && !reading;
   const atHome = !reading && !openClass;
   const showRecap = sessions.length > 0 || openClass;
   const classMode = useCapcom((s) => s.classMode);
   const setClassMode = useCapcom((s) => s.setClassMode);
   const [theme, setTheme] = useState<Theme>("day");
-  const [more, setMore] = useState(false);
   const [pick, setPick] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const { isPending } = useCurrentUserState();
   const liveMode = parseClassMode(
     sessions.find((s) => s.id === liveId && !s.endedAt)?.classMode ?? classMode,
@@ -47,121 +56,84 @@ export function MissionBar({ onArm, onSafe }: Props) {
     applyTheme(next);
   }, []);
 
+  useEffect(() => {
+    if (!openClass) setConfirmEnd(false);
+  }, [openClass]);
+
   function toggleTheme() {
     const next = theme === "night" ? "day" : "night";
     setTheme(next);
     applyTheme(next);
   }
 
+  const themeLabel = theme === "night" ? "白天" : "夜间";
+  const themeIcon = theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />;
+  const homeLabel = openClass ? "回课堂" : "首页";
+
   // One step down on a phone: the bar is a single row there.
-  const listenSize = "max-md:h-10 max-md:px-3 max-md:text-sm";
+  const phoneStep = "max-md:h-10 max-md:px-3 max-md:text-sm";
+
   const listenBtn = live ? (
-    <Button type="button" variant="secondary" size="lg" className={listenSize} onClick={onSafe}>
+    <Button
+      type="button"
+      variant="secondary"
+      size="lg"
+      className={phoneStep + " max-md:w-10 max-md:px-0"}
+      onClick={onSafe}
+      aria-label="暂停"
+    >
       <Pause className="size-4" />
-      暂停
+      <span className="max-md:sr-only">暂停</span>
     </Button>
   ) : (
     <Button
       type="button"
-      variant="primary"
+      variant={openClass ? "secondary" : "primary"}
       size="lg"
-      className={listenSize}
+      className={phoneStep + (openClass ? " max-md:w-10 max-md:px-0" : "")}
       onClick={() => {
         if (paused || openClass) onArm();
         else setPick(true);
       }}
       disabled={arming}
+      aria-label={arming ? "开麦中" : paused ? "继续听" : "开始听"}
     >
       <Mic className="size-4" />
-      {arming ? "开麦中" : paused ? "继续听" : "开始听"}
+      <span className={openClass ? "max-md:sr-only" : ""}>{arming ? "开麦中" : paused ? "继续听" : "开始听"}</span>
     </Button>
   );
 
-  const extras = (
-    <>
-      {openClass && !reading ? (
-        <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { setJotOpen(true); setMore(false); }}>
-          <PenLine className="size-4" />
-          记要点
-        </Button>
-      ) : null}
-      {reading ? (
-        <Button type="button" variant="quiet" size="lg" className="max-md:w-full max-md:justify-start" onClick={() => { goHome(); setMore(false); }}>
-          {openClass ? "回课堂" : "首页"}
-        </Button>
-      ) : null}
-      {showRecap && !reading ? (
-        <Button
-          type="button"
-          variant="quiet"
-          size="lg"
-          className="max-md:w-full max-md:justify-start"
-          onClick={() => {
-            openRecap();
-            setMore(false);
-          }}
-        >
-          纪要
-        </Button>
-      ) : null}
-      {openClass && !reading ? (
-        <Button type="button" variant="danger" size="lg" className="max-md:w-full" onClick={() => { void endClass(); setMore(false); }}>
-          结课
-        </Button>
-      ) : null}
-      <Button
-        type="button"
-        variant="quiet"
-        size="lg"
-        className="max-md:w-full max-md:justify-start"
-        onClick={toggleTheme}
-      >
-        {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        {theme === "night" ? "白天" : "夜间"}
-      </Button>
-      <SignedOut>
-        <a
-          href="/login"
-          className="flex h-11 items-center px-3 text-base font-medium text-muted hover:text-fg max-md:w-full"
-          onClick={() => setMore(false)}
-        >
-          登录保存纪要
-        </a>
-      </SignedOut>
-      <SignedIn>
-        <div className="flex items-center px-2 py-1 md:hidden">
-          <UserButton />
-        </div>
-      </SignedIn>
-    </>
+  const noteBtn = (
+    <Button type="button" variant="primary" size="lg" className={phoneStep} onClick={() => setJotOpen(true)}>
+      <PenLine className="size-4" />
+      记要点
+    </Button>
   );
 
   return (
-    <header className="mission-bar flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-3 py-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-5 md:px-6 md:py-3">
+    <header className="mission-bar flex shrink-0 items-center gap-x-3 border-b border-line px-3 py-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-x-5 md:px-6 md:py-3">
       <button
         type="button"
-        onClick={goHome}
-        className="flex min-w-0 items-center gap-2 text-left md:gap-3"
+        onClick={goHomeSafe}
+        className="flex min-w-0 shrink-0 items-center gap-2 text-left md:gap-3"
         aria-label="首页"
       >
         <Mark className="size-6 shrink-0 text-fg" />
-        <h1 className="text-base font-medium tracking-[0.2em] text-fg md:text-lg">
-          ALONG
-        </h1>
+        <h1 className="text-base font-medium tracking-[0.2em] text-fg md:text-lg">ALONG</h1>
         <p className="hidden text-sm text-muted sm:block">跟课</p>
       </button>
       <div className="flex min-w-0 items-center gap-2.5 text-sm">
-        <span className="go-dot" data-live={live} data-hold={mic === "denied"} />
-        {live ? <span className="font-medium text-fg">听课中</span> : null}
-        {arming ? <span className="font-medium text-fg">正在开麦…</span> : null}
-        {paused ? <span className="text-muted">已暂停</span> : null}
-        {atHome ? <span className="hidden text-muted sm:inline">首页</span> : null}
-        {openClass && !reading ? (
-          <span className="text-muted">这堂是{modeLabel(liveMode)}</span>
-        ) : null}
+        <span className="go-dot shrink-0" data-live={live} data-hold={mic === "denied"} />
+        <span className="hidden min-w-0 truncate sm:block">
+          {live ? <span className="font-medium text-fg">听课中</span> : null}
+          {arming ? <span className="font-medium text-fg">正在开麦…</span> : null}
+          {paused ? <span className="text-muted">已暂停</span> : null}
+          {atHome ? <span className="text-muted">首页</span> : null}
+          {inClassHere ? <span className="text-muted"> · 这堂是{modeLabel(liveMode)}</span> : null}
+        </span>
       </div>
 
-      <div className="relative ml-auto flex items-center gap-1 md:gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-2">
         {isPending ? (
           <span className="hidden h-8 w-8 animate-pulse rounded-full bg-line sm:inline-block" />
         ) : (
@@ -178,60 +150,57 @@ export function MissionBar({ onArm, onSafe }: Props) {
             </SignedOut>
           </>
         )}
-        <div className="hidden items-center gap-1.5 md:flex">
-          <Button
-            type="button"
-            variant="quiet"
-            size="icon"
-            aria-label={theme === "night" ? "白天" : "夜间"}
-            onClick={toggleTheme}
-          >
-            {theme === "night" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+
+        <div className="hidden items-center gap-1 md:flex">
+          <Button type="button" variant="quiet" size="icon" aria-label={themeLabel} onClick={toggleTheme}>
+            {themeIcon}
           </Button>
-          {openClass && !reading ? (
-            <Button type="button" variant="quiet" size="lg" onClick={() => setJotOpen(true)}>
-              <PenLine className="size-4" />
-              记要点
-            </Button>
-          ) : null}
           {reading ? (
-            <Button type="button" variant="quiet" size="lg" onClick={goHome}>
-              {openClass ? "回课堂" : "首页"}
+            <Button type="button" variant="quiet" size="lg" onClick={goHomeSafe}>
+              {homeLabel}
             </Button>
           ) : null}
           {showRecap && !reading ? (
-            <Button
-              type="button"
-              variant="quiet"
-              size="lg"
-              onClick={() => openRecap()}
-            >
+            <Button type="button" variant="quiet" size="lg" onClick={() => openRecap()}>
               纪要
             </Button>
           ) : null}
-          {openClass && !reading ? (
-            <Button type="button" variant="danger" size="lg" onClick={() => void endClass()}>
+          {inClassHere ? (
+            <Button type="button" variant="quiet" size="lg" onClick={() => setConfirmEnd(true)}>
               结课
             </Button>
           ) : null}
         </div>
+
         {reading ? null : listenBtn}
-        <Button
-          type="button"
-          variant="quiet"
+        {inClassHere ? noteBtn : null}
+
+        <Menu
+          label={<MoreHorizontal className="size-4" />}
+          aria-label="更多"
+          align="right"
           size="icon"
           className="md:hidden"
-          aria-label="更多"
-          onClick={() => setMore((v) => !v)}
+          panelClassName="w-44"
         >
-          <MoreHorizontal className="size-4" />
-        </Button>
-        {more ? (
-          <div className="absolute right-0 top-[calc(100%+4px)] z-50 flex w-44 flex-col border border-line bg-elevated p-1 md:hidden">
-            {extras}
-          </div>
-        ) : null}
+          {reading ? <MenuItem onSelect={goHomeSafe}>{homeLabel}</MenuItem> : null}
+          {showRecap && !reading ? <MenuItem onSelect={() => openRecap()}>纪要</MenuItem> : null}
+          {inClassHere ? <MenuItem onSelect={() => setConfirmEnd(true)}>结课</MenuItem> : null}
+          <MenuItem onSelect={toggleTheme}>
+            {themeIcon}
+            {themeLabel}
+          </MenuItem>
+          <SignedOut>
+            <MenuLink href="/login">登录保存纪要</MenuLink>
+          </SignedOut>
+          <SignedIn>
+            <div className="flex items-center px-2 py-1">
+              <UserButton />
+            </div>
+          </SignedIn>
+        </Menu>
       </div>
+
       {pick ? (
         <ModeSheet
           onPick={(mode) => {
@@ -240,6 +209,19 @@ export function MissionBar({ onArm, onSafe }: Props) {
             onArm(mode);
           }}
           onClose={() => setPick(false)}
+        />
+      ) : null}
+      {confirmEnd ? (
+        <Confirm
+          title="结课？"
+          body="结课后马上进纪要，这堂就不能再接着听了。只是想歇一下，用暂停。"
+          confirmLabel="结课"
+          danger
+          onConfirm={() => {
+            setConfirmEnd(false);
+            void endClass();
+          }}
+          onCancel={() => setConfirmEnd(false)}
         />
       ) : null}
     </header>
@@ -254,30 +236,28 @@ function ModeSheet({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/30 p-3 sm:items-center">
-      <div className="w-full max-w-md border border-line bg-elevated p-4 shadow-lg">
-        <p className="text-lg font-medium tracking-tight">这堂怎么听</p>
-        <p className="mt-1 text-sm text-muted">
-          先选一种。上课不能改。想换课型，先结课再开一堂。
-        </p>
-        <ul className="mt-4 flex flex-col gap-2">
-          {CLASS_MODES.map((m) => (
-            <li key={m.id}>
-              <button
-                type="button"
-                className="flex w-full flex-col items-start border border-line bg-surface px-3 py-3 text-left hover:bg-elevated"
-                onClick={() => onPick(m.id)}
-              >
-                <span className="text-base font-medium text-fg">{m.label}</span>
-                <span className="mt-0.5 text-sm text-muted">{m.hint}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <Button type="button" variant="quiet" size="lg" className="mt-3" onClick={onClose}>
-          取消
-        </Button>
-      </div>
-    </div>
+    <Sheet label="这堂怎么听" onClose={onClose}>
+      <p className="text-lg font-medium tracking-tight">这堂怎么听</p>
+      <p className="mt-1 text-sm text-muted">
+        先选一种。上课不能改。想换课型，先结课再开一堂。
+      </p>
+      <ul className="mt-4 flex flex-col gap-2">
+        {CLASS_MODES.map((m) => (
+          <li key={m.id}>
+            <button
+              type="button"
+              className="flex w-full flex-col items-start border border-line bg-surface px-3 py-3 text-left hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/40"
+              onClick={() => onPick(m.id)}
+            >
+              <span className="text-base font-medium text-fg">{m.label}</span>
+              <span className="mt-0.5 text-sm text-muted">{m.hint}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Button type="button" variant="quiet" size="lg" className="mt-3" onClick={onClose}>
+        取消
+      </Button>
+    </Sheet>
   );
 }

@@ -273,11 +273,9 @@
   }
 }
 
-.recap-menu > summary,
 .recap-notes > summary {
   list-style: none;
 }
-.recap-menu > summary::-webkit-details-marker,
 .recap-notes > summary::-webkit-details-marker {
   display: none;
 }
@@ -306,8 +304,7 @@
   .mission-bar,
   .recap-catalog,
   .recap-chrome,
-  .recap-tools,
-  .recap-menu {
+  .recap-tools {
     display: none !important;
   }
   html,

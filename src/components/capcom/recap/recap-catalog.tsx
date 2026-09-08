@@ -116,7 +116,7 @@ export function RecapCatalog({
         <SignedOut>
           <p className="recap-chrome border-t border-line px-3 py-3 text-sm text-muted">
             这台设备上的纪要只存在本机。
-            <a href="/login" className="ml-1 text-fg underline decoration-fg/30 underline-offset-4">
+            <a href="/login" className="ml-1 whitespace-nowrap text-fg underline decoration-fg/30 underline-offset-4">
               登录后同步
             </a>
           </p>

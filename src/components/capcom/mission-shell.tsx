@@ -97,18 +97,14 @@ function MissionShellInner({ children }: { children: ReactNode }) {
         return;
       }
       if (e.key !== "Escape") return;
-      // Escape peels one layer: pad → open menu → catalog / edit → review → home.
+      // Escape peels one layer: pad / dialog / menu → catalog / edit → review → home.
       if (s.jotOpen) {
         s.setJotOpen(false);
         e.preventDefault();
         return;
       }
-      const menus = document.querySelectorAll<HTMLDetailsElement>("details.recap-menu[open]");
-      if (menus.length) {
-        menus.forEach((m) => (m.open = false));
-        e.preventDefault();
-        return;
-      }
+      // An open sheet or menu closes itself on Escape; the route underneath stays.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
       const loc = router.state.location;
       const search = loc.search as { catalog?: true; edit?: true; class?: string };
       const classMatch = loc.pathname.match(/^\/class\/([^/]+)/);

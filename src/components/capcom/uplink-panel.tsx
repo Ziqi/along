@@ -93,8 +93,9 @@ export function UplinkPanel() {
       <span className="hud-corners-bl" />
       <span className="hud-corners-br" />
       <header className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <h2 className="text-sm font-medium">教练</h2>
-        <div className="flex min-w-0 items-center gap-1">
+        {/* On a phone the tab above already says which panel this is. */}
+        <h2 className="text-sm font-medium max-lg:sr-only">教练</h2>
+        <div className="ml-auto flex min-w-0 items-center gap-1">
           <Button type="button" variant="quiet" size="sm" onClick={() => setCoachLive(!autoCoach)}>
             {autoCoach ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
             {autoCoach ? "停写" : "跟听"}

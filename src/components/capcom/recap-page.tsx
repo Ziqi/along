@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { Confirm } from "@/components/ui/confirm";
+import { Menu, MenuCheck, MenuItem } from "@/components/ui/menu";
 import { sortSessions, useCapcom } from "@/lib/store";
 import { forkAndRecap, goHomeSafe, requestRecap } from "@/lib/engine";
 import { downloadText, printRecap, recapMarkdown } from "@/lib/export-recap";
@@ -88,7 +90,9 @@ export function RecapPage(route: RecapRouteProps) {
   const error = useCapcom((s) => s.recapError);
   const captions = useCapcom((s) => s.captions);
   const liveId = useCapcom((s) => s.liveId);
+  const ping = useCapcom((s) => s.ping);
   const [withTape, setWithTape] = useState(false);
+  const [doomed, setDoomed] = useState<string | null>(null);
   const nav = useRecapNav(route);
 
   const stored = sessionId ? (sessions.find((s) => s.id === sessionId) ?? null) : null;
@@ -113,13 +117,23 @@ export function RecapPage(route: RecapRouteProps) {
     if (stored && stored.id !== storeSessionId) setSession(stored.id);
   }, [stored, storeSessionId, setSession]);
 
+  // Deleting asks first; the answer lands here.
   function remove(id: string) {
+    setDoomed(null);
     removeSession(id);
     if (id !== sessionId) return;
     const next = listed.find((s) => s.id !== id);
     if (mode === "drill") nav.drill(null);
     else if (next) nav.read(next.id);
     else nav.catalog();
+  }
+  const doomedTitle = doomed ? (sessions.find((s) => s.id === doomed)?.title ?? "") : "";
+
+  function rename(id: string, current: string, raw: string) {
+    const name = raw.replace(/\s+/g, " ").trim();
+    if (!name || name === current) return;
+    renameSession(id, name);
+    ping("标题已改");
   }
 
   // `/class` with nothing picked: on a phone the catalog takes the screen —
@@ -140,9 +154,19 @@ export function RecapPage(route: RecapRouteProps) {
         onPick={nav.read}
         onClose={() => nav.setCatalogOpen(false)}
         onStar={starSession}
-        onRemove={remove}
+        onRemove={setDoomed}
         onHome={goHomeSafe}
       />
+      {doomed ? (
+        <Confirm
+          title="删掉这份纪要？"
+          body={`「${doomedTitle}」的实录、教练卡和讲义会一起删掉；登录同步过的设备上也会删。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => remove(doomed)}
+          onCancel={() => setDoomed(null)}
+        />
+      ) : null}
 
       <article className={"recap-sheet min-h-0 min-w-0 flex-1 overflow-y-auto " + (bare ? "hidden md:block" : "")}>
         <div className="recap-paper mx-auto flex max-w-[42rem] flex-col gap-12 px-6 py-12 md:px-8 md:py-16">
@@ -198,7 +222,7 @@ export function RecapPage(route: RecapRouteProps) {
                   rows={2}
                   readOnly={readOnly || mode === "drill"}
                   onBlur={(e) => {
-                    if (!readOnly) renameSession(session.id, e.target.value);
+                    if (!readOnly) rename(session.id, session.title, e.target.value);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -209,20 +233,21 @@ export function RecapPage(route: RecapRouteProps) {
                   className="w-full resize-none px-3 py-2 text-2xl font-medium tracking-tight text-fg text-balance"
                   aria-label="纪要标题"
                 />
-                <div className="recap-tools flex flex-wrap items-center gap-2">
+                {/* Three groups: this handout, then export, and — apart, on the far side — the one thing that cannot be undone. */}
+                <div className="recap-tools flex flex-wrap items-center gap-x-1 gap-y-2">
                   {mode === "drill" ? (
-                    <Button type="button" variant="quiet" size="xs" onClick={() => nav.read(session.id)}>
+                    <Button type="button" variant="secondary" size="xs" onClick={() => nav.read(session.id)}>
                       看纪要
                     </Button>
                   ) : editing ? (
-                    <Button type="button" variant="quiet" size="xs" onClick={() => nav.setEditing(false)}>
+                    <Button type="button" variant="primary" size="xs" onClick={() => nav.setEditing(false)}>
                       完成
                     </Button>
                   ) : needWrite ? (
                     <Button
                       type="button"
-                      variant="quiet"
-                      size="xs"
+                      variant="primary"
+                      size="sm"
                       onClick={() => void requestRecap(session.id)}
                       disabled={pending || !canRun}
                     >
@@ -230,74 +255,56 @@ export function RecapPage(route: RecapRouteProps) {
                     </Button>
                   ) : (
                     <>
-                      {readOnly ? null : (
-                      <details className="recap-menu relative" onToggle={closeOtherMenus}>
-                        <summary className="cursor-pointer px-2 py-1 text-sm text-muted hover:text-fg">整理</summary>
-                        <div className="absolute left-0 top-full z-20 mt-1 flex min-w-40 flex-col border border-line bg-elevated p-1">
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="sm"
-                            className="justify-start"
-                            onClick={() => void forkAndRecap(session.id)}
-                            disabled={pending || !canRun}
-                          >
-                            再出一份
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="sm"
-                            className="justify-start"
-                            onClick={() => nav.setEditing(true)}
-                            disabled={!recap}
-                          >
-                            编辑
-                          </Button>
-                          <Button type="button" variant="quiet" size="sm" className="justify-start" onClick={() => remove(session.id)}>
-                            删除
-                          </Button>
-                        </div>
-                      </details>
-                      )}
-                      <details className="recap-menu relative" onToggle={closeOtherMenus}>
-                        <summary className="cursor-pointer px-2 py-1 text-sm text-muted hover:text-fg">导出</summary>
-                        <div className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col border border-line bg-elevated p-1">
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="sm"
-                            className="justify-start"
-                            onClick={() =>
-                              downloadText(`${session.title}.md`, recapMarkdown(session, { tape: withTape }), "text/markdown;charset=utf-8")
-                            }
-                          >
-                            下载 Markdown
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="sm"
-                            className="justify-start"
-                            onClick={() => printRecap(session, { tape: withTape })}
-                          >
-                            打印
-                          </Button>
-                          <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-muted">
-                            <input type="checkbox" checked={withTape} onChange={(e) => setWithTape(e.target.checked)} />
-                            含实录
-                          </label>
-                        </div>
-                      </details>
                       <Button
                         type="button"
-                        variant="quiet"
+                        variant="secondary"
                         size="xs"
                         onClick={() => nav.drill(session.id)}
                         disabled={!thisClassCards && !stats.cards}
                       >
                         复习
                       </Button>
+                      {readOnly ? null : (
+                        <>
+                          <Button type="button" variant="quiet" size="xs" onClick={() => nav.setEditing(true)} disabled={!recap}>
+                            编辑
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="quiet"
+                            size="xs"
+                            onClick={() => void forkAndRecap(session.id)}
+                            disabled={pending || !canRun}
+                          >
+                            再出一份
+                          </Button>
+                        </>
+                      )}
+                      <span className="mx-1 h-4 w-px bg-line" aria-hidden="true" />
+                      <Menu label="导出" size="xs" panelClassName="min-w-44">
+                        <MenuItem
+                          onSelect={() =>
+                            downloadText(`${session.title}.md`, recapMarkdown(session, { tape: withTape }), "text/markdown;charset=utf-8")
+                          }
+                        >
+                          下载 Markdown
+                        </MenuItem>
+                        <MenuItem onSelect={() => printRecap(session, { tape: withTape })}>打印</MenuItem>
+                        <MenuCheck checked={withTape} onChange={setWithTape}>
+                          含实录
+                        </MenuCheck>
+                      </Menu>
+                      {readOnly ? null : (
+                        <Button
+                          type="button"
+                          variant="quiet"
+                          size="xs"
+                          className="ml-auto text-dim hover:text-abort"
+                          onClick={() => setDoomed(session.id)}
+                        >
+                          删除
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>
@@ -402,11 +409,4 @@ function EmptyPaper({
       <SampleLinks onPick={onSample} />
     </div>
   );
-}
-
-function closeOtherMenus(e: { currentTarget: HTMLDetailsElement }) {
-  if (!e.currentTarget.open) return;
-  document.querySelectorAll<HTMLDetailsElement>(".recap-menu").forEach((el) => {
-    if (el !== e.currentTarget) el.open = false;
-  });
 }
