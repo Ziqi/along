@@ -14,6 +14,8 @@ import type {
   View,
 } from "@/lib/types";
 import { isRemoved, isRemovedJot, markRemoved, markRemovedJot, readLocalSessions, removedIds, writeLocalSessions } from "@/lib/persist";
+import { markDropped, markSynced, scheduleCloudPush } from "@/lib/session-sync";
+import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
 import { SAMPLE_ID, sampleSession } from "@/lib/recap-demo";
 import { SPACEX_ID, fillKnownHandout, looksLikeSpacexSession, spacexSession } from "@/lib/recap-spacex";
 import { newerSession, sortSessions, toggleStar } from "@/lib/session-order";
@@ -74,11 +76,16 @@ function persistSessions(sessions: ClassSession[]) {
   const disk = loadSessions();
   const merged = mergeSessions(disk, sessions).filter((s) => !isRemoved(s.id));
   writeLocalSessions(merged);
-  window.setTimeout(() => {
-    void import("@/lib/recap-cloud").then((m) =>
-      m.pushSessionsSafe(merged, removedIds()),
-    );
-  }, 400);
+  scheduleCloudPush(
+    () => ({
+      sessions: useCapcom.getState().sessions.filter((s) => !isRemoved(s.id)),
+      removed: removedIds(),
+    }),
+    async (dirty, drop) => {
+      const m = await import("@/lib/recap-cloud");
+      return m.pushSessionsSafe(dirty, drop);
+    },
+  );
 }
 
 function normJot(raw: Partial<Jot> & { text?: string; id?: string }): Jot {
@@ -203,7 +210,7 @@ function normRecap(raw: unknown): ClassRecap | null {
 function normalizeSessions(raw: unknown): ClassSession[] {
   if (!Array.isArray(raw)) return [];
   const out: ClassSession[] = [];
-  for (const row of raw.slice(0, 40)) {
+  for (const row of raw.slice(0, SESSION_KEEP)) {
     if (!row || typeof row !== "object") continue;
     const s = row as ClassSession;
     if (!s.id) continue;
@@ -211,6 +218,7 @@ function normalizeSessions(raw: unknown): ClassSession[] {
       out.push(
         fillKnownHandout({
           ...s,
+          schemaVersion: SESSION_SCHEMA_VERSION,
           notes: Array.isArray(s.notes) ? s.notes.map((n) => normJot(n)) : [],
           recap: normRecap(s.recap),
           coaches: Array.isArray(s.coaches) ? s.coaches : [],
@@ -359,7 +367,7 @@ function mergeSessions(a: ClassSession[], b: ClassSession[]): ClassSession[] {
     const prev = map.get(s.id);
     map.set(s.id, prev ? mergeOne(prev, s) : s);
   }
-  return sortSessions([...map.values()].map(fillKnownHandout)).slice(0, 40);
+  return sortSessions([...map.values()].map(fillKnownHandout)).slice(0, SESSION_KEEP);
 }
 
 type AppState = {
@@ -696,6 +704,7 @@ export const useCapcom = create<AppState>((set, get) => {
       if (!src) return null;
       const next: ClassSession = {
         id: idOf("ses"),
+        schemaVersion: SESSION_SCHEMA_VERSION,
         title: (src.recap?.title || src.title).replace(/\s·\s再出/g, "").trim() || src.title,
         startedAt: Date.now(),
         endedAt: Date.now(),
@@ -711,7 +720,7 @@ export const useCapcom = create<AppState>((set, get) => {
         starredAt: null,
         updatedAt: Date.now(),
       };
-      const sessions = sortSessions([next, ...get().sessions]).slice(0, 40);
+      const sessions = sortSessions([next, ...get().sessions]).slice(0, SESSION_KEEP);
       persistSessions(sessions);
       set({ sessions, sessionId: next.id });
       return next.id;
@@ -779,6 +788,7 @@ export const useCapcom = create<AppState>((set, get) => {
       const title = stampTitle(now);
       const next: ClassSession = {
         id: idOf("ses"),
+        schemaVersion: SESSION_SCHEMA_VERSION,
         title,
         classMode: get().classMode,
         startedAt: now,
@@ -797,7 +807,7 @@ export const useCapcom = create<AppState>((set, get) => {
       const closed = get().sessions.map((s) =>
         !s.endedAt ? { ...s, endedAt: now, updatedAt: now } : s,
       );
-      const sessions = sortSessions([next, ...closed]).slice(0, 40);
+      const sessions = sortSessions([next, ...closed]).slice(0, SESSION_KEEP);
       persistSessions(sessions);
       set({
         sessions,
@@ -1008,8 +1018,12 @@ export const useCapcom = create<AppState>((set, get) => {
           let next = mergeSessions(get().sessions, idb);
           try {
             const cloud = await import("@/lib/recap-cloud");
-            const remote = normalizeSessions(await cloud.pullSessions());
-            next = mergeSessions(next, remote);
+            const pulled = await cloud.pullSessions();
+            for (const id of pulled.removed) markRemoved(id);
+            markDropped(pulled.removed);
+            const remote = normalizeSessions(pulled.sessions);
+            markSynced(remote);
+            next = mergeSessions(next, remote).filter((s) => !isRemoved(s.id));
           } catch {
             /* signed out or offline */
           }

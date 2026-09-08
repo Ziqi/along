@@ -161,6 +161,8 @@ export type ClassRecap = {
 
 export type ClassSession = {
   id: string;
+  /** Shape version; see `SESSION_SCHEMA_VERSION`. Missing on rows written before it existed. */
+  schemaVersion?: number;
   title: string;
   classMode?: ClassMode;
   startedAt: number;

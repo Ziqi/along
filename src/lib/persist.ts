@@ -1,3 +1,4 @@
+import { SESSION_KEEP } from "@/lib/session-limits";
 import type { ClassSession } from "@/lib/types";
 
 const KEY = "along.sessions";
@@ -116,7 +117,7 @@ export async function readIdbSessions(): Promise<unknown> {
 
 export function writeLocalSessions(sessions: ClassSession[]) {
   if (typeof window === "undefined") return;
-  const trimmed = sessions.filter((s) => !removed.has(s.id)).slice(0, 40);
+  const trimmed = sessions.filter((s) => !removed.has(s.id)).slice(0, SESSION_KEEP);
   const payload = JSON.stringify(trimmed);
   try {
     window.localStorage.setItem(KEY, payload);
