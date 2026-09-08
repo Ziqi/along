@@ -149,26 +149,41 @@ export function splitProse(text: string): ProseBlock[] {
   return blocks;
 }
 
-export const GOLD_CONTENT = `You have read the FULL class: live transcript, student notes, coach cards, DeepSearch.
-Write the CONTENT half of a teaching 讲义 (handout) for a mainland student who was in this English class — any subject (finance, grammar, science, business). Do not assume SpaceX.
-Synthesize the hour: the argument, the tension, examples, any DeepSearch facts (names, numbers) that belong, anything in the notes they wanted kept.
-Do NOT reprint the coach's numbered 3+2 replies — those stay in a speaking appendix. You may teach the same ideas as claims.
-title = 3-8 English words.
-lede + ledeZh: 2-3 sentences, the point of the hour.
-sections: 2-4 themes. headingZh = 简体. body = paragraph + 1. 2. 3.
-If the hour is a contrast (X vs Y, public vs private, institution vs retail, app vs spreadsheet, tense A vs tense B), that section MUST include table {leftHead,leftHeadZh,rightHead,rightHeadZh,rows:[{left,leftZh,right,rightZh}]} with 2-4 rows. Skip the table if the hour is not a contrast.
-Star *only* what you would underline on the handout.
-bodyZh = 简体 of that body. No stars in Chinese.
-takeaways: 4 bilingual claims worth keeping.
-REWRITE noisy STT. You are the teacher who just sat through the class.`;
+export const GOLD_CONTENT = `You are writing THIS HOUR's paper — a teaching 讲义 the student can take home. Any subject. Do not assume SpaceX.
 
-export const GOLD_STUDY = `You have the same full class (transcript, notes, coach, DeepSearch) plus the 讲义 content just written.
-Write the LANGUAGE half of the handout. YOU decide: words to take home, harder upgrades, collocations, what to underline, patterns worth stealing — including useful language from coach/DeepSearch, taught as study items (usage + example), not pasted replies.
+SHAPE (rewrite if a piece is missing; a table of contents is not a handout):
+1. title: 3–8 English words, magazine-like. Never a caption crumb, never the first words of the transcript, never a spoken fragment.
+2. lede + ledeZh: 1–2 sentences each. What this hour argued, and where it stuck.
+3. sections: 2–4 themes. Each body AND bodyZh must be real prose (at least two sentences). A numbered 1. 2. 3. list may follow a paragraph. A list alone is not a section. A heading that repeats a caption is not a section.
+Contrast table ONLY if the hour is a real contrast (X vs Y). Skip the table otherwise.
+
+SOURCES — synthesize, do not paste:
+- Coach cards: take the claim, the upgrade, the stuck layer. NEVER paste the three spoken lines (agree / contrast / example, or answer / add a layer / give an example) into the essay.
+- DeepSearch: names, numbers, years that were actually opened belong in the matching paragraph, not only in an appendix.
+- Student notes: the line they wanted kept belongs in the related section.
+- Transcript: use it to recognize the hour. Do not replay it. Do not turn a caption into a title or heading.
+
+TONE from class_mode:
+- interactive / audit: the hour's tension and how the student could have joined. Still an essay — not another 1. 2. 3. of coach lines.
+- listen: listening notes. What this beat said and why the line is worth keeping. Never write as if they spoke to a teacher.
+
+Do not invent paragraphs, numbers, or a contrast. Spoken originals stay in an appendix.`;
+
+export const GOLD_STUDY = `Write the LANGUAGE half of THIS hour's paper. Every row must point back to something just heard — transcript, coach, DeepSearch, or a student note. Do not fill with dictionary leftovers (think / like / good / people).
+
+Each row needs all of:
+- en: word, collocation, or frame from this hour
+- zh: precise 简体
+- use + useZh: how THIS class used it and why it is worth keeping
+- example + exampleZh: a sentence that could sit next to the tape / coach / search. Do not reprint the three coach openings.
+
+listen: prefer collocations from the 剖析 cards.
+interactive / audit: prefer upgrades they could say, still as study rows — not another 1. 2. 3. paste.
+
 marks = exact short strings (1-4 words) to underline in the essay.
-Every study row: en, zh (precise 简体), use (how THIS class used it), useZh, example (clean 12-22 word sentence), exampleZh.
-words and collos are required: at least 3 class-specific words and 2 phrases. Patterns or grammar alone are not enough.
-Do not invent a frequency list. Do not fill with think / like / good / people.
-skills = speaking frames for this topic, not a copy of the 3 coach lines.`;
+words AND collos are required. At least 4 complete rows, with ≥3 class-specific words and ≥2 phrases. Patterns or grammar alone are not enough.
+Drop any row that has no shadow in this hour.
+skills = frames for this topic, not a copy of the 3 coach lines.`;
 
 function uniqPairs(rows: RecapPair[], n: number) {
   const seen = new Set<string>();
@@ -214,6 +229,46 @@ export function isGlue(en: string) {
   }
   if (parts.every((p) => STOP.has(p))) return true;
   return false;
+}
+
+/** Spoken crumbs and captions are not handout titles. */
+export function looksLikeHeardFragment(text: string) {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return true;
+  if (/\?{3,}|\b(uh+|um+|erm+|you know)\b/i.test(t)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length >= 9 && t === t.toLowerCase()) return true;
+  if (words.length >= 12) return true;
+  if (words.length >= 7 && /[.!?]$/.test(t)) return true;
+  return false;
+}
+
+export function hasProseParagraph(body: string) {
+  const parts = body
+    .split(/\n\n+/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return parts.some((p) => !/^\d+[\.)]\s/.test(p) && p.length > 80);
+}
+
+function fallbackTitle(base: ClassRecap) {
+  const t = (base.title ?? "").trim();
+  if (t && t !== "整理中" && t !== "Class notes" && !looksLikeHeardFragment(t)) return t;
+  const topic = base.topics[0]?.en?.trim();
+  if (topic && !looksLikeHeardFragment(topic)) return topic;
+  return "This hour";
+}
+
+function echoesLine(heading: string, heard: string[]) {
+  const h = keyOf(heading);
+  if (!h || h.split(" ").length < 4) return false;
+  return heard.some((line) => {
+    const k = keyOf(line);
+    if (!k) return false;
+    if (h === k) return true;
+    const [a, b] = h.length <= k.length ? [h, k] : [k, h];
+    return b.includes(a) && a.length / b.length >= 0.85;
+  });
 }
 
 export function emptyRecap(title = "整理中", topics: string[] = []): ClassRecap {
@@ -277,7 +332,7 @@ function asSection(v: unknown): RecapSection | null {
   if (!v || typeof v !== "object") return null;
   const r = v as RecapSection & { points?: { en?: string; zh?: string }[] };
   const heading = typeof r.heading === "string" ? r.heading.trim() : "";
-  if (!heading || heading.split(/\s+/).length > 12) return null;
+  if (!heading || heading.split(/\s+/).length > 10 || looksLikeHeardFragment(heading)) return null;
   const points = Array.isArray(r.points)
     ? r.points.map((p) => p?.en).filter((x): x is string => Boolean(x))
     : [];
@@ -289,7 +344,7 @@ function asSection(v: unknown): RecapSection | null {
   const bodyZh = polishBody(
     (typeof r.bodyZh === "string" ? r.bodyZh.trim() : "") || formatBody([], pointsZh),
   );
-  if (!body) return null;
+  if (!body || !hasProseParagraph(body)) return null;
   const table = asTable(r.table);
   return {
     heading: clip(heading, 72),
@@ -329,7 +384,11 @@ export function asTable(v: unknown): RecapTable | null {
   };
 }
 
-export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): ClassRecap {
+export function assembleRecap(
+  base: ClassRecap,
+  ai: Record<string, unknown>,
+  opts?: { heard?: string[] },
+): ClassRecap {
   const sections = Array.isArray(ai.sections)
     ? (ai.sections.map(asSection).filter(Boolean) as RecapSection[])
     : [];
@@ -356,10 +415,17 @@ export function assembleRecap(base: ClassRecap, ai: Record<string, unknown>): Cl
       : [];
     return uniqPairs(rows, n);
   };
-  const title = typeof ai.title === "string" && ai.title.trim() ? ai.title.trim() : base.title;
+  const heard = opts?.heard ?? [];
+  const rawTitle = typeof ai.title === "string" ? ai.title.trim() : "";
+  const title =
+    rawTitle && !looksLikeHeardFragment(rawTitle) && !echoesLine(rawTitle, heard)
+      ? rawTitle
+      : fallbackTitle(base);
   const lede = typeof ai.lede === "string" && ai.lede.trim() ? ai.lede.trim() : "";
   const ledeZh = typeof ai.ledeZh === "string" && ai.ledeZh.trim() ? ai.ledeZh.trim() : "";
-  const useSections = sections.filter((s) => writtenBody(s.body));
+  const useSections = sections.filter(
+    (s) => writtenBody(s.body) && hasProseParagraph(s.body) && !echoesLine(s.heading, heard),
+  );
   const looseTable = asTable(ai.table);
   if (looseTable) {
     const i = useSections.findIndex((s) => !s.table && /\bvs\.?\b|versus|对上|对比/.test(s.heading));
@@ -558,7 +624,196 @@ export function attachCoachPack(recap: ClassRecap, pack: RecapCoach[]): ClassRec
 }
 
 export function writtenBody(body: string) {
-  return body.replace(/\s+/g, " ").trim().length > 80;
+  return body.replace(/\s+/g, " ").trim().length > 80 && hasProseParagraph(body);
+}
+
+export function classSourceNeedles(input: {
+  notes?: string[];
+  facts?: string[];
+  terms?: string[];
+}) {
+  const out: string[] = [];
+  const push = (raw: string) => {
+    const t = raw.replace(/\s+/g, " ").trim();
+    if (t.length < 4) return;
+    if (isGlue(t)) return;
+    out.push(t);
+  };
+  for (const n of input.notes ?? []) push(n);
+  for (const f of input.facts ?? []) push(f);
+  for (const t of input.terms ?? []) push(t);
+  return [...new Set(out)].slice(0, 16);
+}
+
+function needleHits(hay: string, n: string) {
+  const raw = n.toLowerCase();
+  if (raw.length >= 4 && hay.includes(raw)) return true;
+  const bits = raw
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !STOP.has(w));
+  if (bits.some((w) => hay.includes(w))) return true;
+  const cjk = raw.match(/[\u4e00-\u9fff]{3,}/g) ?? [];
+  return cjk.some((w) => hay.includes(w));
+}
+
+export function essayUsesSources(recap: ClassRecap, needles: string[]) {
+  if (!needles.length) return true;
+  const hay = [recap.lede, recap.ledeZh, ...recap.sections.flatMap((s) => [s.body, s.bodyZh, s.heading])]
+    .join("\n")
+    .toLowerCase();
+  return needles.some((n) => needleHits(hay, n));
+}
+
+export function essayPastesCoachOpenings(recap: ClassRecap, say: string[]) {
+  const lines = say.map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => s.length > 24);
+  if (!lines.length) return false;
+  const hay = recap.sections.map((s) => s.body.toLowerCase()).join("\n");
+  return lines.some((s) => hay.includes(s.toLowerCase()));
+}
+
+export function classStudyHay(input: { tape?: string[]; notes?: string[]; say?: string[]; essay?: string }) {
+  return [...(input.tape ?? []), ...(input.notes ?? []), ...(input.say ?? []), input.essay ?? ""]
+    .join("\n")
+    .toLowerCase();
+}
+
+export function studyPointsAtClass(row: RecapStudy, hay: string) {
+  if (!studyRowReady(row)) return false;
+  if (!hay.trim()) return true;
+  const en = row.en.toLowerCase();
+  if (en.length >= 3 && hay.includes(en)) return true;
+  const words = en.split(/\s+/).filter((w) => w.length >= 4 && !STOP.has(w));
+  return words.some((w) => hay.includes(w));
+}
+
+export function keepClassStudy(recap: ClassRecap, hay: string): ClassRecap {
+  if (!hay.trim()) return recap;
+  const keep = (rows: RecapStudy[]) => rows.filter((r) => studyPointsAtClass(r, hay));
+  const next = {
+    ...recap,
+    words: keep(recap.words),
+    collos: keep(recap.collos),
+    patterns: keep(recap.patterns),
+    grammar: keep(recap.grammar),
+    lines: keep(recap.lines),
+  };
+  next.draft = !isFilled(next);
+  return next;
+}
+
+export type RecapCoachBits = {
+  topic?: string;
+  brief?: string;
+  say?: string[];
+  extras?: string[];
+  deep?: {
+    title?: string;
+    viewEn?: string;
+    facts?: string[];
+    terms?: string[];
+    aEn?: string;
+  } | null;
+};
+
+export function coachOpeningsOf(coach: RecapCoachBits[]) {
+  return coach.flatMap((c) => [...(c.say ?? []), ...(c.extras ?? [])]);
+}
+
+export function classNeedlesOf(input: { notes?: string[]; coach?: RecapCoachBits[] }) {
+  const coach = input.coach ?? [];
+  return classSourceNeedles({
+    notes: input.notes ?? [],
+    facts: coach.flatMap((c) => [...(c.deep?.facts ?? []), c.deep?.title ?? "", c.deep?.viewEn ?? ""]),
+    terms: coach.flatMap((c) => c.deep?.terms ?? []),
+  });
+}
+
+/** Essay is a paper for THIS hour: prose, sources in, coach openings out. */
+export function essayReadyForClass(
+  recap: ClassRecap,
+  input: { notes?: string[]; coach?: RecapCoachBits[] },
+) {
+  if (!isEssayFilled(recap)) return false;
+  if (essayPastesCoachOpenings(recap, coachOpeningsOf(input.coach ?? []))) return false;
+  if (!essayUsesSources(recap, classNeedlesOf(input))) return false;
+  return true;
+}
+
+export function studyHayFromClass(input: {
+  tape?: { en: string }[];
+  notes?: string[];
+  coach?: RecapCoachBits[];
+  recap?: ClassRecap;
+}) {
+  const coach = input.coach ?? [];
+  const recap = input.recap;
+  return classStudyHay({
+    tape: (input.tape ?? []).map((l) => l.en),
+    notes: input.notes ?? [],
+    say: coach.flatMap((c) => [
+      c.topic ?? "",
+      c.brief ?? "",
+      ...(c.say ?? []),
+      ...(c.extras ?? []),
+      c.deep?.title ?? "",
+      c.deep?.viewEn ?? "",
+      c.deep?.aEn ?? "",
+      ...(c.deep?.facts ?? []),
+      ...(c.deep?.terms ?? []),
+    ]),
+    essay: recap
+      ? [recap.lede, recap.ledeZh, ...recap.sections.flatMap((s) => [s.heading, s.body, s.bodyZh])].join("\n")
+      : "",
+  });
+}
+
+export type DrillCard = {
+  id: string;
+  sessionId: string;
+  kind: string;
+  en: string;
+  zh: string;
+  use: string;
+  useZh: string;
+  example: string;
+  exampleZh: string;
+};
+
+export function collectDrillCards(
+  sessions: { id: string; recap?: ClassRecap | null }[],
+  onlyId?: string,
+): DrillCard[] {
+  const bags: [string, "words" | "collos" | "patterns" | "grammar" | "lines"][] = [
+    ["单词", "words"],
+    ["搭配", "collos"],
+    ["句式", "patterns"],
+    ["语法", "grammar"],
+    ["句子", "lines"],
+  ];
+  const out: DrillCard[] = [];
+  for (const s of sessions) {
+    if (onlyId && s.id !== onlyId) continue;
+    const recap = s.recap;
+    if (!recap) continue;
+    for (const [kind, key] of bags) {
+      for (const it of recap[key]) {
+        if (!it.en.trim()) continue;
+        out.push({
+          id: `${s.id}-${kind}-${it.en}`,
+          sessionId: s.id,
+          kind,
+          en: it.en,
+          zh: it.zh,
+          use: it.use,
+          useZh: it.useZh,
+          example: it.example,
+          exampleZh: it.exampleZh,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 function writtenZh(body: string) {
@@ -576,7 +831,9 @@ export function studyRowReady(row: RecapStudy) {
 
 export function isEssayFilled(recap: ClassRecap) {
   const ledeOk = (recap.lede ?? "").trim().length > 40 && writtenZh(recap.ledeZh ?? "");
-  const bilingual = recap.sections.filter((s) => writtenBody(s.body) && writtenZh(s.bodyZh ?? ""));
+  const bilingual = recap.sections.filter(
+    (s) => writtenBody(s.body) && writtenZh(s.bodyZh ?? "") && !looksLikeHeardFragment(s.heading),
+  );
   return ledeOk && bilingual.length >= 2;
 }
 
