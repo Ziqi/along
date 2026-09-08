@@ -1,6 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowDown } from "lucide-react";
 import { formatClock } from "@/lib/utils";
 import { useCapcom } from "@/lib/store";
+
+/** Within this many pixels of the bottom counts as "reading the live end". */
+const FOLLOW_SLACK_PX = 48;
 
 export function DownlinkPanel() {
   const captions = useCapcom((s) => s.captions);
@@ -15,12 +19,37 @@ export function DownlinkPanel() {
   const live = mic === "live";
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const onBrowser = listening && sttBackend === "browser";
+  // Follow the live end until the student scrolls up to read back; then hold
+  // still and count what arrived, so one tap brings them back.
+  const [following, setFollowing] = useState(true);
+  const [seenCount, setSeenCount] = useState(0);
+  const unseen = following ? 0 : Math.max(0, captions.length - seenCount);
 
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [captions, interim]);
+    if (following) {
+      el.scrollTop = el.scrollHeight;
+      setSeenCount(captions.length);
+    }
+  }, [captions, interim, following]);
+
+  function onScroll() {
+    const el = scroller.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK_PX;
+    if (nearBottom !== following) {
+      setFollowing(nearBottom);
+      if (nearBottom) setSeenCount(captions.length);
+    }
+  }
+
+  function jumpToLive() {
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setFollowing(true);
+    setSeenCount(captions.length);
+  }
 
   const empty = captions.length === 0 && !interim;
 
@@ -48,61 +77,69 @@ export function DownlinkPanel() {
       </header>
 
       {onBrowser && sttNote ? (
-        <p className="shrink-0 border-b border-line px-4 py-2 text-sm text-hold text-pretty md:px-5" role="status">
+        <p
+          className="shrink-0 border-b border-line px-4 py-2 text-sm text-hold text-pretty md:px-5"
+          role="status"
+        >
           {sttNote}
         </p>
       ) : null}
 
-      <div
-        ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-5"
-      >
-        {empty ? (
-          <Preflight
-            listening={listening}
-            arming={listening && mic === "arming"}
-            paused={openClass && !listening && mic !== "arming"}
-          />
-        ) : (
-          <ol className="flex flex-col gap-6">
-            {captions.map((c) => (
-              <li key={c.id} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-                <p className="pt-1 font-mono text-xs tabular-nums text-dim">
-                  {formatClock(c.at)}
-                </p>
-                <div className="min-w-0">
-                  <p className="text-lg text-fg text-pretty">
-                    {c.en}
+      <div className="relative min-h-0 flex-1">
+        {!following && !empty ? (
+          <button
+            type="button"
+            onClick={jumpToLive}
+            className="absolute bottom-3 left-1/2 z-10 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-sm text-fg shadow-sm hover:bg-fg/5"
+          >
+            <ArrowDown className="size-3.5" />
+            {unseen > 0 ? `回到最新 · ${unseen} 句` : "回到最新"}
+          </button>
+        ) : null}
+        <div
+          ref={scroller}
+          onScroll={onScroll}
+          className="h-full min-h-0 overflow-y-auto px-4 py-5 md:px-5"
+        >
+          {empty ? (
+            <Preflight
+              listening={listening}
+              arming={listening && mic === "arming"}
+              paused={openClass && !listening && mic !== "arming"}
+            />
+          ) : (
+            <ol className="flex flex-col gap-6">
+              {captions.map((c) => (
+                <li key={c.id} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+                  <p className="pt-1 font-mono text-xs tabular-nums text-dim">
+                    {formatClock(c.at)}
                   </p>
-                  <p
-                    className={
-                      "mt-1 text-base text-pretty " +
-                      (c.pending || !/[\u4e00-\u9fff]/.test(c.zh)
-                        ? "text-dim"
-                        : c.error
-                          ? "text-abort"
-                          : "text-muted")
-                    }
-                  >
-                    {/[\u4e00-\u9fff]/.test(c.zh)
-                      ? c.zh
-                      : c.error
-                        ? "未译"
-                        : "译…"}
-                  </p>
-                </div>
-              </li>
-            ))}
-            {interim ? (
-              <li className="grid grid-cols-[auto_1fr] gap-x-4">
-                <p className="pt-1 font-mono text-xs tabular-nums text-dim">--:--:--</p>
-                <p className="stream-caret text-lg text-fg/80">
-                  {interim}
-                </p>
-              </li>
-            ) : null}
-          </ol>
-        )}
+                  <div className="min-w-0">
+                    <p className="text-lg text-fg text-pretty">{c.en}</p>
+                    <p
+                      className={
+                        "mt-1 text-base text-pretty " +
+                        (c.pending || !/[\u4e00-\u9fff]/.test(c.zh)
+                          ? "text-dim"
+                          : c.error
+                            ? "text-abort"
+                            : "text-muted")
+                      }
+                    >
+                      {/[\u4e00-\u9fff]/.test(c.zh) ? c.zh : c.error ? "未译" : "译…"}
+                    </p>
+                  </div>
+                </li>
+              ))}
+              {interim ? (
+                <li className="grid grid-cols-[auto_1fr] gap-x-4">
+                  <p className="pt-1 font-mono text-xs tabular-nums text-dim">--:--:--</p>
+                  <p className="stream-caret text-lg text-fg/80">{interim}</p>
+                </li>
+              ) : null}
+            </ol>
+          )}
+        </div>
       </div>
     </section>
   );
