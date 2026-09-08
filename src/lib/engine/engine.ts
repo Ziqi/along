@@ -1,7 +1,8 @@
 import { parseClassMode, type ClassMode } from "../class-mode.ts";
 import type { AppNav } from "../nav.ts";
+import { createWakeLock, type WakeLock } from "../wake-lock.ts";
 import { createCaptionPipeline } from "./caption-pipeline.ts";
-import { nextPhase, type ClassEvent } from "./class-machine.ts";
+import { isAwake, nextPhase, type ClassEvent } from "./class-machine.ts";
 import { createCoachRuntime } from "./coach-runtime.ts";
 import { noNav, type AiApi, type EngineStore } from "./context.ts";
 import { createDeepRuntime } from "./deep-runtime.ts";
@@ -17,6 +18,8 @@ export type EngineDeps = {
   api: AiApi;
   nav?: AppNav;
   now?: () => number;
+  /** Keeps the screen on while audio flows; tests hand in a fake. */
+  wakeLock?: WakeLock;
 };
 
 /**
@@ -28,6 +31,7 @@ export type EngineDeps = {
 export function createEngine(deps: EngineDeps) {
   const ctx = { store: deps.store, api: deps.api, nav: deps.nav ?? noNav, now: deps.now ?? Date.now };
   const { store, nav } = ctx;
+  const wake = deps.wakeLock ?? createWakeLock();
 
   const openClass = () => {
     const s = store.getState();
@@ -39,6 +43,9 @@ export function createEngine(deps: EngineDeps) {
     const next = nextPhase(s.phase, event, { openClass: openClass() });
     if (next === null) return false;
     if (next !== s.phase) s.setPhase(next);
+    // The screen stays on exactly while the student expects captions.
+    if (isAwake(next)) wake.on();
+    else wake.off();
     return true;
   }
 
