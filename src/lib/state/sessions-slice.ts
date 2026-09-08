@@ -11,11 +11,13 @@ import {
   isPersistReady,
   loadSessions,
   mergeSessions,
-  persistSessions as writeSessions,
-  readStoredSessions,
+  persistSessions,
+  pullCloudCatalog,
+  readDiskCatalog,
   releasePersistQueue,
+  setCloudRefresher,
 } from "@/lib/session-persist";
-import { probeStorage, writeLocalSessions } from "@/lib/persist";
+import { probeStorage, writeSessions } from "@/lib/persist";
 import { phaseFromCatalog } from "@/lib/engine/class-machine";
 import type { AppState } from "./app-state";
 import { HUD_BLANK } from "./live-slice";
@@ -67,6 +69,8 @@ export type SessionsSlice = {
   setRecapError: (msg: string | null) => void;
   stashLive: () => void;
   hydrateSessions: () => void;
+  /** Pull what changed in the cloud since the last pull and merge it in; quiet when signed out or offline. */
+  syncCloud: () => Promise<void>;
   armClock: () => void;
   clear: (opts?: { keepRecap?: boolean }) => void;
 };
@@ -78,7 +82,54 @@ const idOf = (p: string) => {
 };
 
 export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> = (set, get) => {
-  const persist = (sessions: ClassSession[]) => writeSessions(sessions, () => get().sessions);
+  const persist = (sessions: ClassSession[]) => persistSessions(sessions, () => get().sessions);
+
+  /**
+   * Put a catalog read from disk or the cloud into the store without disturbing
+   * the class being heard: captions, notes and the phase of a live class in this
+   * tab win over what the catalog says about it.
+   */
+  const applyCatalog = (sessions: ClassSession[], hydrated: boolean) => {
+    if (!sessions.length && get().sessions.length) return;
+    const cur = get();
+    const open = sessions.find((s) => s.id === cur.liveId && !s.endedAt) ?? null;
+    const tape = open?.transcript ?? [];
+    const keepTape = cur.captions.length > 0;
+    const keepSession =
+      (cur.sessionId && sessions.some((s) => s.id === cur.sessionId) ? cur.sessionId : null) ??
+      open?.id ??
+      sessions[0]?.id ??
+      null;
+    set({
+      hydrated: hydrated || cur.hydrated,
+      sessions: sessions.filter((s) => !isRemoved(s.id)),
+      liveId: open?.id ?? (keepTape ? cur.liveId : null),
+      sessionId: keepSession,
+      jots: cur.jots.length ? cur.jots : (open?.notes ?? []),
+      captions: keepTape
+        ? cur.captions
+        : tape.map((t, i) => ({
+            id: `hyd-${i}`,
+            seq: i + 1,
+            at: (open?.startedAt ?? 0) + i,
+            en: t.en,
+            zh: t.zh,
+            pending: false,
+          })),
+      seq: keepTape ? cur.seq : tape.length,
+      classMode: open ? parseClassMode(open.classMode) : cur.classMode,
+      phase: phaseFromCatalog(cur.phase, Boolean(open)),
+    });
+  };
+
+  // Sample handouts used to be written into every catalog; they are pages of
+  // their own now. Tombstone any copy still around so the cloud drops it too.
+  const withoutSamples = (sessions: ClassSession[]) => {
+    const strays = sessions.filter((s) => isSampleId(s.id));
+    if (!strays.length) return sessions;
+    for (const s of strays) markRemoved(s.id);
+    return sessions.filter((s) => !isSampleId(s.id));
+  };
   const blankRecap = (title: string, topics: { en: string; zh: string }[]): ClassRecap => ({
     title,
     lede: "",
@@ -386,78 +437,54 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
       persist(sessions);
       set({ sessions, liveId: sid });
     },
+    // Three stages, each applied as it lands: the index (synchronous, skeleton
+    // rows so the catalog paints at once), this device's IndexedDB (the classes
+    // themselves — `hydrated` flips here), then the cloud when signed in.
     hydrateSessions: () => {
-      const apply = (sessions: ClassSession[]) => {
-        if (!sessions.length && get().sessions.length) return;
-        const cur = get();
-        const open = sessions.find((s) => s.id === cur.liveId && !s.endedAt) ?? null;
-        const tape = open?.transcript ?? [];
-        const keepTape = cur.captions.length > 0;
-        const keepSession =
-          (cur.sessionId && sessions.some((s) => s.id === cur.sessionId) ? cur.sessionId : null) ??
-          open?.id ??
-          sessions[0]?.id ??
-          null;
-        set({
-          hydrated: true,
-          sessions: sessions.filter((s) => !isRemoved(s.id)),
-          liveId: open?.id ?? (keepTape ? cur.liveId : null),
-          sessionId: keepSession,
-          jots: cur.jots.length ? cur.jots : (open?.notes ?? []),
-          captions: keepTape
-            ? cur.captions
-            : tape.map((t, i) => ({
-                id: `hyd-${i}`,
-                seq: i + 1,
-                at: (open?.startedAt ?? 0) + i,
-                en: t.en,
-                zh: t.zh,
-                pending: false,
-              })),
-          seq: keepTape ? cur.seq : tape.length,
-          classMode: open ? parseClassMode(open.classMode) : cur.classMode,
-          phase: phaseFromCatalog(cur.phase, Boolean(open)),
-        });
-      };
-      // Sample handouts used to be written into every catalog; they are pages of
-      // their own now. Tombstone any copy still around so the cloud drops it too.
-      let strayFound = false;
-      const withoutSamples = (sessions: ClassSession[]) => {
-        const strays = sessions.filter((s) => isSampleId(s.id));
-        if (!strays.length) return sessions;
-        strayFound = true;
-        for (const s of strays) markRemoved(s.id);
-        return sessions.filter((s) => !isSampleId(s.id));
-      };
       const flushQueue = () => {
         const queued = releasePersistQueue();
         if (queued) persist(queued);
       };
       try {
-        apply(withoutSamples(loadSessions()));
+        applyCatalog(withoutSamples(loadSessions()), false);
       } catch {
-        apply([]);
+        /* no index yet */
       }
       window.setTimeout(() => {
         if (!isPersistReady()) flushQueue();
       }, 2500);
+      setCloudRefresher(() => void get().syncCloud());
       void (async () => {
         try {
           const probe = await probeStorage();
           if (!probe.ok) {
             set({ engineError: "本机存储写不进去。无痕模式或空间已满时，纪要可能保不住。" });
           }
-          let next = await readStoredSessions(get().sessions);
+          let next = await readDiskCatalog(get().sessions);
           const queued = releasePersistQueue();
           if (queued) next = mergeSessions(next, queued);
           next = withoutSamples(next);
-          writeLocalSessions(next);
-          apply(next);
-          if (strayFound) persist(get().sessions);
+          // Just read everything: safe to drop records that are not in this list.
+          writeSessions(next, { prune: true });
+          applyCatalog(next, true);
         } catch {
           flushQueue();
+          set({ hydrated: true });
         }
+        await get().syncCloud();
       })();
+    },
+    // Pull first, then push: what the server already has newer never goes up.
+    // Signed out, the pull throws and nothing is pushed either.
+    syncCloud: async () => {
+      if (!get().hydrated) return;
+      try {
+        const next = withoutSamples(await pullCloudCatalog(get().sessions));
+        applyCatalog(next, true);
+        persist(get().sessions);
+      } catch {
+        /* signed out or offline */
+      }
     },
     armClock: () => {
       if (!get().startedAt) set({ startedAt: Date.now() });

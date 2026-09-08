@@ -45,7 +45,7 @@ export function canAutoTitle(current: string, startedAt: number) {
   return !t || t === stamp || t.endsWith(stamp);
 }
 
-export { extractJsonObject } from "./json-object";
+export { extractJsonObject } from "./json-object.ts";
 
 export function topicKey(t: string) {
   return t

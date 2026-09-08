@@ -146,7 +146,10 @@ export function RecapPage(route: RecapRouteProps) {
 
       <article className={"recap-sheet min-h-0 min-w-0 flex-1 overflow-y-auto " + (bare ? "hidden md:block" : "")}>
         <div className="recap-paper mx-auto flex max-w-[42rem] flex-col gap-12 px-6 py-12 md:px-8 md:py-16">
-          {!session ? (
+          {!hydrated && !sample ? (
+            // The catalog index is up but the classes themselves are still loading; a blank sheet beats a flash of "nothing here".
+            <p className="sr-only">正在读取纪要</p>
+          ) : !session ? (
             <EmptyPaper
               mode={mode}
               missing={missing}

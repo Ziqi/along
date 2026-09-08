@@ -61,6 +61,19 @@ function MissionShellInner({ children }: { children: ReactNode }) {
     hydrateSessions();
   }, [hydrateSessions]);
 
+  // Coming back to the tab: pick up what another device pushed meanwhile.
+  useEffect(() => {
+    let last = Date.now();
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - last < 30_000) return;
+      last = Date.now();
+      void useCapcom.getState().syncCloud();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   useEffect(() => {
     setAppNav({
       home: () => void navigate({ to: "/" }),
