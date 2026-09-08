@@ -15,6 +15,7 @@ import { heuristicEssay } from "@/lib/essay-kit";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "@/lib/recap-kit";
 import {
   humanCoachError,
+  isRetryableCoachError,
   shouldAskCoach,
   shouldKeepCoachCard,
   shouldRescueCoach,
@@ -232,10 +233,11 @@ async function flushCoach(
       return;
     }
     if (!result.ok) {
+      const retryable = isRetryableCoachError(result.error);
       useCapcom.getState().setCoachError(
-        humanCoachError(result.error, opts?.retry ? "failed" : "retrying"),
+        humanCoachError(result.error, !opts?.retry && retryable ? "retrying" : "failed"),
       );
-      if (!opts?.retry) again = "retry";
+      if (!opts?.retry && retryable) again = "retry";
       return;
     }
     if (!result.options.length) {
@@ -301,6 +303,7 @@ async function flushCoach(
 function rescueCoach() {
   const s = useCapcom.getState();
   const last = s.captions.at(-1);
+  if (s.coachError && !isRetryableCoachError(s.coachError)) return;
   if (
     !shouldRescueCoach({
       autoCoach: s.autoCoach,
@@ -322,6 +325,9 @@ export function requestCoach(spoken?: string) {
 export function setCoachLive(on: boolean) {
   useCapcom.getState().setAutoCoach(on);
   if (!on) {
+    coachGen += 1;
+    coachInflight = false;
+    coachQueued = false;
     if (coachTimer != null) {
       window.clearTimeout(coachTimer);
       coachTimer = null;
@@ -329,7 +335,9 @@ export function setCoachLive(on: boolean) {
     useCapcom.getState().setCoachPending(false);
     return;
   }
-  void flushCoach("auto");
+  const live = useCapcom.getState();
+  const kick = Boolean(live.coachError) || !live.coach;
+  void flushCoach("auto", undefined, kick ? { rescue: true } : undefined);
 }
 
 export async function requestEssay(coachId?: string) {
@@ -337,8 +345,8 @@ export async function requestEssay(coachId?: string) {
   const card =
     (coachId ? store.coaches.find((c) => c.id === coachId) : null) ?? store.coach;
   const id = card?.id ?? "latest";
-  if (!card && !store.captions.length) {
-    store.setEssayError("先听一句，再 DeepSearch。");
+  if (!card) {
+    store.setEssayError("先写出三条，再 DeepSearch。");
     return;
   }
   if (essayInflight.has(id)) return;

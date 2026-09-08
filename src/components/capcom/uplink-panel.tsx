@@ -12,7 +12,7 @@ import {
   parseClassMode,
   topicBeatLabel,
 } from "@/lib/class-mode";
-import { coachEmptyCopy, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
+import { coachEmptyCopy, coachFailHint, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
 
 function cardHasDeep(
   id: string | null,
@@ -41,7 +41,6 @@ export function UplinkPanel() {
   const classMode = useCapcom((s) => s.classMode);
   const liveId = useCapcom((s) => s.liveId);
   const sessions = useCapcom((s) => s.sessions);
-  const setJotOpen = useCapcom((s) => s.setJotOpen);
   const mode = parseClassMode(
     sessions.find((s) => s.id === liveId)?.classMode ?? classMode,
   );
@@ -86,21 +85,13 @@ export function UplinkPanel() {
   });
   const headerStatus = coachHeaderLabel(phase);
   const canRewrite = Boolean(error && !pending && (latest || captions.length));
+  const failHint = coachFailHint(autoCoach);
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
-      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+      <header className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
         <h2 className="text-sm font-medium">教练</h2>
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="quiet"
-            size="sm"
-            className="h-8 min-h-8 px-2"
-            onClick={() => setJotOpen(true)}
-          >
-            记要点
-          </Button>
+        <div className="flex min-w-0 items-center gap-1">
           <Button
             type="button"
             variant="quiet"
@@ -109,26 +100,8 @@ export function UplinkPanel() {
             onClick={() => setCoachLive(!autoCoach)}
           >
             {autoCoach ? <Pause className="size-3" /> : <Play className="size-3" />}
-            {autoCoach ? "暂停" : "跟听"}
+            {autoCoach ? "停写" : "跟听"}
           </Button>
-          {latest || captions.length ? (
-            <Button
-              type="button"
-              variant="quiet"
-              size="sm"
-              className="h-8 min-h-8 px-2"
-              onClick={() => {
-                if (latest) {
-                  setFollowLatest(false);
-                  setActiveId(latest.id);
-                }
-                void requestEssay(latest?.id);
-              }}
-              disabled={essayPending}
-            >
-              {essayPending ? "检索中" : "DeepSearch"}
-            </Button>
-          ) : null}
           <p className="pl-1 text-xs text-dim">{headerStatus}</p>
         </div>
       </header>
@@ -168,6 +141,7 @@ export function UplinkPanel() {
         {!latest && phase === "failed" ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
             <p className="max-w-sm text-base leading-relaxed text-abort text-pretty">{error}</p>
+            {failHint ? <p className="max-w-sm text-sm text-muted text-pretty">{failHint}</p> : null}
             {canRewrite ? (
               <Button type="button" variant="ghost" size="lg" className="self-start" onClick={() => void requestCoach()}>
                 重写
@@ -181,7 +155,9 @@ export function UplinkPanel() {
                 ? "点「开始听」先选互动、旁听或只听。选完教练按课型写。上课不能改课型。"
                 : coachEmptyCopy(phase, mode)}
             </p>
-            {error ? <p className="max-w-sm text-sm text-muted text-pretty">{error}</p> : null}
+            {error && phase !== "writing" && phase !== "retrying" ? (
+              <p className="max-w-sm text-sm text-muted text-pretty">{error}</p>
+            ) : null}
           </div>
         ) : (
           <ol className="flex flex-col gap-5">
@@ -240,6 +216,7 @@ export function UplinkPanel() {
             {phase === "failed" && error ? (
               <li className="flex flex-col items-start gap-2">
                 <p className="text-sm text-abort">{error}</p>
+                {failHint ? <p className="text-sm text-muted">{failHint}</p> : null}
                 {canRewrite ? (
                   <Button type="button" variant="ghost" size="sm" onClick={() => void requestCoach()}>
                     重写

@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import { applyZh, assembleRecap, compactTape, emptyRecap, GOLD_CONTENT, GOLD_STUDY, isEssayFilled, isFilled, isStudyFilled, mergeAiJson, missingZh, pickRicherJson } from "@/lib/recap-kit";
 import { extractJsonObject } from "@/lib/json-object";
-import { isHeardQuestion, resolveCoachSame } from "@/lib/coach-kit";
+import { assembleCoach } from "@/lib/coach-assemble";
 import { parseClassMode } from "@/lib/class-mode";
 import { COACH_FALLBACK_MS, COACH_PRIMARY_MS } from "@/lib/live-queue";
 import type { RecapTable } from "@/lib/types";
@@ -355,14 +355,14 @@ const TRANS_SYS =
   'Translate classroom English into 简体中文. Return ONLY JSON: {"zh":"..."}. zh MUST include Chinese characters. Spoken, complete. NEVER copy the English. No pinyin.';
 
 const COACH_SPEAK =
-  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[2]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY means keep the previous topic title — still return a full new 3+2. same=false if last_heard is a question or a new angle; name a specific topic for THIS beat (≤6 English words). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer labels: 直接答, 补一层, 举个例. join labels: 同意, 对比, 例子. extras: 延展, 追深. en=12-22 words. zh≤24 chars 简体. keys=2-4 words. NEVER repeat last_heard. No markdown.';
+  'English-class coach. Intermediate student in mainland China. ALL zh/topicZh/briefZh MUST be 简体中文, never 繁體. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"answer"|"join","options":[3],"extras":[]}. Each option/extra: {"label":"...","en":"...","zh":"...","keys":["..."]}. prev_topic is the last card. same=true ONLY means keep the previous topic title — still return a full new card. same=false if last_heard is a question or a new angle; name a specific topic for THIS beat (≤6 English words). Never overwrite; each beat is a new card. student_notes are words the student marked — if present, use them in at least one option. briefZh=2 short 简体中文 sentences. briefEn=spoken English gloss. move=answer if last_heard is a question; else join. options: ALWAYS 3 turns to say NOW. answer labels: 直接答, 补一层, 举个例. join labels: 同意, 对比, 例子. extras: try for 延展 and 追深 when the beat can go further; omit a slot rather than invent; empty extras=[] is allowed. A card is valid with only the 3 options. en=12-22 words. option/extra zh≤64 chars 简体, complete clauses. keys=2-4 words. NEVER repeat last_heard as the whole line; building on it is fine. No markdown.';
 
 const COACH_AUDIT =
   COACH_SPEAK +
   " class_mode=audit. The student is mostly listening and may jump in. Write as if they might speak, not as if they must answer now. Keep the same 3 labels.";
 
 const COACH_LISTEN =
-  'English-class listener notes. Intermediate student in mainland China. ALL zh MUST be 简体中文. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"join","options":[3],"extras":[]}. Each option: {"label":"...","en":"...","zh":"...","keys":["..."]}. This is a podcast / Coursera / recording. NEVER write turns to say to a teacher. NEVER use 同意/对比/例子 or 直接答. options MUST be exactly: 1 label 这句 = the sentence worth stealing (or a tight half-sentence), 2 label 剖析 = why the pattern/tone/collocation is good (en 12-22 words), 3 label 背景 = what this beat is about (en 12-22 words), not an encyclopedia. same=true only keeps the topic title. extras must be []. No markdown.';
+  'English-class listener notes. Intermediate student in mainland China. ALL zh MUST be 简体中文. Return ONLY JSON: {"same":true|false,"topic":"...","topicZh":"...","briefZh":"...","briefEn":"...","move":"join","options":[3],"extras":[]}. Each option: {"label":"...","en":"...","zh":"...","keys":["..."]}. This is a podcast / Coursera / recording. NEVER write turns to say to a teacher. NEVER use 同意/对比/例子 or 直接答. options MUST be exactly: 1 label 这句 = the sentence worth stealing (or a tight half-sentence), 2 label 剖析 = why the pattern/tone/collocation is good (en 12-22 words), 3 label 背景 = what this beat is about (en 12-22 words), not an encyclopedia. 这句 zh≤64 chars. 剖析/背景 zh≤100 chars, finish the clause. same=true only keeps the topic title. extras must be []. No markdown.';
 
 function coachSystem(mode: string) {
   if (mode === "listen") return COACH_LISTEN;
@@ -483,9 +483,16 @@ export const liveCoach = createServerFn({ method: "POST" })
       json: true,
     });
     let packed = first.ok
-      ? readCoachPack(extractJsonObject(first.text), data, first.ms)
+      ? assembleCoach({
+          parsed: extractJsonObject(first.text),
+          last: data.last,
+          prevTopic: data.prevTopic,
+          prevTopicZh: data.prevTopicZh,
+          mode: data.mode,
+          ms: first.ms,
+        })
       : null;
-    if (packed?.options.length) return packed;
+    if (packed?.ok) return packed;
 
     const fallback = await chatFlash({
       system,
@@ -496,11 +503,18 @@ export const liveCoach = createServerFn({ method: "POST" })
       json: true,
     });
     if (fallback.ok) {
-      packed = readCoachPack(extractJsonObject(fallback.text), data, fallback.ms);
-      if (packed.options.length) return packed;
+      packed = assembleCoach({
+        parsed: extractJsonObject(fallback.text),
+        last: data.last,
+        prevTopic: data.prevTopic,
+        prevTopicZh: data.prevTopicZh,
+        mode: data.mode,
+        ms: fallback.ms,
+      });
+      if (packed.ok) return packed;
     }
     if (!first.ok && !fallback.ok) return fallback;
-    return { ok: false, error: "教练没给出三条，再听一句。" };
+    return packed && !packed.ok ? packed : { ok: false, error: "教练没给出三条，再听一句。" };
   });
 
 export const expandTopic = createServerFn({ method: "POST" })
@@ -634,136 +648,6 @@ export const quickTranslate = createServerFn({ method: "POST" })
     if (!result.ok) return result;
     return { ok: true, out: result.text.trim(), dir, ms: result.ms };
   });
-
-function parseKeys(v: unknown, en: string): string[] {
-  const out: string[] = [];
-  if (Array.isArray(v)) {
-    for (const it of v) {
-      const w = String(it ?? "").trim();
-      if (w.length > 1 && en.toLowerCase().includes(w.toLowerCase())) out.push(w);
-      if (out.length === 4) break;
-    }
-  }
-  if (out.length) return out;
-  const stop = new Set([
-    "that",
-    "this",
-    "with",
-    "from",
-    "have",
-    "would",
-    "could",
-    "should",
-    "about",
-    "there",
-    "their",
-    "what",
-    "when",
-    "your",
-    "will",
-    "just",
-    "them",
-    "they",
-    "then",
-    "than",
-    "also",
-    "into",
-    "more",
-    "some",
-    "been",
-    "being",
-    "because",
-  ]);
-  return en
-    .replace(/[^A-Za-z' ]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 5 && !stop.has(w.toLowerCase()))
-    .slice(0, 3);
-}
-
-function readCoachPack(
-  parsed: Record<string, unknown> | null,
-  data: {
-    last: string;
-    prevTopic: string;
-    prevTopicZh: string;
-    mode: string;
-  },
-  ms: number,
-) {
-  const move: "answer" | "join" =
-    pick(parsed, "move") === "answer" || isHeardQuestion(data.last) ? "answer" : "join";
-  const same = resolveCoachSame({
-    modelSame: parsed?.same,
-    move,
-    lastHeard: data.last,
-  });
-  return {
-    ok: true as const,
-    same,
-    topic: same && data.prevTopic ? data.prevTopic : pick(parsed, "topic"),
-    topicZh: same && data.prevTopicZh ? data.prevTopicZh : pick(parsed, "topicZh"),
-    briefZh: pick(parsed, "briefZh"),
-    briefEn: pick(parsed, "briefEn"),
-    move,
-    options: parseCoachOptions(parsed?.options, move, 3, data.mode),
-    extras:
-      data.mode === "listen"
-        ? []
-        : parseCoachOptions(parsed?.extras, "join", 2, data.mode).map((o, i) => ({
-            ...o,
-            label: o.label === "接话" || o.label === "答" ? (i === 0 ? "延展" : "追深") : o.label,
-          })),
-    ms,
-  };
-}
-
-function parseCoachOptions(
-  v: unknown,
-  move: "answer" | "join",
-  limit = 3,
-  mode = "interactive",
-): { label: string; en: string; zh: string; keys: string[] }[] {
-  const fallback =
-    limit === 2
-      ? ["延展", "追深"]
-      : mode === "listen"
-        ? ["这句", "剖析", "背景"]
-        : move === "join"
-          ? ["同意", "对比", "例子"]
-          : ["直接答", "补一层", "举个例"];
-  const out: { label: string; en: string; zh: string; keys: string[] }[] = [];
-  if (Array.isArray(v)) {
-    for (const it of v) {
-      if (typeof it === "string") {
-        const en = it.trim();
-        if (!en) continue;
-        out.push({
-          label: fallback[out.length] ?? "答",
-          en,
-          zh: "",
-          keys: parseKeys(undefined, en),
-        });
-        if (out.length === limit) break;
-        continue;
-      }
-      if (!it || typeof it !== "object") continue;
-      const row = it as { label?: unknown; en?: unknown; zh?: unknown; keys?: unknown };
-      const en = typeof row.en === "string" ? row.en.trim() : "";
-      if (!en) continue;
-      const zh = typeof row.zh === "string" ? row.zh.trim() : "";
-      const label =
-        mode === "listen" && limit !== 2
-          ? fallback[out.length] ?? "这句"
-          : typeof row.label === "string" && row.label.trim()
-            ? row.label.trim().slice(0, 6)
-            : fallback[out.length] ?? "答";
-      out.push({ label, en, zh, keys: parseKeys(row.keys, en) });
-      if (out.length === limit) break;
-    }
-  }
-  return out;
-}
 
 function parseTerms(v: unknown, n = 4): { en: string; zh: string }[] {
   if (!Array.isArray(v)) return [];
