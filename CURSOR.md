@@ -29,7 +29,7 @@
 | 环境 | 谁在用 | 怎么起来 | 数据 |
 |---|---|---|---|
 | **Grok App Builder 沙箱** | Grok Build 在 Linux 沙箱里改代码 | 必须把 Vite 打在 **`0.0.0.0:8080`**。预览代理发现 8080 后灌进 grok.me 的 iframe。成功 = 8080 在跑。 | 沙箱里的 IndexedDB / PGLite；用户浏览器另有一份 |
-| **用户本机（Mac）** | `git clone` 后 `npm start` | `scripts/dev-up.mjs`：**先探测 8080 是否已有进程**。有则复用，没有就 `npm run dev`（同样 `--host 0.0.0.0 --port 8080`）。`npm stop` 杀掉 8080。 | 本机浏览器 localStorage + IndexedDB；登录后走 `DATABASE_URL` |
+| **用户本机（Mac）** | `git clone` 后 `npm start` | `scripts/dev-up.mjs`：**先探测 8080 是否已有进程**。有则复用，没有就 `npm run dev`（同样 `--host 0.0.0.0 --port 8080`）。`npm stop` 杀掉 8080。 | 本机浏览器 IndexedDB 为主存（按堂存），localStorage 只留目录索引、墓碑、同步账本；登录后走 `DATABASE_URL` |
 | **Cursor 改代码** | 你 | 任意端口开发都行，但合回 Grok 预览前必须仍是 **8080 + host 0.0.0.0**，否则 grok.me 预览是黑的 | 不要把 `.env` 提交 |
 
 **8080 约定（Grok 预览合同，不要改端口）：**
@@ -42,53 +42,124 @@
 
 环境变量：
 
-- `XAI_API_KEY` — 听写、翻译、教练、纪要、DeepSearch 全部走 xAI
-- `DATABASE_URL` — 有则 Neon Postgres（登录后云端纪要）；无则 PGLite（预览/本机）
+- `XAI_API_KEY` — 听写、翻译、教练、纪要、检索（代码里叫 DeepSearch）全部走 xAI。每个入口都过 `aiGuard`：同源校验 + 调用者识别（登录 id → 本机 device id → IP）+ 每人每分钟令牌桶；IP 只是 40 倍的兜底桶，**一个教室共用一个出口也不能互相挤掉**（`src/lib/ai/limits.ts`）
+- `DATABASE_URL` — 有则 Neon Postgres（登录后云端纪要）；无则 PGLite（预览/本机）。迁移在 `npm run build` 里跑（`scripts/migrate.mjs`），运行时不写盘
 - Auth：Google / X。未登录纪要只在**这台浏览器**。
+
+词汇：界面和文档说「检索」，代码、提示词和数据字段里仍叫 DeepSearch（`deep` / `essay`）。界面上不要再出现英文 DeepSearch。
 
 ---
 
 ## 3. 目录地图（先读这些再改）
 
+三个面 = 三条路由，一个外壳、一个引擎、一个 store：
+
 ```
-src/lib/types.ts                 全部数据结构（ClassSession, ClassRecap, CoachCard…）
-src/lib/store.ts                 Zustand。liveId ≠ sessionId。结课 / 再出一份 / 置顶 / persist
-src/lib/persist.ts               localStorage + IndexedDB（along.sessions）+ 本机墓碑
-src/lib/session-sync.ts          云端推送计划：一处去抖、只推变了的堂次、只补未确认的墓碑
-src/lib/session-limits.ts        40 堂 / 512 KB / schemaVersion 三个上限，客户端与服务端共用
-src/lib/recap-cloud.ts           登录后 pull/push class_sessions；删除写 tombstone 行，服务端保留 40 行
-src/lib/recap-kit.ts             纪要装配器：GOLD_CONTENT / GOLD_STUDY / assembleRecap / isFilled / packCoach
-src/lib/ai/                      AI 入口的门：同源校验、调用者识别（登录 id 或 IP）、每人每分钟令牌桶
-src/lib/capcom-ai.ts             全部 serverFn：STT secret、翻译、教练、DeepSearch、recapClass（全部挂 aiGuard）
-src/lib/essay-kit.ts             DeepSearch 装配
-src/lib/speech-controller.ts     麦克风 + 流式 STT
-src/lib/stt-controller.ts
-src/lib/class-mode.ts            课型、旁听间隔、课中剖析标题
-src/lib/coach-kit.ts             跟听间隔、是否留卡、教练栏文案
-src/lib/coach-assemble.ts        教练装配器：三种课型盖章三条名字，不编开口
-src/components/capcom/use-engine.ts   听课生命周期 + requestRecap + 翻译队列 + 卡住重写
-src/components/capcom/mission-shell.tsx  听课 | 教练两栏
-src/components/capcom/recap-page.tsx  纪要页 UI
-src/lib/export-recap.ts          Markdown / 打印
-scripts/dev-up.mjs               8080 探测 / 拉起 / 杀掉
+src/routes/__root.tsx                 文档外壳（AuthProvider、PreviewHostBridge），不放产品 UI
+src/routes/_shell.tsx                 应用外壳：一条顶栏、一个引擎、一个键盘处理；中间随 URL 换，课在后台继续听
+src/routes/_shell.index.tsx           /             课堂：听课 | 教练
+src/routes/_shell.class.index.tsx     /class        目录，没选堂时的空态（示例讲义入口）
+src/routes/_shell.class.$id.tsx       /class/:id    一份讲义；?catalog=1 目录抽屉，?edit=1 编辑态
+src/routes/_shell.review.tsx          /review       刷卡；?class=<id> 只刷这一堂
+src/routes/login.tsx · api/auth/$.ts  登录页与 Better Auth 路由
+src/lib/nav.ts                        AppNav：引擎不认识 router，只会 home / classPage / catalog / review
 ```
 
-不要新建平行 store 或第二套纪要格式。
+数据与状态：
+
+```
+src/lib/types.ts                  全部数据结构（ClassSession, ClassRecap, CoachCard, Jot…）
+src/lib/store.ts                  一个 zustand store = live-slice + sessions-slice 的 20 行组合，不放逻辑
+src/lib/state/live-slice.ts       课中屏上的瞬时态：字幕、麦、教练卡、检索稿、flash、记要点弹层；phase 只由引擎写
+src/lib/state/sessions-slice.ts   目录与堂级动作：liveId ≠ sessionId；结课 / 再出一份 / 置顶 / 改题 / 删除 / stashLive / hydrate / syncCloud
+src/lib/session-persist.ts        目录的静态：读本机、写回、与云端合并、墓碑、hydrate 编排。没有 React
+src/lib/session-merge.ts          纯函数：任何年代的行归一成当前形状；两份同一堂合并（更新者胜，逐字段）
+src/lib/persist.ts                本机落盘：IndexedDB 按堂存（主存）；localStorage 只留 along.index（首屏索引）、along.sync（游标 + 账本）、墓碑。旧的 along.sessions 整块读一次即迁走
+src/lib/session-sync.ts           云端推送计划：一处去抖、只推变了的堂次、账本记已确认指纹、只补未确认的墓碑
+src/lib/session-wire.ts           一堂课在网上和库里的样子：body（实录 / 卡 / 检索 / 笔记 + 元数据列）与 recap 分开；超限先瘦身
+src/lib/session-limits.ts         40 堂 / body 512 KB / recap 256 KB / schemaVersion，客户端与服务端共用
+src/lib/recap-cloud.ts            登录后的服务函数：按 updated_at 游标增量 pull（带重叠窗口）、更新者胜 push；class_sessions + class_recaps + class_session_tombstones；每人保留 40 行
+src/lib/session-order.ts          目录排序、置顶
+src/lib/drill.ts                  复习分流：Leitner 盒子，会了升一格按 1/3/7/14/30 天到期，再来回本轮末尾；只存本机 along.drill
+src/lib/samples.ts                两份示例讲义（SpaceX / 记账 app）：只读页 /class/<id>，从不进目录
+migrations/                       0001 auth · 0002 class_sessions · 0003 tombstones · 0004 元数据列 + class_recaps 分表
+```
+
+引擎（不依赖组件挂载，没有模块级全局）：
+
+```
+src/lib/engine/index.ts           引擎单例 createEngine({ store, nav, api })；组件只从这里拿 arm / safe / endClass / captureNote / sayLine / requestRecap…
+src/lib/engine/engine.ts          编排：状态机 + 各 runtime + 心跳；abortLive 一处收口所有在途
+src/lib/engine/class-machine.ts   显式状态机 idle → arming → listening ⇄ paused → ending → ended，纯函数，有测试
+src/lib/engine/context.ts         EngineContext：store、nav、api（服务函数当普通 async 函数，测试可换假的）、去抖槽
+src/lib/engine/listen-runtime.ts  麦与后端：xAI STT 先试两次，仍失败才换浏览器识别，并把 sttBackend / sttNote 写进 store 让学生看见；死掉的控制器不能再驱动 runtime；每个状态变化都过状态机
+src/lib/engine/caption-pipeline.ts 字幕进、中文出：追最新，最多 2 路在途、保留 8 条，每条 3 次后标「未译」；rate_limited 不算一次、整队歇 8 秒；unavailable 一次即标；状态全在实例上
+src/lib/engine/coach-runtime.ts   教练：一次一张、永远写最新一拍，在途时只记「再来一张」，代次失效
+src/lib/engine/deep-runtime.ts    检索：每卡代次，最多 2 路，其余排队
+src/lib/engine/note-runtime.ts    记要点：先落纪要，另一半后台翻译
+src/lib/engine/say-runtime.ts     「我想说」：中文一句 → 课上能开口的英文一句，记成 src:"say" 的随手记
+src/lib/engine/recap-runtime.ts   课上提纲草稿（outlineBusy 锁）+ 结课整理 + 再出一份 + 门控
+src/components/capcom/use-engine.ts  只剩 useCapcomEngine()：挂载时 engine.start()
+```
+
+服务端（`capcom-ai.ts` 只是 re-export 门面，新代码直接 import 能力文件）：
+
+```
+src/lib/ai/llm/models.ts          模型注册表：Flash 三个别名回退链、grok-4.6、各自超时。模型名只在这里出现
+src/lib/ai/llm/transport.ts       调 xAI 的唯一出口：请求形状、超时、回退链、JSON 抢救、每次尝试一行结构化日志
+src/lib/ai/guard.ts · guard.server.ts · bucket.ts · limits.ts   每个入口的门：同源校验、调用者识别（u: / d: / ip:）、两层令牌桶（本人额度 + IP 兜底 ×40）
+src/lib/ai/errors.ts              AiErrorCode 枚举 + 每个码的中文一处（aiFail / aiErrorText），客户端按 code 分支，不按文案
+src/lib/ai/prompts.ts             所有提示词一处（GOLD_* 与内联合一）
+src/lib/ai/stt.ts                 mintSttSecret
+src/lib/ai/translate.ts           liveTranslate · quickTranslate · sayIt
+src/lib/ai/coach.ts               liveCoach → coach-assemble
+src/lib/ai/deep.ts                expandTopic → essay-kit
+src/lib/ai/recap.ts               liveOutline · recapClass → recap-kit 两道门
+src/lib/recap-kit.ts              纪要装配器：assembleRecap / isEssayFilled / isStudyFilled / isFilled / packCoach
+src/lib/coach-assemble.ts         教练装配器：三种课型盖章三条名字，不编开口
+src/lib/essay-kit.ts              检索稿装配
+src/lib/class-mode.ts · coach-kit.ts · live-queue.ts   课型、间隔、队列的纯函数
+src/lib/speech-controller.ts · stt-controller.ts       麦克风 + 流式 STT
+```
+
+界面：
+
+```
+src/components/capcom/mission-shell.tsx   外壳：顶栏、全局键（N 记要点 / Escape 逐层关）、记要点弹层
+src/components/capcom/mission-bar.tsx     顶栏：开始听 / 暂停 / 继续听 / 记要点（主）/ 结课（次级 + 确认）/ 课型弹层
+src/components/capcom/classroom.tsx · downlink-panel.tsx · uplink-panel.tsx   课堂两栏：听课 | 教练（手机两页签）
+src/components/capcom/jot-pad.tsx         记要点 / 我想说 双页签弹层
+src/components/capcom/recap-page.tsx + recap/   讲义页：目录、正文、语言点、附录、刷卡、导出、示例入口
+src/components/ui/button.tsx · sheet.tsx · confirm.tsx · menu.tsx   四级按钮（primary / secondary / quiet / danger）+ 固定尺寸、弹层、确认、菜单
+src/styles.css                            全部设计令牌：五档字阶 + 三种行高、纸感调色、一种划词 .key、自托管 IBM Plex
+src/lib/export-recap.ts                   Markdown / 打印
+scripts/dev-up.mjs                        8080 探测 / 拉起 / 杀掉
+```
+
+不要新建平行 store、第二套纪要格式，或把引擎逻辑写回组件。
 
 ---
 
 ## 4. 课上逻辑（已经相对稳，不要推倒）
 
+课是一台显式状态机（`src/lib/engine/class-machine.ts`，纯函数，有测试），引擎是唯一写手，store 只镜像 `phase`：
+
 ```
-开始听  →  手选课型，新 ClassSession，开麦，xAI STT Streaming
-暂停    →  只停麦，课还在（liveId 不变）
-继续听  →  同一堂课，不再问课型
-结课    →  stashLive → abortLive → requestRecap；下一堂必须再点开始听
+idle → arming → listening ⇄ paused → ending → ended → (arm) arming
+
+开始听  →  arm：手选课型，新 ClassSession，开麦；后端接通才 mic_live → listening
+暂停    →  pause：只停麦，课还在（liveId 不变），字幕队列不清，在途翻译照常落地
+继续听  →  arm：同一堂课，不再问课型；xAI 听写重新接
+结课    →  end → abortLive → closeMic → clear(keepRecap) → ended → requestRecap；try/finally 保证离开 ending
+首页    →  reset：只在没有开着的课时清 HUD；ending 中不允许
 ```
 
 - `liveId`：正在听的课。`sessionId`：纪要页在看的课。结课后 HUD 清空，纪要进已结束的 session。
-- 教练可单独暂停/恢复，不影响听写。
-- 翻译和听写两条队列。`transBusy` 必须 try/finally，否则两次失败后永远「未译」。
+- 双击 / 乱序事件由表查出 `null` 直接忽略（arming 时再 arm、ending 时再 end），不用 if 链。
+- 教练可单独暂停/恢复（`coach.setLive`），不影响听写。暂停不 abort 教练和翻译，只关麦。
+- **听写后端**：xAI STT 先试两次（间隔 1.5 秒），仍失败才换浏览器识别，并把 `sttBackend: "browser"` 和原因（太频繁 / 没钥匙 / 没接上）写进 store，听课栏挂「浏览器听写」标记。**不许静默切换**——浏览器识别慢、不准、会重复，学生必须知道自己在用哪个。
+- 浏览器识别的 interim 是累积的，`speech-controller` 只发增量（`unsaidTail`）；不这样做每段话会一行行重复「M Taylor Swift」。
+- 翻译队列（`caption-pipeline`）：追最新，2 路在途，每条 3 次后标「未译」；`rate_limited` 不算一次、整队歇 8 秒；`unavailable` 一次即标。busy 计数在 finally 里减，abort 归零。
 - 切到纪要再回来，翻译必须续上，不能从「当前」另起丢掉中间句。
 - 噪声 `???????` / 纯标点 / uh-um 进 `isSpeech` 过滤，不进实录。
 
@@ -178,9 +249,17 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 曾 2 分钟 + 全局锁卡死。现最快模型 + `web_search` 检索，有事实后 4.6 写四十秒（不联网）。每卡 gen，最多 2 路。不要用 4.6 当搜索引擎，也不要用没检索到的议论充完稿。深要深在事实、数字、能讲四十秒的段落，不要重复教练 1.2.3。
 
-### P2 — 听写变慢 / 翻译掉队
+### P1（9 月 8 日）— 听写变差、一直重复、暂停后翻译全失败
 
-翻译失败会把 `transBusy` 卡死（必须 finally）。`transTries` 按 caption id，`clear`/`abortLive` 必须清。听写不要等翻译。
+**现象**：识别慢、听错、反复打出「M Taylor Swift」；暂停再继续听后翻译全「未译」。
+
+**原因**：重复模式是浏览器识别器的签名（累积 interim 被当成整句反复上屏），说明 xAI 听写没接上、被**静默**换成了浏览器识别。接不上的最可能原因是新加的限流按 IP 记账——同一个办公室 / 教室 / 代理后的所有人共用 10 次听写密钥、90 次翻译每分钟，一个人续听拿不到密钥，所有人的翻译一起被拒；客户端遇拒绝还连烧三次直接标「未译」。
+
+**现状**：限流键 登录 id → 本机 device id → IP，IP 只作 40 倍兜底；xAI 听写先重试一次再换浏览器，换了就挂「浏览器听写」标记和原因；浏览器识别只发增量；翻译遇 `rate_limited` 歇 8 秒不计次。回归时核对：`listen-runtime.test.ts`、`caption-pipeline.test.ts`、`bucket.test.ts`、`speech-controller.test.ts`。
+
+### P2 — 听写变慢 / 翻译掉队（更早）
+
+翻译失败会把 busy 卡死（必须 finally）。tries 按 caption id，`abort` 必须清。听写不要等翻译。
 
 ### P3 — 其它已修，回归时核对
 
@@ -214,9 +293,15 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 - 不要提交 `.env`、`.grok/`、`screenshots/`、`node_modules`
 - 不要用目录/Map 冒充讲义
 - 不要让 `draft: false` 只因为有 `coachPack`
-- 中文界面，简体；DeepSearch/纪要禁止繁体
-- `npm run typecheck` 必须过
+- 中文界面，简体；DeepSearch/纪要禁止繁体；界面上写「检索」不写 DeepSearch
+- `npm run typecheck`、`npm test`、`npm run build` 都必须过；改了课上逻辑要跑 `browser-smoke` 看 dev 和 built 两份
 - 纪要 JSON 要能被 `extractJsonObject` 吃到；宁可短而完整，不要写到一半被截断
+- 引擎逻辑只写在 `src/lib/engine/`，组件只调 `@/lib/engine` 的导出；不要再有模块级全局
+- 课的状态只能通过 `dispatch` 走状态机，不要在组件里 `setPhase`
+- 任何降级（换识别器、限流、没钥匙）都要让学生看见原因，不许静默
+- 限流的 key 不能只按 IP；新加 AI 入口必须挂 `aiGuard` 并 `takeAiToken(context.caller, kind)`
+- AI 错误一律 `aiFail(code)`：`code` 是合同、`error` 是给人看的中文；客户端按 `code` 分支（`isTerminalAiError`），不要 `/太频繁/` 匹配文案
+- 不要往 `__root.tsx` 放 `og:*`；不要删 `PreviewHostBridge`、`startup.sh`、`server/`
 
 ---
 
