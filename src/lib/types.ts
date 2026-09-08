@@ -39,7 +39,8 @@ export type Jot = {
   id: string;
   en: string;
   zh: string;
-  src: "hand" | "coach" | "deep";
+  /** hand = typed; coach / deep = kept from a card; say = 「我想说」 line. */
+  src: "hand" | "coach" | "deep" | "say";
   at: number;
   pending?: boolean;
 };
