@@ -158,7 +158,7 @@ SHAPE (rewrite if a piece is missing; a table of contents is not a handout):
 Contrast table ONLY if the hour is a real contrast (X vs Y). Skip the table otherwise.
 
 SOURCES — synthesize, do not paste:
-- Coach cards: take the claim, the upgrade, the stuck layer. NEVER paste the three spoken lines (agree / contrast / example, or answer / add a layer / give an example) into the essay.
+- Coach cards: take the claim from topic / brief / briefZh — the stuck layer, not the three spoken lines. If there was no DeepSearch and no student note, the essay must still recognize at least one coach brief. NEVER paste the three spoken lines (agree / contrast / example, or answer / add a layer / give an example) into the essay.
 - DeepSearch: names, numbers, years that were actually opened belong in the matching paragraph, not only in an appendix.
 - Student notes: the line they wanted kept belongs in the related section.
 - Transcript: use it to recognize the hour. Do not replay it. Do not turn a caption into a title or heading.
@@ -629,6 +629,7 @@ export function writtenBody(body: string) {
 
 export function classSourceNeedles(input: {
   notes?: string[];
+  briefs?: string[];
   facts?: string[];
   terms?: string[];
 }) {
@@ -640,6 +641,7 @@ export function classSourceNeedles(input: {
     out.push(t);
   };
   for (const n of input.notes ?? []) push(n);
+  for (const b of input.briefs ?? []) push(b);
   for (const f of input.facts ?? []) push(f);
   for (const t of input.terms ?? []) push(t);
   return [...new Set(out)].slice(0, 16);
@@ -705,6 +707,7 @@ export function keepClassStudy(recap: ClassRecap, hay: string): ClassRecap {
 export type RecapCoachBits = {
   topic?: string;
   brief?: string;
+  briefZh?: string;
   say?: string[];
   extras?: string[];
   deep?: {
@@ -724,6 +727,7 @@ export function classNeedlesOf(input: { notes?: string[]; coach?: RecapCoachBits
   const coach = input.coach ?? [];
   return classSourceNeedles({
     notes: input.notes ?? [],
+    briefs: coach.flatMap((c) => [c.topic ?? "", c.brief ?? "", c.briefZh ?? ""]),
     facts: coach.flatMap((c) => [...(c.deep?.facts ?? []), c.deep?.title ?? "", c.deep?.viewEn ?? ""]),
     terms: coach.flatMap((c) => c.deep?.terms ?? []),
   });

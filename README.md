@@ -62,7 +62,7 @@ Live classroom companion: captions, a coach that follows how you listen, DeepSea
 
 没在课上点过「记」也可以在纪要里补课堂随手记。空「要点」不是讲义 Takeaways。点「复习」先抽这一堂的词条。
 
-装配器拼结构。模型写正文。没有段落、听写当标题、或正文完全不认这一堂，都不算写完，失败会自动再写。目录不会当成完稿。打开「Long-Term Vision vs Quarterly Pressure」可直接读到导语、段落、词表和中文。可改标题、下载 Markdown、打印。
+装配器拼结构。模型写正文。没有段落、听写当标题、或不认教练概括 / 检索 / 随手记，都不算写完。不够再写一轮，还不行就停，人再点「整理本堂」。目录不会当成完稿。打开「Long-Term Vision vs Quarterly Pressure」可直接读到导语、段落、词表和中文。可改标题、下载 Markdown、打印。
 
 ---
 
