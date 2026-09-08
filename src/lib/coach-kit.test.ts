@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   coachEmptyCopy,
+  coachFailHint,
   coachHeaderLabel,
   coachUiPhase,
   humanCoachError,
@@ -131,6 +132,16 @@ describe("coach same / keep", () => {
         options: lines,
         now: 16_000,
       }),
+      false,
+    );
+    assert.equal(
+      shouldKeepCoachCard({
+        source: "intent",
+        lastHeard: "The quarter missed again this morning.",
+        prev,
+        options: opts("I would rather fund the horizon than the quarter."),
+        now: 16_000,
+      }),
       true,
     );
   });
@@ -253,5 +264,7 @@ describe("coach pane copy", () => {
     );
     assert.match(coachEmptyCopy("paused", "interactive"), /已停写/);
     assert.equal(humanCoachError("AI 暂不可用", "retrying").includes("正在重写"), false);
+    assert.match(coachFailHint(false) ?? "", /跟听已停/);
+    assert.equal(coachFailHint(true), null);
   });
 });

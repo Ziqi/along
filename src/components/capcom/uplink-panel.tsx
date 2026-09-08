@@ -12,7 +12,7 @@ import {
   parseClassMode,
   topicBeatLabel,
 } from "@/lib/class-mode";
-import { coachEmptyCopy, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
+import { coachEmptyCopy, coachFailHint, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
 
 function cardHasDeep(
   id: string | null,
@@ -85,6 +85,7 @@ export function UplinkPanel() {
   });
   const headerStatus = coachHeaderLabel(phase);
   const canRewrite = Boolean(error && !pending && (latest || captions.length));
+  const failHint = coachFailHint(autoCoach);
 
   return (
     <section className="hud-corners flex h-full min-h-0 min-w-0 flex-col border border-line bg-surface">
@@ -103,22 +104,6 @@ export function UplinkPanel() {
             {autoCoach ? <Pause className="size-3" /> : <Play className="size-3" />}
             {autoCoach ? "停写" : "跟听"}
           </Button>
-          {latest ? (
-            <Button
-              type="button"
-              variant="quiet"
-              size="sm"
-              className="h-8 min-h-8 px-2"
-              onClick={() => {
-                setFollowLatest(false);
-                setActiveId(latest.id);
-                void requestEssay(latest.id);
-              }}
-              disabled={essayPending}
-            >
-              {essayPending ? "检索中" : "DeepSearch"}
-            </Button>
-          ) : null}
           <p className="pl-1 text-xs text-dim">{headerStatus}</p>
         </div>
       </header>
@@ -158,6 +143,7 @@ export function UplinkPanel() {
         {!latest && phase === "failed" ? (
           <div className="flex h-full min-h-24 flex-col gap-3">
             <p className="max-w-sm text-base leading-relaxed text-abort text-pretty">{error}</p>
+            {failHint ? <p className="max-w-sm text-sm text-muted text-pretty">{failHint}</p> : null}
             {canRewrite ? (
               <Button type="button" variant="ghost" size="lg" className="self-start" onClick={() => void requestCoach()}>
                 重写
@@ -232,6 +218,7 @@ export function UplinkPanel() {
             {phase === "failed" && error ? (
               <li className="flex flex-col items-start gap-2">
                 <p className="text-sm text-abort">{error}</p>
+                {failHint ? <p className="text-sm text-muted">{failHint}</p> : null}
                 {canRewrite ? (
                   <Button type="button" variant="ghost" size="sm" onClick={() => void requestCoach()}>
                     重写

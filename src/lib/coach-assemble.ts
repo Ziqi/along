@@ -47,6 +47,19 @@ function clip(s: string, n: number) {
   return t.length <= n ? t : `${t.slice(0, n - 1).trimEnd()}…`;
 }
 
+function clipZh(s: string, n: number) {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= n) return t;
+  const slice = t.slice(0, n);
+  const cut = Math.max(slice.lastIndexOf("。"), slice.lastIndexOf("！"), slice.lastIndexOf("？"), slice.lastIndexOf("；"));
+  if (cut >= Math.min(16, Math.floor(n * 0.4))) return slice.slice(0, cut + 1);
+  return `${slice.trimEnd()}…`;
+}
+
+function zhBudget(label: string) {
+  return /剖析|背景/.test(label) ? 100 : 64;
+}
+
 function pick(parsed: Record<string, unknown> | null, key: string) {
   const v = parsed?.[key];
   return typeof v === "string" ? v.trim() : "";
@@ -61,7 +74,9 @@ function echoesHeard(en: string, last: string) {
   const b = norm(last);
   if (!a || !b) return false;
   if (a === b) return true;
-  return a.length > 24 && (a.includes(b) || b.includes(a));
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (!long.includes(short)) return false;
+  return short.length / long.length >= 0.85;
 }
 
 export function parseCoachKeys(v: unknown, en: string): string[] {
@@ -116,7 +131,7 @@ function rowOf(label: string, en: string, zh: string, keys: unknown): CoachLine 
   return {
     label: label.replace(/\s+/g, " ").trim(),
     en: line,
-    zh: clip(zh, 40),
+    zh: zh.replace(/\s+/g, " ").trim(),
     keys: parseCoachKeys(keys, line),
   };
 }
@@ -199,13 +214,10 @@ function placeLines(
   }
   return names.map((label, i) => {
     const hit = slots[i];
-    return hit ? { ...hit, label } : { label, en: "", zh: "", keys: [] };
+    return hit
+      ? { ...hit, label, zh: clipZh(hit.zh, zhBudget(label)) }
+      : { label, en: "", zh: "", keys: [] };
   });
-}
-
-function topicFromHeard(last: string) {
-  const words = last.replace(/\s+/g, " ").trim().split(/\s+/).filter(Boolean);
-  return clip(words.slice(0, 6).join(" "), 48);
 }
 
 export function isCoachFilled(
@@ -252,16 +264,17 @@ export function assembleCoach(input: {
       : placeLines(collectRows(input.parsed?.extras), coachExtraLabels(), input.last).filter(
           (o) => o.en,
         );
+  const named = pick(input.parsed, "topic");
   const topic =
-    same && input.prevTopic
-      ? input.prevTopic
-      : pick(input.parsed, "topic") || topicFromHeard(input.last);
-  if (!topic) return { ok: false, error: "教练没给出三条，再听一句。" };
+    same && input.prevTopic ? input.prevTopic : named || input.prevTopic || "这一拍";
   return {
     ok: true,
     same,
     topic,
-    topicZh: same && input.prevTopicZh ? input.prevTopicZh : pick(input.parsed, "topicZh"),
+    topicZh:
+      topic === input.prevTopic && input.prevTopicZh
+        ? input.prevTopicZh
+        : pick(input.parsed, "topicZh"),
     briefZh: pick(input.parsed, "briefZh"),
     briefEn: pick(input.parsed, "briefEn"),
     move,
