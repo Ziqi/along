@@ -163,6 +163,11 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 - 翻译队列（`caption-pipeline`）：追最新，2 路在途，每条 3 次后标「未译」；`rate_limited` 不算一次、整队歇 8 秒；`unavailable` 和被 xAI 拒绝的钥匙（`upstream` 401/402/403）一次即标（`isTerminalAiFail`）。busy 计数在 finally 里减，abort 归零。
 - 切到纪要再回来，翻译必须续上，不能从「当前」另起丢掉中间句。
 - 噪声 `???????` / 纯标点 / uh-um 进 `isSpeech` 过滤，不进实录。
+- **session 是累加器，屏不是**：屏上只留最新 180 句；`stashLive` 用 `mergeTape` 按重叠拼接实录、`unionById` 并教练卡、合并检索，从不整段替换。翻译失败的句子英文照留。每 20 秒、标签页隐藏、离开页面各 stash 一次（只写盘）。
+- **刷新后课还在**：从盘上 hydrate 时接手这台设备最近一堂未结束的课（回到 paused，实录 / 卡 / 检索回屏上）；云端拉来的别的设备开着的课不接手；6 小时没动的「进行中」在下次开课收掉。
+- **首页不碰讲义**：`goHome` 不清 `recapPending / recapStage / recapError`；整理按堂记 `recapTarget`，另一堂的页面不显示、也不能发起会顶掉它的第二次整理。
+- 每个 AI 调用在客户端都有 `withDeadline`；检索抛错要清占位草稿。
+- xAI 听写：两次尝试按连接计，接通即清零；只有当前 socket 能改状态；麦克风轨道 `ended` 与音频图挂起都要上报，不许送静音装作在听。
 
 模型（当前）：
 
@@ -268,6 +273,10 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 **现状**：限流键 登录 id → 本机 device id → IP，IP 只作 40 倍兜底；xAI 听写先重试一次再换浏览器，换了就挂「浏览器听写」标记和原因；浏览器识别只发增量；翻译遇 `rate_limited` 歇 8 秒不计次。回归时核对：`listen-runtime.test.ts`、`caption-pipeline.test.ts`、`bucket.test.ts`、`speech-controller.test.ts`。
 
+### P1（9 月 8 日，第二轮审查）— 五处会丢课的路，两处会把讲义写歪的路
+
+四路审查（引擎 / 数据 / AI / 界面）查出并已修，详见 `docs/review-2026-09-08.md` §3：索引空壳在读失败时盖掉整堂课；换账号把上一个人的课推进新账号；屏上 180 句整段替换 session 让一小时只剩后半；翻译失败的句子从实录消失；刷新后开着的课不接手；`recapClass` 只读开头 36 句；段落 640 字符截断；中文门接受英文和繁体。回归时核对 `session-merge.test.ts`（mergeTape、完稿不被草稿盖）、`recap-kit.test.ts`（中文门、spread、段落）、`listen-runtime.test.ts`（按连接计次）。
+
 ### P2 — 听写变慢 / 翻译掉队（更早）
 
 翻译失败会把 busy 卡死（必须 finally）。tries 按 caption id，`abort` 必须清。听写不要等翻译。
@@ -288,9 +297,14 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 已落地、不要倒回去：讲义三块、语言点由模型选、实录作附录、失败再写、登录同步、三种课型、两栏 HUD、不要手写混进听写。
 
-还没做：
+还没做（先修再拓，依据见 `docs/review-2026-09-08.md` §4–§6）：
 
-1. **纪要总索引**：各堂词、搭配、句式做成总索引。复习入口已经拿到整理 / 导出同一排。
+1. **测试基建**：`src/lib/state/*` 改成相对 `.ts` 导入让 node 能跑，补 `pushFinal / stashLive / applyCatalog / clear` 的 slice 测试。
+2. **多标签页互通**（BroadcastChannel）；**手机触控** xs / sm 按钮加 `max-md:min-h-11`；**超限瘦身两端一致**（`slimToLimit` 进 `session-wire`）。
+3. **教练 / 提纲节流**改前沿带尾沿；**教练错误按码分支**；**暂停不丢最后半句**；迁移 0004 跳过坏行；SSR 主题闪。
+4. **借同类产品**：「刚才讲了什么」（最近 5–10 分钟三行中文）；字幕行一键标记进讲义；xAI STT `keyterm` 专有名词偏置；课后「问这堂课」只引用实录作答；话题时间线；老师布置的作业单列。
+5. **纪要总索引**：各堂词、搭配、句式做成总索引。复习入口已经拿到整理 / 导出同一排。
+6. **界面**：字幕点词看释义；教练卡等待时长可见；手机横屏两栏；讲义页固定目录与三步整理进度；词条「加到复习」开关；复习键盘 / 滑动；首次引导一屏。
 
 已做：课型开课必选、课中不改；只听三块拉开；字号和中文字体；顶栏主次（记要点主、结课次级加确认）；纪要目录带日期和课型；**「我想说」**（记要点弹层的另一面，`sayIt` + `say-runtime`，记成 `src: "say"` 的随手记）；复习真分流（`src/lib/drill.ts`：会了升一格并按 1/3/7/14/30 天到期，再来回到本轮末尾；状态只存本机 `along.drill`）。
 

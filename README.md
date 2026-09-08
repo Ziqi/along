@@ -6,7 +6,8 @@ Live classroom companion: captions, a coach that follows how you listen, DeepSea
 
 仓库：[github.com/Ziqi/along](https://github.com/Ziqi/along)  
 这一版改了什么、现场踩过什么坑：见 [CHANGELOG.md](./CHANGELOG.md)。  
-给 Cursor 改代码用的系统全貌、8080 约定、纪要门槛：见 [CURSOR.md](./CURSOR.md)。
+给 Cursor 改代码用的系统全貌、8080 约定、纪要门槛：见 [CURSOR.md](./CURSOR.md)。  
+第二轮全面审查的计划、发现、同类产品对照与待办：见 [docs/review-2026-09-08.md](./docs/review-2026-09-08.md)。
 
 ---
 
@@ -32,6 +33,7 @@ Live classroom companion: captions, a coach that follows how you listen, DeepSea
   - **只听**：播客、Coursera、录音。没有对老师说一句。
 - **继续听**：同一堂课接着听，不再问课型。
 - **暂停**：只停麦，课还在。已经上屏的句子照常出中文，教练卡不丢。
+- 课中每隔一会儿自动存一次；刷新或切走再回来，这堂课还在（已暂停），点继续听接着同一堂。屏幕在听课时保持常亮。
 - **结课**：下课并整理纪要。会先问一句，答了才结；下一堂必须再点「开始听」。
 - 上课时顶栏最重的是「记要点」，暂停在旁边；结课只是一个字眼，点了先确认。
 - 课型只在开课时选一次。上课顶栏只写「这堂是××」，不能改。想换：先结课，再开一堂。
