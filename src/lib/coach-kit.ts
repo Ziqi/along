@@ -167,6 +167,7 @@ export function isRetryableCoachError(err: string) {
   if (!t) return true;
   if (t === "AI 暂不可用" || t === "empty") return false;
   if (/没接到模型/.test(t)) return false;
+  if (/太频繁/.test(t)) return false;
   if (/xAI 错误 40[13]/.test(t)) return false;
   return true;
 }

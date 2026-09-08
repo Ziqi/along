@@ -1,4 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
+import { aiGuard } from "@/lib/ai/guard";
+import { takeAiToken } from "@/lib/ai/bucket";
 import { assembleEssay, heuristicEssay, searchFacts } from "@/lib/essay-kit";
 import {
   applyZh,
@@ -28,7 +30,7 @@ const FLASH_ALIAS = "grok-4.20-non-reasoning";
 const FLASH_FALLBACK = "grok-4.3";
 const FLASH_MODELS = [FLASH, FLASH_ALIAS, FLASH_FALLBACK] as const;
 
-type ChatErr = { ok: false; error: string };
+type ChatErr = { ok: false; error: string; code?: string };
 
 async function postChat(body: Record<string, unknown>, signal?: AbortSignal) {
   const apiKey = process.env.XAI_API_KEY;
@@ -342,8 +344,11 @@ async function chat46low(params: {
   });
 }
 
-export const mintSttSecret = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ ok: true; token: string } | ChatErr> => {
+export const mintSttSecret = createServerFn({ method: "POST" })
+  .middleware([aiGuard])
+  .handler(async ({ context }): Promise<{ ok: true; token: string } | ChatErr> => {
+    const gate = takeAiToken(context.caller.key, "stt");
+    if (!gate.ok) return gate;
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) return { ok: false, error: "AI 暂不可用" };
     const res = await fetch("https://api.x.ai/v1/realtime/client_secrets", {
@@ -358,8 +363,7 @@ export const mintSttSecret = createServerFn({ method: "POST" }).handler(
     const body = (await res.json()) as { value?: string };
     if (!body.value) return { ok: false, error: "无听写密钥" };
     return { ok: true, token: body.value };
-  },
-);
+  });
 
 const pick = (parsed: Record<string, unknown> | null, key: string) => {
   const v = parsed?.[key];
@@ -399,10 +403,13 @@ export const liveTranslate = createServerFn({ method: "POST" })
           .filter((l) => l.id && l.en)
       : [],
   }))
-  .handler(async ({ data }): Promise<
+  .middleware([aiGuard])
+  .handler(async ({ data, context }): Promise<
     | { ok: true; items: { id: string; zh: string }[]; ms: number }
     | ChatErr
   > => {
+    const gate = takeAiToken(context.caller.key, "translate");
+    if (!gate.ok) return gate;
     const line = data.lines[0];
     if (!line) return { ok: false, error: "empty" };
     const result = await chatFlash({
@@ -463,7 +470,8 @@ export const liveCoach = createServerFn({ method: "POST" })
           : "interactive",
     }),
   )
-  .handler(async ({ data }): Promise<
+  .middleware([aiGuard])
+  .handler(async ({ data, context }): Promise<
     | {
         ok: true;
         same: boolean;
@@ -478,6 +486,8 @@ export const liveCoach = createServerFn({ method: "POST" })
       }
     | ChatErr
   > => {
+    const gate = takeAiToken(context.caller.key, "coach");
+    if (!gate.ok) return gate;
     if (!data.last && !data.intent) return { ok: false, error: "empty" };
     const system = coachSystem(data.mode);
     const user = JSON.stringify({
@@ -561,7 +571,8 @@ export const expandTopic = createServerFn({ method: "POST" })
           : "interactive",
     }),
   )
-  .handler(async ({ data }): Promise<
+  .middleware([aiGuard])
+  .handler(async ({ data, context }): Promise<
     | {
         ok: true;
         title: string;
@@ -584,6 +595,8 @@ export const expandTopic = createServerFn({ method: "POST" })
       }
     | ChatErr
   > => {
+    const gate = takeAiToken(context.caller.key, "deep");
+    if (!gate.ok) return gate;
     if (!data.topic && !data.lastHeard && !data.options.length) {
       return { ok: false, error: "empty" };
     }
@@ -646,10 +659,13 @@ export const quickTranslate = createServerFn({ method: "POST" })
       .trim()
       .slice(0, 280),
   }))
-  .handler(async ({ data }): Promise<
+  .middleware([aiGuard])
+  .handler(async ({ data, context }): Promise<
     | { ok: true; out: string; dir: "zh-en" | "en-zh"; ms: number }
     | ChatErr
   > => {
+    const gate = takeAiToken(context.caller.key, "quick");
+    if (!gate.ok) return gate;
     if (!data.text) return { ok: false, error: "empty" };
     const toEn = /[\u4e00-\u9fff]/.test(data.text);
     const dir = toEn ? "zh-en" : "en-zh";
@@ -988,7 +1004,10 @@ export const recapClass = createServerFn({ method: "POST" })
       mode: parseClassMode(input?.mode),
     }),
   )
-  .handler(async ({ data }): Promise<RecapOk | ChatErr> => {
+  .middleware([aiGuard])
+  .handler(async ({ data, context }): Promise<RecapOk | ChatErr> => {
+    const gate = takeAiToken(context.caller.key, "recap");
+    if (!gate.ok) return gate;
     if (data.lines.length < 2) return { ok: false, error: "实录太短" };
     const tape = compactTape(data.lines).slice(0, 36);
     const listenOnly = data.mode === "listen";
@@ -1200,7 +1219,8 @@ export const liveOutline = createServerFn({ method: "POST" })
         : [],
     }),
   )
-  .handler(async ({ data }): Promise<
+  .middleware([aiGuard])
+  .handler(async ({ data, context }): Promise<
     | {
         ok: true;
         title: string;
@@ -1210,6 +1230,8 @@ export const liveOutline = createServerFn({ method: "POST" })
       }
     | ChatErr
   > => {
+    const gate = takeAiToken(context.caller.key, "outline");
+    if (!gate.ok) return gate;
     if (data.lines.length < 2 && data.notes.length < 1) {
       return { ok: false, error: "还太短" };
     }
