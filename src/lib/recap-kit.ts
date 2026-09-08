@@ -29,8 +29,42 @@ function clip(s: string, n: number) {
   return t.length <= n ? t : t.slice(0, n - 1).trimEnd() + "…";
 }
 
+/**
+ * A paragraph ceiling well above what the prompt asks for (90–160 words ≈
+ * 550–1000 characters), cut at a sentence end so a long paragraph loses its
+ * last sentence, not half a word.
+ */
+export const PARAGRAPH_MAX_CHARS = 1600;
+
+export function clipParagraph(s: string, n = PARAGRAPH_MAX_CHARS) {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= n) return t;
+  const head = t.slice(0, n);
+  const end = Math.max(head.lastIndexOf(". "), head.lastIndexOf("。"), head.lastIndexOf("! "), head.lastIndexOf("? "));
+  return end > n * 0.5 ? head.slice(0, end + 1).trim() : clip(t, n);
+}
+
 function keyOf(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ").trim();
+}
+
+/**
+ * At most `max` items with the whole class still represented: the first
+ * `head` (how it opened), the last `tail` (how it ended — the part a
+ * head-only cut always lost), and the middle sampled evenly.
+ */
+export function spread<T>(items: T[], max: number, head = Math.floor(max / 10), tail = Math.floor(max * 0.4)): T[] {
+  if (items.length <= max) return items;
+  const first = items.slice(0, head);
+  const last = items.slice(items.length - tail);
+  const middle = items.slice(head, items.length - tail);
+  const room = Math.max(0, max - head - tail);
+  const picked: T[] = [];
+  if (room > 0 && middle.length) {
+    const step = middle.length / room;
+    for (let i = 0; i < room; i += 1) picked.push(middle[Math.min(middle.length - 1, Math.floor(i * step))]!);
+  }
+  return [...first, ...picked, ...last];
 }
 
 export function compactTape(tape: { en: string; zh: string }[]) {
@@ -55,7 +89,7 @@ export function compactTape(tape: { en: string; zh: string }[]) {
 }
 
 function formatBody(paras: string[], points: string[]) {
-  const p = paras.map((x) => clip(x, 640)).filter(Boolean);
+  const p = paras.map((x) => clipParagraph(x)).filter(Boolean);
   const seen = new Set<string>();
   const n: string[] = [];
   for (const x of points) {
@@ -820,8 +854,21 @@ export function collectDrillCards(
   return out;
 }
 
-function writtenZh(body: string) {
-  return body.replace(/\s+/g, " ").trim().length > 40;
+/**
+ * Characters that exist only in traditional Chinese (the simplified forms are
+ * different code points). The interface is simplified; a handout that drifts
+ * into 繁體 fails the gate and goes back for the gloss pass.
+ */
+const TRADITIONAL_ONLY = /[們這個說為於學會時國對經開關現點樣應與還沒從後麼該裡體讓課語話詞錢長東車電問間書寫聽讀識認]/;
+
+/** Real 简体 prose: enough Han characters, mostly Han, none of the 繁體-only forms. */
+export function writtenZh(body: string) {
+  const t = body.replace(/\s+/g, "").trim();
+  if (!t) return false;
+  const han = t.match(/[\u4e00-\u9fff]/g)?.length ?? 0;
+  if (han < 18) return false;
+  if (han / t.length < 0.5) return false;
+  return !TRADITIONAL_ONLY.test(t);
 }
 
 export function studyRowReady(row: RecapStudy) {
@@ -835,9 +882,15 @@ export function studyRowReady(row: RecapStudy) {
 
 export function isEssayFilled(recap: ClassRecap) {
   const ledeOk = (recap.lede ?? "").trim().length > 40 && writtenZh(recap.ledeZh ?? "");
-  const bilingual = recap.sections.filter(
-    (s) => writtenBody(s.body) && writtenZh(s.bodyZh ?? "") && !looksLikeHeardFragment(s.heading),
-  );
+  // Two sections that say the same thing are one section.
+  const seen = new Set<string>();
+  const bilingual = recap.sections.filter((s) => {
+    if (!writtenBody(s.body) || !writtenZh(s.bodyZh ?? "") || looksLikeHeardFragment(s.heading)) return false;
+    const k = keyOf(s.body).slice(0, 160);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
   return ledeOk && bilingual.length >= 2;
 }
 

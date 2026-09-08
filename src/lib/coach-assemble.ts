@@ -175,7 +175,8 @@ function collectRows(v: unknown): CoachLine[] {
 }
 
 function slotOf(label: string, names: string[]): number {
-  const t = label.replace(/\s+/g, "");
+  // Lower-case so "Agree" / "CONTRAST" from the model land by meaning, not by array order.
+  const t = label.replace(/\s+/g, "").toLowerCase();
   if (!t) return -1;
   const idx = names.findIndex((n) => t.includes(n) || n.includes(t));
   if (idx >= 0) return idx;
@@ -204,8 +205,13 @@ function placeLines(
   for (const row of rows) {
     if (!allowEcho && echoesHeard(row.en, last)) continue;
     const i = slotOf(row.label, names);
-    if (i >= 0 && !slots[i]) slots[i] = row;
-    else leftover.push(row);
+    if (i >= 0) {
+      // A second line under a name already taken is a duplicate, not a
+      // candidate for some other name's slot.
+      if (!slots[i]) slots[i] = row;
+      continue;
+    }
+    leftover.push(row);
   }
   for (const row of leftover) {
     const empty = slots.findIndex((s) => !s);

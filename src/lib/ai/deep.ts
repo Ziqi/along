@@ -103,15 +103,22 @@ export const expandTopic = createServerFn({ method: "POST" })
       json: true,
       tag: "deep.talk",
     });
-    const spoken = talk.ok ? extractJsonObject(talk.text) : null;
+    // The talk failing is the talk's failure (timeout, refused key…), not
+    // "nothing found": the student should read the real reason.
+    if (!talk.ok) return talk;
+    const spoken = extractJsonObject(talk.text);
+    // The search model was told not to write the talk; only the talk's prose
+    // may fill viewEn / aEn, so a stray paragraph from the search step cannot
+    // pass for a written essay.
+    const { aEn: _a, viewEn: _v, aZh: _az, viewZh: _vz, ...foundRest } = (found ?? {}) as Record<string, unknown>;
     const parsed: Record<string, unknown> = {
-      ...(found ?? {}),
+      ...foundRest,
       ...(spoken ?? {}),
       facts: found?.facts ?? facts,
       sources: found?.sources ?? [],
       title: (found?.title as string) || data.topic,
     };
-    const body = assembleEssay(draft, parsed, (web.ok ? web.ms : 0) + (talk.ok ? talk.ms : 0));
+    const body = assembleEssay(draft, parsed, (web.ok ? web.ms : 0) + talk.ms);
     if (body.draft) return aiFail("no_facts");
     return { ok: true as const, ...body, draft: false, ms: body.latencyMs };
   });

@@ -12,17 +12,28 @@ export const AI_LIMITS = {
   stt: 20,
   translate: 120,
   coach: 30,
-  deep: 12,
+  deep: 6,
   outline: 15,
-  recap: 8,
+  recap: 3,
   quick: 40,
 } as const;
 
-/**
- * How many callers' worth one IP address may spend per minute. A classroom or
- * an office sits behind one router; the IP bucket is a backstop against
- * scripts rotating device ids, never the limit a student meets.
- */
-export const IP_SHARE = 40;
-
 export type AiKind = keyof typeof AI_LIMITS;
+
+/**
+ * How many callers' worth one IP address may spend per minute, per kind. A
+ * classroom or an office sits behind one router, so the IP bucket is a
+ * backstop against scripts rotating device ids, never the limit a student
+ * meets. The dear calls (a 30-minute STT credential, a handout, a search) get
+ * a narrow share: thirty students each start class once and each write one
+ * handout, they do not do it forty times a minute.
+ */
+export const IP_SHARE: Record<AiKind, number> = {
+  stt: 5,
+  translate: 40,
+  coach: 20,
+  deep: 5,
+  outline: 10,
+  recap: 5,
+  quick: 10,
+};

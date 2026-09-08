@@ -12,6 +12,8 @@ export type AiErrorCode =
   | "timeout"
   | "upstream"
   | "empty"
+  /** The model answered with no content (all reasoning, or cut off); asking again may work. */
+  | "no_content"
   | "no_zh"
   | "no_facts"
   | "too_short"
@@ -29,13 +31,15 @@ export function aiErrorText(code: AiErrorCode, status?: number): string {
     case "rate_limited":
       return "太频繁了，稍等一下。";
     case "timeout":
-      return "timeout";
+      return "模型没在时限内答完。";
     case "upstream":
       return `xAI 错误 ${status ?? ""}`.trim();
     case "empty":
-      return "empty";
+      return "没有可处理的内容。";
+    case "no_content":
+      return "模型没给出内容。";
     case "no_zh":
-      return "no-zh";
+      return "没译出中文。";
     case "no_facts":
       return "没检索到，再点一次。";
     case "too_short":

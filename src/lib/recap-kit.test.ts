@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   assembleRecap,
   classNeedlesOf,
+  clipParagraph,
   collectDrillCards,
   emptyRecap,
   essayOf,
@@ -26,7 +27,9 @@ import {
   polishBody,
   scoreContentJson,
   splitProse,
+  spread,
   studyPointsAtClass,
+  writtenZh,
 } from "./recap-kit.ts";
 import type { CoachCard, TopicEssay } from "./types.ts";
 import { extractJsonObject } from "./json-object.ts";
@@ -40,6 +43,10 @@ const LONG_EN =
   "This class argued that a ninety-day score cannot narrate a decade of engineering work without cutting the decade itself.";
 const LONG_ZH =
   "这堂课认为九十天的成绩单讲不完十年的工程，硬讲就会砍掉十年。谁等得起回报，谁会在第一次不及预期时卖掉。";
+const LONG_EN_2 =
+  "The complement is where the class kept slipping: used to takes a bare verb, be used to takes a noun or an -ing form, and the two never swap.";
+const LONG_ZH_2 =
+  "后面接什么是全班一直滑倒的地方：used to 接动词原形，be used to 接名词或 -ing，两者从不互换。";
 
 function studyRow(en: string) {
   return {
@@ -59,7 +66,7 @@ function essayOnly() {
     ledeZh: LONG_ZH,
     sections: [
       { heading: "Clock", headingZh: "钟", body: LONG_EN, bodyZh: LONG_ZH, table: null },
-      { heading: "Payoff", headingZh: "回报", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+      { heading: "Payoff", headingZh: "回报", body: LONG_EN_2, bodyZh: LONG_ZH_2, table: null },
     ],
   };
 }
@@ -233,6 +240,48 @@ describe("handout gate and document close", () => {
     assert.equal(lexiconReady(patternsOnly), false);
   });
 
+  it("the Chinese gate wants real 简体: not English, not 繁體, not a bare length", () => {
+    assert.equal(writtenZh("This is English pretending to be the Chinese version of the paragraph."), false);
+    assert.equal(writtenZh("這堂課把過去的習慣和現在的習慣分開，班上一直補錯後面的成分。"), false);
+    assert.equal(writtenZh("季报和五到十年的尺度在这堂课里正面相撞。"), true, "a two-clause 简体 lede of 20 characters passes");
+    assert.equal(writtenZh("季报。"), false);
+    const english = { ...essayOnly(), ledeZh: "An English lede where Chinese should be, long enough to pass a length check." };
+    assert.equal(isEssayFilled(english), false);
+  });
+
+  it("two sections that say the same thing count as one", () => {
+    const twin = {
+      ...essayOnly(),
+      sections: [
+        { heading: "Clock", headingZh: "钟", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+        { heading: "Clock again", headingZh: "又是钟", body: LONG_EN, bodyZh: LONG_ZH, table: null },
+      ],
+    };
+    assert.equal(isEssayFilled(twin), false);
+    assert.equal(isEssayFilled(essayOnly()), true);
+  });
+
+  it("a full paragraph is kept whole; only a runaway one is cut, and at a sentence", () => {
+    const words = Array.from({ length: 150 }, (_, i) => `word${i}`).join(" ") + ".";
+    assert.equal(clipParagraph(words), words, "150 words is what the prompt asks for");
+    assert.equal(polishBody(words), words);
+    const runaway = Array.from({ length: 60 }, (_, i) => `Sentence number ${i} keeps going on and on about the class.`).join(" ");
+    const cut = clipParagraph(runaway);
+    assert.ok(cut.length <= 1600);
+    assert.match(cut, /\.$/, "cut at a sentence end");
+    assert.doesNotMatch(cut, /…$/);
+  });
+
+  it("spread keeps the start, the end and an even sample of the middle", () => {
+    const lines = Array.from({ length: 300 }, (_, i) => i);
+    const kept = spread(lines, 120);
+    assert.equal(kept.length, 120);
+    assert.deepEqual(kept.slice(0, 12), lines.slice(0, 12), "the opening");
+    assert.deepEqual(kept.slice(-48), lines.slice(-48), "the end of the hour");
+    assert.ok(kept.some((i) => i > 100 && i < 200), "and the middle");
+    assert.deepEqual(spread(lines.slice(0, 50), 120), lines.slice(0, 50), "short input untouched");
+  });
+
   it("polishBody keeps a three-paragraph body plus numbered points", () => {
     const body = polishBody(
       [
@@ -315,7 +364,7 @@ describe("handout gate and document close", () => {
             ],
           },
         },
-        { heading: "The complement", headingZh: "后面接什么", body: LONG_EN, bodyZh: LONG_ZH },
+        { heading: "The complement", headingZh: "后面接什么", body: LONG_EN_2, bodyZh: LONG_ZH_2 },
       ],
       words: [studyRow("used to"), studyRow("be used to"), studyRow("get used to"), studyRow("complement")],
     });

@@ -21,7 +21,7 @@ test("a classroom behind one router: each device keeps its own allowance", () =>
 
 test("one address rotating device ids still meets the IP ceiling", () => {
   const t0 = 3_000_000;
-  const ceiling = AI_LIMITS.stt * IP_SHARE;
+  const ceiling = AI_LIMITS.stt * IP_SHARE.stt;
   let passed = 0;
   for (let n = 0; n < ceiling + 5; n += 1) {
     if (takeAiToken(student(n, "203.0.113.9"), "stt", t0).ok) passed += 1;
@@ -40,10 +40,10 @@ test("a refused call takes nothing from either bucket", () => {
   const spentOnIp = AI_LIMITS.recap;
   const b = student(2, "198.51.100.1");
   let ok = 0;
-  for (let i = 0; i < AI_LIMITS.recap * IP_SHARE; i += 1) {
+  for (let i = 0; i < AI_LIMITS.recap * IP_SHARE.recap; i += 1) {
     if (takeAiToken({ ...b, key: `d:rot-${i}-xxxxxxxx` }, "recap", t0).ok) ok += 1;
   }
-  assert.equal(ok, AI_LIMITS.recap * IP_SHARE - spentOnIp);
+  assert.equal(ok, AI_LIMITS.recap * IP_SHARE.recap - spentOnIp);
 });
 
 test("a signed-in user is one caller across devices; a plain string key still works", () => {

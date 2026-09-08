@@ -135,6 +135,29 @@ describe("assembleCoach", () => {
     assert.equal(isCoachFilled(card, "listen", "join"), true);
   });
 
+  it("English labels in any case and any order land by meaning, and a duplicate label is dropped", () => {
+    const card = assembleCoach({
+      mode: "interactive",
+      last: heard,
+      parsed: {
+        topic: "Hospital wait times",
+        move: "join",
+        options: [
+          { label: "Contrast", en: "Manila waits still beat the queues I saw last year.", zh: "比去年强。" },
+          { label: "EXAMPLE", en: "Last year the clinic finished me in forty minutes.", zh: "举个例。" },
+          { label: "Agree", en: "I can live with a longer wait if the care is safer.", zh: "安全更重要。" },
+          { label: "agree", en: "A second agreement that must not steal another slot.", zh: "重复。" },
+        ],
+      },
+    });
+    assert.equal(card.ok, true);
+    if (!card.ok) return;
+    assert.deepEqual(card.options.map((o) => o.label), ["同意", "对比", "例子"]);
+    assert.match(card.options[0]!.en, /live with a longer wait/);
+    assert.match(card.options[1]!.en, /Manila/);
+    assert.match(card.options[2]!.en, /forty minutes/);
+  });
+
   it("fails instead of inventing a missing opening", () => {
     const card = assembleCoach({
       mode: "audit",

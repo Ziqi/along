@@ -13,6 +13,8 @@ import {
   mergeAiJson,
   missingZh,
   pickRicherJson,
+  scoreContentJson,
+  spread,
   studyHayFromClass,
 } from "@/lib/recap-kit";
 import type { RecapStudy, RecapTable } from "@/lib/types";
@@ -20,6 +22,21 @@ import { takeAiToken } from "./bucket";
 import { aiFail, type AiFail } from "./errors";
 import { aiGuard } from "./guard";
 import { chatFlash, chatReasoning } from "./llm/transport";
+
+/**
+ * How many compacted lines of the hour the model reads. Spread over the whole
+ * class (see `spread`), so a 300-line lecture is read from start to end, not
+ * from its first minutes. About 12k tokens at the validator's caps, far below
+ * either model's window.
+ */
+export const TAPE_LINES_MAX = 120;
+
+/**
+ * Soft ceiling for one `recapClass` call. Each stage is skipped or run without
+ * its fallback when it could not finish inside this; a platform cutting the
+ * function off would lose every model call already paid for.
+ */
+export const RECAP_BUDGET_MS = 75_000;
 import { parseOutline, parsePairs, pick } from "./parse";
 import {
   GLOSS_SYS,
@@ -130,7 +147,7 @@ export const recapClass = createServerFn({ method: "POST" })
     }) => ({
       lines: Array.isArray(input?.lines)
         ? input.lines
-            .slice(0, 160)
+            .slice(-240)
             .map((l) => ({
               en: String(l?.en ?? "")
                 .trim()
@@ -141,14 +158,16 @@ export const recapClass = createServerFn({ method: "POST" })
             }))
             .filter((l) => l.en)
         : [],
+      // Topics run in class order; keep a spread so the end of the hour is
+      // named too. Notes and cards: the newest, which a head cut used to drop.
       topics: Array.isArray(input?.topics)
-        ? input.topics.map((s) => String(s).slice(0, 80)).slice(0, 8)
+        ? spread(input.topics.map((s) => String(s).slice(0, 80)), 8, 2, 3)
         : [],
       notes: Array.isArray(input?.notes)
-        ? input.notes.map((s) => String(s).slice(0, 180)).slice(0, 12)
+        ? input.notes.map((s) => String(s).slice(0, 180)).slice(-24)
         : [],
       coach: Array.isArray(input?.coach)
-        ? input.coach.slice(0, 10).map((c) => ({
+        ? input.coach.slice(-12).map((c) => ({
             topic: String(c?.topic ?? "").slice(0, 80),
             brief: String(c?.brief ?? "").slice(0, 240),
             briefZh: String(c?.briefZh ?? "").slice(0, 160),
@@ -216,7 +235,10 @@ export const recapClass = createServerFn({ method: "POST" })
     const gate = takeAiToken(context.caller, "recap");
     if (!gate.ok) return aiFail("rate_limited");
     if (data.lines.length < 2) return aiFail("too_short");
-    const tape = compactTape(data.lines).slice(0, 36);
+    const started = Date.now();
+    const remaining = () => RECAP_BUDGET_MS - (Date.now() - started);
+    // The whole hour, thinned evenly, never just its first minutes.
+    const tape = spread(compactTape(data.lines), TAPE_LINES_MAX);
     const packet = {
       transcript: tape,
       student_notes: data.notes,
@@ -263,7 +285,9 @@ export const recapClass = createServerFn({ method: "POST" })
           maxTokens: 4000,
           temperature: 0.2,
           timeoutMs: 28000,
-          fallback: { timeoutMs: 20000 },
+          // The flash leg is already running beside this one; a fallback
+          // would run the same prompt a third time.
+          fallback: false,
           json: true,
           tag: "recap.essay",
         }),
@@ -273,7 +297,7 @@ export const recapClass = createServerFn({ method: "POST" })
       parsed = pickRicherJson(fromFlash, mergeAiJson(fromFlash, fromGrok));
       recap = stamp(parsed);
       recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
-      if (!essayReadyForClass(recap, sources)) {
+      if (!essayReadyForClass(recap, sources) && remaining() > 30_000) {
         const outlineHeads = recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4);
         const heads = outlineHeads.length ? outlineHeads : data.topics.slice(0, 4);
         const slim = await chatReasoning({
@@ -282,12 +306,16 @@ export const recapClass = createServerFn({ method: "POST" })
           maxTokens: 3600,
           temperature: 0.2,
           timeoutMs: 28000,
-          fallback: { timeoutMs: 20000 },
+          fallback: remaining() > 50_000 ? { timeoutMs: 20000 } : false,
           json: true,
           tag: "recap.essay.slim",
         });
         if (slim.ok) {
-          parsed = mergeAiJson(parsed, extractJsonObject(slim.text) ?? {});
+          const merged = mergeAiJson(parsed, extractJsonObject(slim.text) ?? {});
+          const before = essayReadyForClass(stamp(parsed), sources);
+          const after = essayReadyForClass(stamp(merged), sources);
+          // Take the rewrite when it passes or when both fail and it is fuller.
+          parsed = after || (!before && scoreContentJson(merged) >= scoreContentJson(parsed)) ? merged : parsed;
           recap = stamp(parsed);
           recap.latencyMs += slim.ms;
         }
@@ -317,14 +345,14 @@ export const recapClass = createServerFn({ method: "POST" })
     const studyHasWords =
       Array.isArray(studyParsed.words) &&
       (studyParsed.words as { zh?: string; use?: string }[]).some((w) => w && (w.zh || w.use));
-    if (!studyHasWords) {
+    if (!studyHasWords && remaining() > 26_000) {
       study = await chatReasoning({
         system: studySys,
         user: studyUser,
         maxTokens: 2800,
         temperature: 0.2,
         timeoutMs: 24000,
-        fallback: { timeoutMs: 20000 },
+        fallback: remaining() > 46_000 ? { timeoutMs: 20000 } : false,
         json: true,
         tag: "recap.study",
       });
@@ -333,14 +361,14 @@ export const recapClass = createServerFn({ method: "POST" })
     takeStudy(parsed, studyParsed);
     recap = closeStudy(stamp(parsed));
     recap.latencyMs += study.ok ? study.ms : 0;
-    if (!isStudyFilled(recap)) {
+    if (!isStudyFilled(recap) && remaining() > 26_000) {
       const again = await chatReasoning({
         system: RECAP_STUDY_AGAIN_SYS,
         user: studyUser,
         maxTokens: 2800,
         temperature: 0.2,
         timeoutMs: 24000,
-        fallback: { timeoutMs: 20000 },
+        fallback: remaining() > 46_000 ? { timeoutMs: 20000 } : false,
         json: true,
         tag: "recap.study.again",
       });
@@ -353,12 +381,13 @@ export const recapClass = createServerFn({ method: "POST" })
     if (!isFilled(recap)) return aiFail("study_failed");
     recap.draft = false;
     const miss = missingZh(recap);
-    if (miss.length) {
+    if (miss.length && remaining() > 10_000) {
       const gloss = await chatFlash({
         system: GLOSS_SYS,
         user: JSON.stringify({ items: miss }),
         maxTokens: 900,
         timeoutMs: 8000,
+        json: true,
         tag: "recap.gloss",
       });
       if (gloss.ok) {
@@ -429,6 +458,7 @@ export const liveOutline = createServerFn({ method: "POST" })
       }),
       maxTokens: 420,
       temperature: 0.2,
+      json: true,
       tag: "outline",
     });
     if (!result.ok) return result;

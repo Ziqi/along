@@ -9,9 +9,9 @@ import { AI_LIMITS, IP_SHARE, type AiKind } from "./limits.ts";
  *
  * Two buckets per call. The caller's own (user id, or device id when signed
  * out) holds the per-minute allowance a student needs. The IP's holds
- * `IP_SHARE` times that: a classroom of thirty behind one router must all get
- * through, while a script rotating device ids from one address still hits a
- * ceiling. A call takes a token from both or from neither.
+ * `IP_SHARE[kind]` times that: a classroom of thirty behind one router must
+ * all get through, while a script rotating device ids from one address still
+ * hits a ceiling. A call takes a token from both or from neither.
  */
 type Bucket = { tokens: number; updated: number };
 const buckets = new Map<string, Bucket>();
@@ -41,7 +41,7 @@ export function takeAiToken(
   const own = typeof caller === "string" ? caller : caller.key;
   const ip = typeof caller === "string" ? "" : caller.ipKey;
   const mine = bucketFor(`${own}:${kind}`, perMinute, now);
-  const shared = ip && ip !== own ? bucketFor(`${ip}:${kind}`, perMinute * IP_SHARE, now) : null;
+  const shared = ip && ip !== own ? bucketFor(`${ip}:${kind}`, perMinute * IP_SHARE[kind], now) : null;
   if (mine.tokens < 1 || (shared && shared.tokens < 1)) {
     return { ok: false, error: RATE_LIMITED_TEXT, code: "rate_limited" };
   }

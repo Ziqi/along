@@ -72,21 +72,34 @@ async function postChat(body: Record<string, unknown>, signal: AbortSignal) {
 
 async function readChat(res: Response, started: number, model: string): Promise<ChatResult> {
   if (!res.ok) return aiFail("upstream", res.status);
-  const body = (await res.json()) as {
+  let body: {
     choices?: {
+      finish_reason?: string;
       message?: {
         content?: string | { type?: string; text?: string }[];
         reasoning_content?: string;
       };
     }[];
   };
-  const msg = body.choices?.[0]?.message;
+  try {
+    body = (await res.json()) as typeof body;
+  } catch {
+    return aiFail("upstream", res.status);
+  }
+  const choice = body.choices?.[0];
+  const msg = choice?.message;
   let text = "";
   if (typeof msg?.content === "string") text = msg.content;
   else if (Array.isArray(msg?.content)) {
     text = msg.content.map((p) => (typeof p === "string" ? p : (p.text ?? ""))).join("");
   }
-  if (!text && typeof msg?.reasoning_content === "string") text = msg.reasoning_content;
+  // An answer with no content is no answer: the model's scratchpad
+  // (`reasoning_content`) is not a translation, a card or a handout, and a
+  // token budget spent entirely on reasoning is a failure to report, not text.
+  if (!text.trim()) {
+    logAi({ tag: "chat.empty", model, ms: Date.now() - started, ok: false, reason: choice?.finish_reason ?? "no-content" });
+    return aiFail("no_content");
+  }
   return { ok: true, text, ms: Date.now() - started, model };
 }
 
@@ -226,9 +239,21 @@ function extractResponsesText(body: unknown) {
   return bits.join("\n").trim();
 }
 
+/**
+ * The pages the model actually cited: `url_citation` annotations on its
+ * message (and a top-level `citations` list where the API gives one). Search
+ * results the model looked at but did not cite are not sources.
+ */
 function extractCitations(body: unknown): { en: string; zh: string }[] {
   if (!body || typeof body !== "object") return [];
   const urls: string[] = [];
+  const take = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const rec = node as { type?: string; url?: unknown; title?: unknown };
+    if (rec.type !== "url_citation" && rec.type !== "citation") return;
+    if (typeof rec.url === "string" && /^https?:\/\//.test(rec.url)) urls.push(rec.url);
+    else if (typeof rec.title === "string" && rec.title.trim()) urls.push(rec.title.trim());
+  };
   const walk = (node: unknown) => {
     if (!node) return;
     if (Array.isArray(node)) {
@@ -236,17 +261,33 @@ function extractCitations(body: unknown): { en: string; zh: string }[] {
       return;
     }
     if (typeof node !== "object") return;
-    const rec = node as { type?: string; url?: unknown; annotations?: unknown; content?: unknown; title?: unknown };
-    if (typeof rec.url === "string" && /^https?:\/\//.test(rec.url)) urls.push(rec.url);
-    if (Array.isArray(rec.annotations)) walk(rec.annotations);
-    if (rec.content) walk(rec.content);
-    if ((rec.type === "url_citation" || rec.type === "citation") && typeof rec.title === "string" && rec.title.trim()) {
-      urls.push(rec.title.trim());
+    const rec = node as { type?: string; annotations?: unknown; content?: unknown };
+    if (rec.type !== "message") return;
+    if (rec.content) {
+      const parts = Array.isArray(rec.content) ? rec.content : [rec.content];
+      for (const p of parts) {
+        const part = p as { annotations?: unknown } | string;
+        if (part && typeof part === "object" && Array.isArray(part.annotations)) part.annotations.forEach(take);
+      }
     }
+    if (Array.isArray(rec.annotations)) rec.annotations.forEach(take);
   };
   walk((body as { output?: unknown }).output);
-  walk((body as { citations?: unknown }).citations);
+  const top = (body as { citations?: unknown }).citations;
+  if (Array.isArray(top)) {
+    for (const c of top) {
+      if (typeof c === "string" && /^https?:\/\//.test(c)) urls.push(c);
+      else take(c);
+    }
+  }
   return [...new Set(urls)].slice(0, 4).map((en) => ({ en, zh: "" }));
+}
+
+/** True when the response shows a search was actually made or a page cited. */
+function searched(body: unknown, cites: unknown[]) {
+  if (cites.length) return true;
+  const out = (body as { output?: unknown })?.output;
+  return Array.isArray(out) && out.some((o) => o && typeof o === "object" && /web_search/.test(String((o as { type?: unknown }).type ?? "")));
 }
 
 /**
@@ -295,6 +336,12 @@ export async function chatSearch(params: {
       }
       const parsed = extractJsonObject(text) ?? { raw: text };
       const cites = extractCitations(body);
+      // "Never invent" is enforced here, not only asked for: facts with no
+      // search behind them are the model's memory, and go back as no_facts.
+      if (!searched(body, cites)) {
+        logAi({ tag, model, ms: Date.now() - started, ok: false, status: res.status, reason: "no-search" });
+        continue;
+      }
       if (cites.length && (!Array.isArray(parsed.sources) || !(parsed.sources as unknown[]).length)) {
         parsed.sources = cites;
       }
