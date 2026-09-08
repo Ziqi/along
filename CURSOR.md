@@ -134,6 +134,7 @@ src/components/ui/button.tsx · sheet.tsx · confirm.tsx · menu.tsx   四级按
 src/styles.css                            全部设计令牌：五档字阶 + 三种行高、纸感调色、一种划词 .key、自托管 IBM Plex
 src/lib/export-recap.ts                   Markdown / 打印
 scripts/dev-up.mjs                        8080 探测 / 拉起 / 杀掉
+scripts/ai-latency.mjs                    把 [ai] 日志汇总成 tag · model 的次数 / 成功率 / p50 / p95 / 失败原因
 ```
 
 不要新建平行 store、第二套纪要格式，或把引擎逻辑写回组件。
@@ -157,9 +158,9 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 - `liveId`：正在听的课。`sessionId`：纪要页在看的课。结课后 HUD 清空，纪要进已结束的 session。
 - 双击 / 乱序事件由表查出 `null` 直接忽略（arming 时再 arm、ending 时再 end），不用 if 链。
 - 教练可单独暂停/恢复（`coach.setLive`），不影响听写。暂停不 abort 教练和翻译，只关麦。
-- **听写后端**：xAI STT 先试两次（间隔 1.5 秒），仍失败才换浏览器识别，并把 `sttBackend: "browser"` 和原因（太频繁 / 没钥匙 / 没接上）写进 store，听课栏挂「浏览器听写」标记。**不许静默切换**——浏览器识别慢、不准、会重复，学生必须知道自己在用哪个。
+- **听写后端**：xAI STT 先试两次（间隔 1.5 秒），仍失败才换浏览器识别，并把 `sttBackend: "browser"` 和原因（太频繁 / 没钥匙 / 钥匙被 xAI 拒绝 / 没接上）写进 store，听课栏挂「浏览器听写」标记。**不许静默切换**——浏览器识别慢、不准、会重复，学生必须知道自己在用哪个。
 - 浏览器识别的 interim 是累积的，`speech-controller` 只发增量（`unsaidTail`）；不这样做每段话会一行行重复「M Taylor Swift」。
-- 翻译队列（`caption-pipeline`）：追最新，2 路在途，每条 3 次后标「未译」；`rate_limited` 不算一次、整队歇 8 秒；`unavailable` 一次即标。busy 计数在 finally 里减，abort 归零。
+- 翻译队列（`caption-pipeline`）：追最新，2 路在途，每条 3 次后标「未译」；`rate_limited` 不算一次、整队歇 8 秒；`unavailable` 和被 xAI 拒绝的钥匙（`upstream` 401/402/403）一次即标（`isTerminalAiFail`）。busy 计数在 finally 里减，abort 归零。
 - 切到纪要再回来，翻译必须续上，不能从「当前」另起丢掉中间句。
 - 噪声 `???????` / 纯标点 / uh-um 进 `isSpeech` 过滤，不进实录。
 
@@ -172,6 +173,16 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 | 教练 | `grok-4.6` `reasoning_effort: low`，超时退最快聊天模型 |
 | DeepSearch | 最快模型 + `web_search` 检索事实；互动 / 旁听写四十秒，只听写背景。没事实就失败，不许编。最多 2 路 |
 | 纪要正文 | 最快模型与 grok-4.6 **并行**写内容 → 不够再 slim 一次 → 过关才写语言点 |
+
+为什么是这几个（对照 docs.x.ai，2026-09）：
+
+- 每句字幕都要过一次翻译，量最大、最赶时间 → 最快的非推理模型（首字约 0.5 s、约 200 tok/s，$1.25/$2.50 每百万），80 token、8 s 超时。
+- 教练要判对话题、写对三条 → `grok-4.6`（官方称最聪明也最快的模型）`reasoning_effort: low`，10 s 不到再退最快模型 10 s。代价是慢的一拍最多等 20 s；`COACH_PRIMARY_MS` 要按实测 p95 调，别拍脑袋。
+- 检索先用最快模型 + `web_search`（Responses API，15 s）拿事实，再让 4.6 只根据事实写四十秒（12 s）。不用 4.6 直接联网：慢一倍、贵一倍，且容易把议论当事实。
+- 纪要正文让最快模型和 4.6 **同时**写一稿，装配器取过门的；多花一份 token 换一次点击就出讲义。
+- `FLASH_MODELS` 末位的 `grok-4.3` 是推理模型，只在前两个 4.20 别名都 400/404 时才会到；真到了会明显变慢，日志里 `translate · grok-4.3` 一出现就该换掉。
+
+**用数字判，不用感觉判**：服务端每次模型调用都写一行 `[ai] {tag, model, ms, ok, status, reason}`。`node scripts/ai-latency.mjs <日志文件>`（或把 `vercel logs` 管进去）按 tag · model 给出次数、成功率、p50 / p95 / max 和失败原因。改模型或超时之前先看这张表。钥匙所在的 xAI 团队没额度时所有调用都是 `upstream 403`，听课栏会直接写「xAI 拒绝了这个部署的听写钥匙」。
 
 ---
 
