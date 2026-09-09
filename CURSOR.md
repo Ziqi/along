@@ -38,7 +38,7 @@
 - `package.json` → `"start": "node scripts/dev-up.mjs"`（检查 8080，down 才拉起）
 - `package.json` → `"stop": "node scripts/dev-up.mjs stop"`
 - 不要把端口改成 3000/5173。Grok 预览代理只认 8080。
-- `scripts/with-app-env.mjs` 注入 `XAI_API_KEY` 等。没有 key，听写/教练/纪要全挂。
+- `XAI_API_KEY` 由平台注入进程环境（Grok 沙箱与 grok.me 部署都有；`scripts/with-app-env.mjs` 只管 `VITE_*`）。没有 key 或钥匙没额度：听写退到浏览器识别并在听课栏写明原因，翻译一次即标「未译」，教练 / 纪要 / 脉络报「没接到模型」——不会静默。Cursor 的云端机器没有这把钥匙，在那里只能测错误路径。
 
 环境变量：
 
