@@ -1,6 +1,7 @@
 export type SttHandlers = {
   onPartial: (text: string) => void;
-  onFinal: (text: string) => void;
+  /** A locked chunk of text; `done` when the recognizer says the utterance ended there. */
+  onFinal: (text: string, meta?: { done?: boolean }) => void;
   onError: (code: string) => void;
   onState: (live: boolean) => void;
 };
@@ -220,7 +221,8 @@ export class SttController {
       if (letters < 3 || /^[?？!！.。,，\-…\s]+$/.test(text)) return;
       if (msg.is_final || msg.speech_final) {
         this.handlers.onPartial("");
-        this.handlers.onFinal(text);
+        // speech_final closes the utterance; a chunk_final may still be followed by more of it.
+        this.handlers.onFinal(text, { done: Boolean(msg.speech_final) });
       } else {
         this.handlers.onPartial(text);
       }

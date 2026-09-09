@@ -5,7 +5,7 @@ import type { ClassEvent } from "./class-machine.ts";
 import type { EngineContext } from "./context.ts";
 
 type Hooks = {
-  onFinal: (text: string) => void;
+  onFinal: (text: string, meta?: { done?: boolean }) => void;
   /** Report a machine event; returns false when the machine refused it. */
   dispatch: (event: ClassEvent) => boolean;
 };
@@ -141,8 +141,8 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
       onPartial: (t) => {
         if (controller === me) store.getState().setInterim(t);
       },
-      onFinal: (t) => {
-        if (controller === me) hooks.onFinal(t);
+      onFinal: (t, meta) => {
+        if (controller === me) hooks.onFinal(t, meta);
       },
       onError: (code) => {
         if (controller === me) onError(code);
@@ -192,8 +192,8 @@ export function createListenRuntime(ctx: EngineContext, hooks: Hooks, deps: List
         onPartial: (t) => {
           if (controller === me) store.getState().setInterim(t);
         },
-        onFinal: (t) => {
-          if (controller === me) hooks.onFinal(t);
+        onFinal: (t, meta) => {
+          if (controller === me) hooks.onFinal(t, meta);
         },
         onError: (code) => {
           if (controller !== me) return;

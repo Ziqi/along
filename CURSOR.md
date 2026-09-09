@@ -95,7 +95,7 @@ src/lib/engine/engine.ts          编排：状态机 + 各 runtime + 心跳；ab
 src/lib/engine/class-machine.ts   显式状态机 idle → arming → listening ⇄ paused → ending → ended，纯函数，有测试
 src/lib/engine/context.ts         EngineContext：store、nav、api（服务函数当普通 async 函数，测试可换假的）、去抖槽
 src/lib/engine/listen-runtime.ts  麦与后端：xAI STT 先试两次，仍失败才换浏览器识别，并把 sttBackend / sttNote 写进 store 让学生看见；死掉的控制器不能再驱动 runtime；每个状态变化都过状态机
-src/lib/engine/caption-pipeline.ts 字幕进、中文出：追最新，最多 2 路在途、保留 8 条，每条 3 次后标「未译」；rate_limited 不算一次、整队歇 8 秒；unavailable 一次即标；状态全在实例上
+src/lib/engine/caption-pipeline.ts 字幕进、中文出：只译**已定型**的行（识别器说这句完了，或开头后过了 2.4 秒合并窗），一次最多 4 行，追最新，3 路在途、保留 12 条，每条 3 次后标「未译」；rate_limited 不算一次、整队歇 8 秒；unavailable 一次即标；状态全在实例上
 src/lib/engine/coach-runtime.ts   教练：一次一张、永远写最新一拍，在途时只记「再来一张」，代次失效
 src/lib/engine/deep-runtime.ts    检索：每卡代次，最多 2 路，其余排队
 src/lib/engine/note-runtime.ts    记要点：先落纪要，另一半后台翻译
@@ -164,7 +164,7 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 - 教练可单独暂停/恢复（`coach.setLive`），不影响听写。暂停不 abort 教练和翻译，只关麦。
 - **听写后端**：xAI STT 先试两次（间隔 1.5 秒），仍失败才换浏览器识别，并把 `sttBackend: "browser"` 和原因（太频繁 / 没钥匙 / 钥匙被 xAI 拒绝 / 没接上）写进 store，听课栏挂「浏览器听写」标记。**不许静默切换**——浏览器识别慢、不准、会重复，学生必须知道自己在用哪个。
 - 浏览器识别的 interim 是累积的，`speech-controller` 只发增量（`unsaidTail`）；不这样做每段话会一行行重复「M Taylor Swift」。
-- 翻译队列（`caption-pipeline`）：追最新，2 路在途，每条 3 次后标「未译」；`rate_limited` 不算一次、整队歇 8 秒；`unavailable` 和被 xAI 拒绝的钥匙（`upstream` 401/402/403）一次即标（`isTerminalAiFail`）。busy 计数在 finally 里减，abort 归零。
+- 翻译队列（`caption-pipeline`）：**一行定型了才译**——识别器给了 `speech_final`（`Caption.done`，之后的碎句不再并进这行），或这行开头后过了 `MERGE_WINDOW_MS`（2.4 秒，和 `pushFinal` 的合并窗同一个常量）。以前每来一个碎句 0.6 秒就发一次翻译，行一长答案就作废，三分之一的调用白扔、两个槽被占着，模型慢到 3 秒以上队列就塌——这就是"翻译不及时、有时不出来"。定型的行一次最多 4 行一起译（服务端 `translate.batch`，按 id 对回来，模型丢了 id 就按顺序），3 路在途，保留最新 12 条，每条 3 次后标「未译」；`rate_limited` 不算一次、整队歇 8 秒；`unavailable` 和被 xAI 拒绝的钥匙（`upstream` 401/402/403）一次即标（`isTerminalAiFail`）。一路回来立刻再看队列，不等心跳。busy 计数在 finally 里减，abort 归零。
 - 切到纪要再回来，翻译必须续上，不能从「当前」另起丢掉中间句。
 - 噪声 `???????` / 纯标点 / uh-um 进 `isSpeech` 过滤，不进实录。
 - **session 是累加器，屏不是**：屏上只留最新 180 句；`stashLive` 用 `mergeTape` 按重叠拼接实录、`unionById` 并教练卡、合并检索，从不整段替换。翻译失败的句子英文照留。每 20 秒、标签页隐藏、离开页面各 stash 一次（只写盘）。
@@ -283,6 +283,10 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 ### P1（9 月 8 日，第二轮审查）— 五处会丢课的路，两处会把讲义写歪的路
 
 四路审查（引擎 / 数据 / AI / 界面）查出并已修，详见 `docs/review-2026-09-08.md` §3：索引空壳在读失败时盖掉整堂课；换账号把上一个人的课推进新账号；屏上 180 句整段替换 session 让一小时只剩后半；翻译失败的句子从实录消失；刷新后开着的课不接手；`recapClass` 只读开头 36 句；段落 640 字符截断；中文门接受英文和繁体。回归时核对 `session-merge.test.ts`（mergeTape、完稿不被草稿盖）、`recap-kit.test.ts`（中文门、spread、段落）、`listen-runtime.test.ts`（按连接计次）。
+
+### P1（9 月 9 日）— 翻译不及时、有时不出来
+
+**原因**：翻译按碎句发。xAI 每 1–2 秒给一个 chunk_final，客户端 0.6 秒后就发翻译；2.4 秒内的下一个碎句并进同一行，行一长，在途的答案因为英文对不上被丢掉——模拟一堂课约 37% 的调用白扔，两个槽被占着；Flash 慢到 3 秒时 p90 等 6.6 秒，5 秒时有 17 行永远没译出来（最长等 50 秒）。**现状**：只译定型的行（`speech_final` 或 2.4 秒合并窗到），最多 4 行一起译，3 路在途；同样的模拟 0 次白扔、全部译出、5 秒模型时最长等 5.7 秒。回归核对 `caption-pipeline.test.ts`（定型、合并、按 id 对回、按序兜底）。
 
 ### P2 — 听写变慢 / 翻译掉队（更早）
 

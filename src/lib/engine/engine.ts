@@ -73,7 +73,7 @@ export function createEngine(deps: EngineDeps) {
   });
   const notes = createNoteRuntime(ctx, { onNote: () => {} });
   const say = createSayRuntime(ctx, { onNote: () => {} });
-  const listen = createListenRuntime(ctx, { onFinal: (t) => captions.ingest(t), dispatch });
+  const listen = createListenRuntime(ctx, { onFinal: (t, meta) => captions.ingest(t, meta), dispatch });
 
   let tick: ReturnType<typeof setInterval> | null = null;
 
@@ -192,7 +192,7 @@ export function createEngine(deps: EngineDeps) {
     openRecap,
     abortLive,
     beat,
-    ingest: (en: string) => captions.ingest(en),
+    ingest: (en: string, opts?: { done?: boolean }) => captions.ingest(en, opts),
     retryPendingZh: () => captions.retryPending(),
     requestCoach: (spoken?: string) => coach.request(spoken),
     setCoachLive: (on: boolean) => coach.setLive(on),

@@ -1,6 +1,7 @@
 export type SpeechHandlers = {
   onPartial: (text: string) => void;
-  onFinal: (text: string) => void;
+  /** A piece the recognizer will not change; `done` when it is the utterance's real final. */
+  onFinal: (text: string, meta?: { done?: boolean }) => void;
   onError: (code: string) => void;
   onState: (live: boolean) => void;
 };
@@ -147,10 +148,10 @@ export class SpeechController {
   }
 
   /** Send what the current utterance has said beyond what is already on screen. */
-  private emit(text: string, minLength: number) {
+  private emit(text: string, minLength: number, done = false) {
     const piece = unsaidTail(this.committed, text);
     if (piece.length >= minLength) {
-      this.handlers.onFinal(piece);
+      this.handlers.onFinal(piece, { done });
       this.committed = text.trim();
     }
   }
@@ -186,7 +187,7 @@ export class SpeechController {
         this.clearSoft();
         this.lastInterim = "";
         // The utterance is closed: say its tail, then start the next one clean.
-        this.emit(finalText, 3);
+        this.emit(finalText, 3, true);
         this.committed = "";
       }
       const inter = interim.trim();

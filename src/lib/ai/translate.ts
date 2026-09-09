@@ -5,14 +5,22 @@ import { aiFail, type AiFail } from "./errors";
 import { aiGuard } from "./guard";
 import { chatFlash } from "./llm/transport";
 import { hasHan, pick } from "./parse";
-import { QUICK_EN_TO_ZH_SYS, QUICK_ZH_TO_EN_SYS, SAY_IT_SYS, TRANSLATE_SYS } from "./prompts";
+import { QUICK_EN_TO_ZH_SYS, QUICK_ZH_TO_EN_SYS, SAY_IT_SYS, TRANSLATE_BATCH_SYS, TRANSLATE_SYS } from "./prompts";
 
-/** One caption line → 简体中文. The client queues these (newest 8, two in flight). */
+/** Lines the client may send in one call (`TRANS_BATCH` on the client is smaller). */
+export const TRANSLATE_LINES_MAX = 6;
+
+/**
+ * Settled caption lines → 简体中文, one call for up to `TRANSLATE_LINES_MAX`
+ * lines. One line uses the single-line prompt; several use the batch prompt
+ * and come back under their ids. The client queues newest first, three calls
+ * in flight.
+ */
 export const liveTranslate = createServerFn({ method: "POST" })
   .validator((input: { lines: { id: string; en: string }[] }) => ({
     lines: Array.isArray(input?.lines)
       ? input.lines
-          .slice(0, 1)
+          .slice(0, TRANSLATE_LINES_MAX)
           .map((l) => ({
             id: String(l?.id ?? "").slice(0, 16),
             en: String(l?.en ?? "")
@@ -28,30 +36,54 @@ export const liveTranslate = createServerFn({ method: "POST" })
   > => {
     const gate = takeAiToken(context.caller, "translate");
     if (!gate.ok) return aiFail("rate_limited");
-    const line = data.lines[0];
-    if (!line) return aiFail("empty");
+    if (!data.lines.length) return aiFail("empty");
+    if (data.lines.length === 1) {
+      const line = data.lines[0]!;
+      const result = await chatFlash({
+        system: TRANSLATE_SYS,
+        user: line.en,
+        maxTokens: 80,
+        temperature: 0,
+        timeoutMs: 8000,
+        json: true,
+        tag: "translate",
+      });
+      if (!result.ok) return result;
+      const parsed = extractJsonObject(result.text);
+      let zh = pick(parsed, "zh");
+      if (!zh && Array.isArray(parsed?.items)) {
+        const row = parsed.items[0] as { zh?: unknown } | undefined;
+        zh = typeof row?.zh === "string" ? row.zh.trim() : "";
+      }
+      if (!hasHan(zh)) {
+        const m = result.text.match(/[\u4e00-\u9fff][^"\n]{0,120}/);
+        zh = m?.[0]?.trim() ?? "";
+      }
+      if (!hasHan(zh)) return aiFail("no_zh");
+      return { ok: true, items: [{ id: line.id, zh }], ms: result.ms };
+    }
     const result = await chatFlash({
-      system: TRANSLATE_SYS,
-      user: line.en,
-      maxTokens: 80,
+      system: TRANSLATE_BATCH_SYS,
+      user: JSON.stringify({ lines: data.lines }),
+      maxTokens: 60 + 90 * data.lines.length,
       temperature: 0,
-      timeoutMs: 8000,
+      timeoutMs: 9000,
       json: true,
-      tag: "translate",
+      tag: "translate.batch",
     });
     if (!result.ok) return result;
     const parsed = extractJsonObject(result.text);
-    let zh = pick(parsed, "zh");
-    if (!zh && Array.isArray(parsed?.items)) {
-      const row = parsed.items[0] as { zh?: unknown } | undefined;
-      zh = typeof row?.zh === "string" ? row.zh.trim() : "";
-    }
-    if (!hasHan(zh)) {
-      const m = result.text.match(/[\u4e00-\u9fff][^"\n]{0,120}/);
-      zh = m?.[0]?.trim() ?? "";
-    }
-    if (!hasHan(zh)) return aiFail("no_zh");
-    return { ok: true, items: [{ id: line.id, zh }], ms: result.ms };
+    const rows = Array.isArray(parsed?.items) ? (parsed.items as { id?: unknown; zh?: unknown }[]) : [];
+    const byId = new Map<string, string>();
+    rows.forEach((row, i) => {
+      const zh = typeof row?.zh === "string" ? row.zh.trim() : "";
+      if (!hasHan(zh)) return;
+      const id = typeof row?.id === "string" && data.lines.some((l) => l.id === row.id) ? row.id : data.lines[i]?.id;
+      if (id && !byId.has(id)) byId.set(id, zh);
+    });
+    const items = data.lines.filter((l) => byId.has(l.id)).map((l) => ({ id: l.id, zh: byId.get(l.id)! }));
+    if (!items.length) return aiFail("no_zh");
+    return { ok: true, items, ms: result.ms };
   });
 
 /** Either direction, plain text out. Used by the jot pad. */

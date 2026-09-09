@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { Caption, CoachCard, MicState, TopicEssay } from "@/lib/types";
-import { COACH_KEEP } from "@/lib/live-queue";
+import { COACH_KEEP, MERGE_WINDOW_MS } from "@/lib/live-queue";
 import type { ClassPhase } from "@/lib/engine/class-machine";
 import type { AppState } from "./app-state";
 
@@ -51,7 +51,8 @@ export type LiveSlice = {
   engineError: string | null;
   seq: number;
   setPhase: (phase: ClassPhase) => void;
-  pushFinal: (en: string) => string;
+  /** A final line from the recognizer. `done` marks the end of an utterance: later fragments start a new line. */
+  pushFinal: (en: string, opts?: { done?: boolean }) => string;
   setZh: (id: string, patch: { zh: string; ms: number; en?: string }) => void;
   markError: (id: string, error: string) => void;
   setInterim: (text: string) => void;
@@ -158,21 +159,24 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   engineError: null,
   seq: 0,
   setPhase: (phase) => set({ phase }),
-  pushFinal: (en) => {
+  pushFinal: (en, opts) => {
     const text = en.replace(/\s+/g, " ").trim();
     if (!text || !isSpeech(text)) return "";
     const last = get().captions.at(-1);
+    const done = Boolean(opts?.done);
     if (last && last.en === text && Date.now() - last.at < 2200) return last.id;
+    // A line the recognizer closed takes nothing more; the next fragment is a new line.
+    const joinable = Boolean(last && last.pending && !last.done);
     if (
       last &&
-      last.pending &&
+      joinable &&
       (text.startsWith(last.en) || last.en.startsWith(text)) &&
       Date.now() - last.at < 3200
     ) {
       set({
         captions: get().captions.map((c) =>
           c.id === last.id
-            ? { ...c, en: text.length > last.en.length ? text : last.en, pending: true, zh: "" }
+            ? { ...c, en: text.length > last.en.length ? text : last.en, pending: true, zh: "", done: done || c.done }
             : c,
         ),
         interim: "",
@@ -182,11 +186,11 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
     // Join a fragment onto the previous line only while that line is still
     // untranslated: once its Chinese has landed, joining would wipe it and
     // buy a second translation for the same words.
-    if (last && last.pending && Date.now() - last.at < 2400 && shouldMerge(last.en, text)) {
+    if (last && joinable && Date.now() - last.at < MERGE_WINDOW_MS && shouldMerge(last.en, text)) {
       const merged = `${last.en} ${text}`.replace(/\s+/g, " ").trim();
       set({
         captions: get().captions.map((c) =>
-          c.id === last.id ? { ...c, en: merged, pending: true, zh: "" } : c,
+          c.id === last.id ? { ...c, en: merged, pending: true, zh: "", done: done || c.done } : c,
         ),
         interim: "",
       });
@@ -194,7 +198,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
     }
     const seq = get().seq + 1;
     const id = `DL-${String(seq).padStart(3, "0")}`;
-    const row: Caption = { id, seq, at: Date.now(), en: text, zh: "", pending: true };
+    const row: Caption = { id, seq, at: Date.now(), en: text, zh: "", pending: true, done };
     set({ seq, captions: [...get().captions, row].slice(-180), interim: "" });
     return id;
   },
