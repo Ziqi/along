@@ -107,8 +107,10 @@ export function segmentClass(input: SegmentInput): SegmentOutput {
   };
 
   // Nothing open yet: the class has begun once anything was heard or said.
+  // The first stretch starts with the class (or its first line, whichever came first).
   if (!open && (pending.length || maxSeq > 0)) {
-    begin(segments.length ? (segments[segments.length - 1]!.endAt ?? startedAt) : startedAt, []);
+    const firstAt = Math.min(startedAt, captions[0]?.at ?? startedAt, pending[0]?.at ?? startedAt);
+    begin(segments.length ? (segments[segments.length - 1]!.endAt ?? firstAt) : firstAt, []);
   }
 
   for (let i = 0; i < pending.length; i += 1) {

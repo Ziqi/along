@@ -6,12 +6,8 @@ import type { CoachCard, CoachOption, TopicEssay } from "@/lib/types";
 import { captureNote, requestCoach, requestEssay, setCoachLive } from "@/lib/engine";
 import { MarkedEn } from "@/components/capcom/marked-en";
 import { essayOf } from "@/lib/recap-kit";
-import {
-  isSpeakMode,
-  isStudyCard,
-  parseClassMode,
-  topicBeatLabel,
-} from "@/lib/class-mode";
+import { isSpeakMode, isStudyCard, parseClassMode } from "@/lib/class-mode";
+import { segmentChips } from "@/lib/segment-view";
 import { coachEmptyCopy, coachFailHint, coachHeaderLabel, coachUiPhase } from "@/lib/coach-kit";
 
 function cardHasDeep(
@@ -43,6 +39,7 @@ export function UplinkPanel() {
   const sessions = useCapcom((s) => s.sessions);
   const setJotOpen = useCapcom((s) => s.setJotOpen);
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
+  const segments = sessions.find((s) => s.id === liveId)?.segments ?? [];
   const mode = parseClassMode(
     sessions.find((s) => s.id === liveId)?.classMode ?? classMode,
   );
@@ -112,31 +109,37 @@ export function UplinkPanel() {
         </div>
       </header>
       {coaches.length ? (
-        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
-          {coaches.map((card, i) => {
-            const deep = Boolean(essayOf(card, essays));
-            const on = card.id === (activeId ?? latest?.id);
+        // The class by topic, in order: each closed stretch with the time it
+        // began, the one being heard as 现在. A stretch jumps to its first card.
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 py-1.5" aria-label="课程脉络">
+          {segmentChips(segments, coaches, essays).map((chip) => {
+            const activeCard = activeId ?? latest?.id ?? null;
+            const on = Boolean(activeCard && chip.cardIds.includes(activeCard));
+            const target = chip.cardIds[0] ?? null;
             return (
               <button
-                key={card.id}
+                key={chip.id}
                 type="button"
+                disabled={!target}
+                title={chip.title}
                 className={
-                  "flex shrink-0 items-center gap-1 px-2 py-1 text-sm " +
+                  "flex shrink-0 items-center gap-1.5 px-2 py-1 text-sm disabled:opacity-60 " +
                   (on ? "text-fg" : "text-muted hover:text-fg")
                 }
                 onClick={() => {
-                  setFollowLatest(card.id === latest?.id);
-                  setActiveId(card.id);
-                  document.getElementById(`coach-${card.id}`)?.scrollIntoView({
+                  if (!target) return;
+                  const last = chip.cardIds[chip.cardIds.length - 1];
+                  setFollowLatest(chip.open && last === latest?.id);
+                  setActiveId(chip.open && last ? last : target);
+                  document.getElementById(`coach-${chip.open && last ? last : target}`)?.scrollIntoView({
                     block: "start",
                     behavior: "smooth",
                   });
                 }}
               >
-                <span className="max-w-[9rem] truncate">
-                  {topicBeatLabel(card.topic || `主题 ${i + 1}`, coaches, card.id)}
-                </span>
-                {deep ? <span className="text-xs text-dim">深</span> : null}
+                <span className="font-mono text-xs tabular-nums text-dim">{chip.when}</span>
+                <span className="max-w-[10rem] truncate">{chip.label}</span>
+                {chip.deep ? <span className="text-xs text-dim">深</span> : null}
               </button>
             );
           })}

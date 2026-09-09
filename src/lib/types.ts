@@ -123,6 +123,9 @@ export type RecapDeep = {
 };
 
 export type RecapCoach = {
+  /** The card this row was packed from, and when it came; missing on packs written before 脉络. */
+  cardId?: string;
+  at?: number;
   topic: string;
   topicZh: string;
   briefEn: string;

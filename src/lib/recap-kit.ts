@@ -624,6 +624,8 @@ export function packCoach(
           }
         : null;
     out.push({
+      cardId: c.id,
+      at: c.at,
       topic,
       topicZh: c.topicZh,
       briefEn: c.briefEn,
