@@ -63,7 +63,8 @@ function api(mintStt: Mint): AiApi {
     coach: never as AiApi["coach"],
     expand: never as AiApi["expand"],
     recap: never as AiApi["recap"],
-    outline: never as AiApi["outline"],
+    segment: never as AiApi["segment"],
+    catchUp: never as AiApi["catchUp"],
   };
 }
 

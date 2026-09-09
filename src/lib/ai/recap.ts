@@ -37,10 +37,9 @@ export const TAPE_LINES_MAX = 120;
  * function off would lose every model call already paid for.
  */
 export const RECAP_BUDGET_MS = 75_000;
-import { parseOutline, parsePairs, pick } from "./parse";
+import { parsePairs, pick } from "./parse";
 import {
   GLOSS_SYS,
-  OUTLINE_SYS,
   RECAP_STUDY_AGAIN_SYS,
   recapContentSystem,
   recapSlimSystem,
@@ -410,66 +409,3 @@ export const recapClass = createServerFn({ method: "POST" })
     return recapToOk(recap);
   });
 
-/** Mid-class outline draft: title, 2–4 headings, topics. Cheap and frequent. */
-export const liveOutline = createServerFn({ method: "POST" })
-  .validator(
-    (input: { lines: { en: string; zh: string }[]; topics: string[]; notes: string[] }) => ({
-      lines: Array.isArray(input?.lines)
-        ? input.lines
-            .slice(-20)
-            .map((l) => ({
-              en: String(l?.en ?? "")
-                .trim()
-                .slice(0, 180),
-              zh: String(l?.zh ?? "")
-                .trim()
-                .slice(0, 120),
-            }))
-            .filter((l) => l.en)
-        : [],
-      topics: Array.isArray(input?.topics)
-        ? input.topics.map((s) => String(s).slice(0, 80)).slice(0, 6)
-        : [],
-      notes: Array.isArray(input?.notes)
-        ? input.notes.map((s) => String(s).slice(0, 160)).slice(0, 10)
-        : [],
-    }),
-  )
-  .middleware([aiGuard])
-  .handler(async ({ data, context }): Promise<
-    | {
-        ok: true;
-        title: string;
-        outline: { heading: string; bullets: string[] }[];
-        topics: { en: string; zh: string }[];
-        ms: number;
-      }
-    | AiFail
-  > => {
-    const gate = takeAiToken(context.caller, "outline");
-    if (!gate.ok) return aiFail("rate_limited");
-    if (data.lines.length < 2 && data.notes.length < 1) return aiFail("too_short");
-    const result = await chatFlash({
-      system: OUTLINE_SYS,
-      user: JSON.stringify({
-        transcript: data.lines,
-        coach_topics: data.topics,
-        student_notes: data.notes,
-      }),
-      maxTokens: 420,
-      temperature: 0.2,
-      json: true,
-      tag: "outline",
-    });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    const outline = parseOutline(parsed?.outline);
-    if (!outline.length && !pick(parsed, "title")) return aiFail("empty");
-    return {
-      ok: true,
-      title: pick(parsed, "title"),
-      outline,
-      topics: parsePairs(parsed?.topics, 5),
-      ms: result.ms,
-    };
-  });

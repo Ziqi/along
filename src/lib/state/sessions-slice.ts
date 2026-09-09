@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import type { ClassRecap, ClassSession, Jot, RecapOutline } from "@/lib/types";
+import type { ClassRecap, ClassSegment, ClassSession, Jot } from "@/lib/types";
 import { isRemoved, isRemovedJot, markRemoved, markRemovedJot } from "@/lib/persist";
 import { mergeNotes, mergeTape, unionById } from "@/lib/session-merge";
 import { SESSION_KEEP, SESSION_SCHEMA_VERSION } from "@/lib/session-limits";
@@ -60,15 +60,8 @@ export type SessionsSlice = {
   ensureSession: () => string;
   setSession: (id: string) => void;
   setRecap: (recap: ClassRecap, sessionId?: string) => void;
-  setLiveDraft: (
-    sid: string,
-    draft: {
-      title: string;
-      outline: RecapOutline[];
-      topics: { en: string; zh: string }[];
-      ms: number;
-    },
-  ) => void;
+  /** The 课程脉络 of one class, as the structure runtime re-cuts it; disk only, the cloud gets it with the next stash. */
+  setSegments: (sid: string, segments: ClassSegment[]) => void;
   setRecapPending: (on: boolean, target?: string) => void;
   setRecapStage: (stage: RecapStage | null) => void;
   setRecapError: (msg: string | null) => void;
@@ -411,30 +404,9 @@ export const createSessionsSlice: StateCreator<AppState, [], [], SessionsSlice> 
         sessionId: sid ?? get().sessionId,
       });
     },
-    setLiveDraft: (sid, draft) => {
-      const sessions = get().sessions.map((s) => {
-        if (s.id !== sid) return s;
-        if (s.recap && !s.recap.draft && s.recap.lede) return s;
-        const prev = s.recap ?? blankRecap(s.title, []);
-        const recap: ClassRecap = {
-          ...prev,
-          title: s.recap?.title || s.title,
-          topics: draft.topics.length ? draft.topics : prev.topics,
-          outline: draft.outline.length ? draft.outline : prev.outline,
-          draft: true,
-          latencyMs: draft.ms,
-          at: Date.now(),
-        };
-        return {
-          ...s,
-          recap,
-          title: canAutoTitle(s.title, s.startedAt)
-            ? stampTitle(s.startedAt, draft.title)
-            : s.title,
-          updatedAt: stamp(s),
-        };
-      });
-      persist(sessions);
+    setSegments: (sid, segments) => {
+      const sessions = get().sessions.map((s) => (s.id === sid ? { ...s, segments, updatedAt: stamp(s) } : s));
+      persist(sessions, { cloud: false });
       set({ sessions });
     },
     setRecapPending: (on, target) =>

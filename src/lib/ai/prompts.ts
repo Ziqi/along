@@ -64,10 +64,16 @@ export function deepTalkSystem(mode: ClassMode | string) {
   return (mode === "listen" ? DEEP_TALK_LISTEN : DEEP_TALK_SPEAK) + DATA_RULE;
 }
 
-// ── Live outline ────────────────────────────────────────────────────────────
+// ── 课程脉络 ─────────────────────────────────────────────────────────────────
 
-export const OUTLINE_SYS =
-  'Living class outline. English PRIMARY. Return ONLY JSON: {"title":"...","outline":[{"heading":"...","bullets":["..."]}],"topics":[{"en":"...","zh":"..."}]}. title=3-6 English words naming the subject. outline=2-4 SHORT headings (≤6 words), each with 1-2 rewritten bullets (≤18 words). Never paste speech fragments. Never repeat a bullet. topics=en + Chinese gloss. No Chinese in title/headings/bullets.' +
+/** One closed stretch of the class → its heading and what the teacher argued in it. */
+export const SEGMENT_SYS =
+  'You write up one stretch of an English class for a Chinese student\'s notes. Input: the lines heard in this stretch (transcript), the coach\'s topic names and briefs for it (coach), and the student\'s notes (student_notes). Return ONLY JSON: {"heading":"...","headingZh":"...","claims":[{"en":"...","zh":"..."}],"todo":[{"en":"...","zh":"..."}]}. heading = 3-6 English words naming what this stretch was about (a subject, not a caption fragment); headingZh = its 简体中文. claims = 1-3 sentences of what the teacher actually argued or explained here, each 10-24 English words with a 简体中文 zh; rewritten, never pasted lines; no filler. todo = only things the teacher explicitly told the class to do (homework, bring, read, next time), else []. Never invent. No markdown.' +
+  DATA_RULE;
+
+/** 「刚才讲了什么」: the last few minutes, for a student who lost the thread. */
+export const CATCH_UP_SYS =
+  'A Chinese student in an English class lost the thread for a few minutes. Input: the lines heard in that time (transcript), the current topic name if known (topic), and what the previous stretch established (before). Return ONLY JSON: {"topic":"...","topicZh":"...","lines":["...","...","..."]}. topic = 3-6 English words for what is being discussed now; topicZh = its 简体中文. lines = exactly 3 short 简体中文 sentences (each ≤ 40 characters) telling them what was said and where the teacher is heading now, in order; concrete, no filler, no English except names and terms. Never invent what was not heard. No markdown.' +
   DATA_RULE;
 
 // ── Handout ─────────────────────────────────────────────────────────────────

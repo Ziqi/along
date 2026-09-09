@@ -10,6 +10,7 @@ import { createListenRuntime } from "./listen-runtime.ts";
 import { createNoteRuntime } from "./note-runtime.ts";
 import { createRecapRuntime } from "./recap-runtime.ts";
 import { createSayRuntime } from "./say-runtime.ts";
+import { createStructureRuntime } from "./structure-runtime.ts";
 
 export const TICK_MS = 2800;
 /**
@@ -56,13 +57,13 @@ export function createEngine(deps: EngineDeps) {
   }
 
   const recap = createRecapRuntime(ctx);
+  const structure = createStructureRuntime(ctx);
   const coach = createCoachRuntime(ctx);
   const deep = createDeepRuntime(ctx);
   let lastStash = 0;
   const captions = createCaptionPipeline(ctx, {
     onLine: () => {
       coach.bump();
-      recap.touch();
       const t = ctx.now();
       if (t - lastStash >= STASH_EVERY_MS) {
         lastStash = t;
@@ -70,8 +71,8 @@ export function createEngine(deps: EngineDeps) {
       }
     },
   });
-  const notes = createNoteRuntime(ctx, { onNote: () => recap.touch() });
-  const say = createSayRuntime(ctx, { onNote: () => recap.touch() });
+  const notes = createNoteRuntime(ctx, { onNote: () => {} });
+  const say = createSayRuntime(ctx, { onNote: () => {} });
   const listen = createListenRuntime(ctx, { onFinal: (t) => captions.ingest(t), dispatch });
 
   let tick: ReturnType<typeof setInterval> | null = null;
@@ -83,8 +84,8 @@ export function createEngine(deps: EngineDeps) {
     captions.abort();
     notes.abort();
     say.abort();
-    if (opts?.keepHandout) recap.abortOutline();
-    else recap.abort();
+    structure.abort();
+    if (!opts?.keepHandout) recap.abort();
   }
 
   function closeMic() {
@@ -178,6 +179,9 @@ export function createEngine(deps: EngineDeps) {
   function beat() {
     captions.retryPending();
     coach.rescue();
+    // The 课程脉络 re-cuts itself from the coach's topics and the tape; a
+    // stretch that just closed gets its one write-up here.
+    structure.beat();
   }
 
   return {
@@ -198,6 +202,8 @@ export function createEngine(deps: EngineDeps) {
     sayLine: (text: string) => say.ask(text),
     requestRecap: (targetId?: string, hintTopics?: string[]) => recap.request(targetId, hintTopics),
     forkAndRecap: (fromId: string) => recap.forkAndRecap(fromId),
+    /** 「刚才讲了什么」: the last few minutes in three lines, on request. */
+    catchUp: () => structure.catchUp(),
     /** Start the heartbeat once; safe to call again. */
     start() {
       if (tick != null) return;
