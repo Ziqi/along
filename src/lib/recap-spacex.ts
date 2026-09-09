@@ -581,6 +581,7 @@ export function spacexSession(): ClassSession {
     transcript: spacexTranscript(),
     coaches: spacexCoaches(),
     essays: spacexEssays(),
+    segments: [],
     recap,
   };
 }

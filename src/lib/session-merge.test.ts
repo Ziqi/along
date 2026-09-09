@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mergeOne, mergeSessions, mergeTape, normalizeSessions, unionById } from "./session-merge.ts";
+import { mergeOne, mergeSegments, mergeSessions, mergeTape, normalizeSessions, unionById } from "./session-merge.ts";
 import type { ClassRecap, ClassSession, TopicEssay } from "./types.ts";
 
 function recap(patch: Partial<ClassRecap> = {}): ClassRecap {
@@ -61,6 +61,7 @@ function session(id: string, patch: Partial<ClassSession> = {}): ClassSession {
     transcript: [],
     coaches: [],
     essays: {},
+    segments: [],
     sourceId: null,
     sourceTitle: null,
     starred: false,
@@ -148,6 +149,29 @@ test("mergeTape: the screen's tail is appended to the stored tape, never written
   assert.equal(filled.length, 201);
   assert.deepEqual(mergeTape([], fresh), fresh);
   assert.deepEqual(mergeTape(stored, []), stored);
+});
+
+test("segments: old rows read as none; per id the written-up or closed copy wins; order is by time", () => {
+  const old = normalizeSessions([{ id: "a", title: "T", startedAt: 1, updatedAt: 1 }]);
+  assert.deepEqual(old[0]!.segments, []);
+  const open = { id: "g1", startAt: 100, endAt: null, heading: "", headingZh: "", claims: [], todo: [], cardIds: ["c1"], seqFrom: 1, seqTo: 8 };
+  const closed = { ...open, endAt: 900, heading: "Quarterly pressure", headingZh: "季报压力", claims: [{ en: "Ninety days.", zh: "九十天。" }], seqTo: 12 };
+  const later = { id: "g2", startAt: 1000, endAt: null, heading: "", headingZh: "", claims: [], todo: [], cardIds: ["c2"], seqFrom: 13, seqTo: 15 };
+  const merged = mergeOne(
+    session("a", { segments: [later, open], updatedAt: 5 }),
+    session("a", { segments: [closed], updatedAt: 1 }),
+  );
+  assert.deepEqual(merged.segments.map((g) => g.id), ["g1", "g2"]);
+  assert.equal(merged.segments[0]!.heading, "Quarterly pressure", "the written-up copy wins over the open one");
+  // Two open copies of one id: the one that reached further wins.
+  const further = { ...open, seqTo: 20 };
+  assert.equal(mergeSegments([open], [further])[0]!.seqTo, 20);
+  assert.equal(mergeSegments([further], [open])[0]!.seqTo, 20);
+  // A malformed row is dropped, a sparse one is filled in.
+  const norm = normalizeSessions([{ id: "b", title: "T", startedAt: 1, updatedAt: 1, segments: [{ id: "x", startAt: 5 }, { nope: true }] }]);
+  assert.equal(norm[0]!.segments.length, 1);
+  assert.deepEqual(norm[0]!.segments[0]!.claims, []);
+  assert.equal(norm[0]!.segments[0]!.endAt, null);
 });
 
 test("unionById keeps stored cards and appends new ones once", () => {
