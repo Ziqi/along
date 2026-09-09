@@ -1,13 +1,14 @@
 import type { AppState } from "../state/app-state.ts";
 import type {
+  catchUp,
   expandTopic,
   liveCoach,
-  liveOutline,
   liveTranslate,
   mintSttSecret,
   quickTranslate,
   recapClass,
   sayIt,
+  writeSegment,
 } from "../capcom-ai.ts";
 import { parseClassMode, type ClassMode } from "../class-mode.ts";
 import type { AppNav } from "../nav.ts";
@@ -24,7 +25,10 @@ export type AiApi = {
   coach: Call<typeof liveCoach>;
   expand: Call<typeof expandTopic>;
   recap: Call<typeof recapClass>;
-  outline: Call<typeof liveOutline>;
+  /** 课程脉络: write up one closed stretch of the class. */
+  segment: Call<typeof writeSegment>;
+  /** 「刚才讲了什么」: the last few minutes in three lines. */
+  catchUp: Call<typeof catchUp>;
   mintStt: Call<typeof mintSttSecret>;
 };
 

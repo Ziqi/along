@@ -1,12 +1,10 @@
 import { parseClassMode } from "../class-mode.ts";
 import { attachCoachPack, emptyRecap, isEssayFilled, isFilled, packCoach } from "../recap-kit.ts";
-import type { ClassRecap, RecapCoach, RecapTable } from "../types.ts";
+import type { ClassRecap, ClassSegment, RecapCoach, RecapTable } from "../types.ts";
 import { withDeadline } from "../live-queue.ts";
-import { debounceSlot, type EngineContext } from "./context.ts";
+import type { EngineContext } from "./context.ts";
 
-export const LIVE_OUTLINE_DEBOUNCE_MS = 12000;
-/** Client-side ceilings so a hung request never pins 整理中 or the outline lock until a reload. */
-export const OUTLINE_TIMEOUT_MS = 30_000;
+/** Client-side ceiling so a hung request never pins 整理中 until a reload. */
 export const RECAP_TIMEOUT_MS = 100_000;
 
 type StudyLike = { en: string; zh?: string; use?: string; useZh?: string; example?: string; exampleZh?: string };
@@ -77,57 +75,13 @@ export function toRecap(
 }
 
 /**
- * Two writers of `session.recap`: the mid-class outline draft (cheap, every
- * 12 s of new material, one in flight) and the handout itself (two phases,
- * one generation counter). Both drop stale results after pause / end.
+ * The handout itself: two phases (essay, then language points), one
+ * generation counter, so a result after pause / end / a second click is
+ * dropped. The class's structure during the hour lives in `structure-runtime`.
  */
 export function createRecapRuntime(ctx: EngineContext) {
   const { store, api, nav, now } = ctx;
-  let outlineGen = 0;
-  let outlineBusy = false;
   let recapGen = 0;
-  const outlineTimer = debounceSlot();
-
-  async function flushOutline() {
-    if (outlineBusy) return;
-    const s = store.getState();
-    const sid = s.liveId;
-    if (!sid || s.recapPending) return;
-    const session = s.sessions.find((x) => x.id === sid);
-    if (!session || session.endedAt) return;
-    if (session.recap && !session.recap.draft && session.recap.lede) return;
-    s.stashLive();
-    const next = store.getState();
-    const ses = next.sessions.find((x) => x.id === sid);
-    const fromLive = next.captions.filter((c) => c.en).map((c) => ({ en: c.en, zh: c.error ? "" : c.zh }));
-    const lines = fromLive.length >= 2 ? fromLive : (ses?.transcript ?? []);
-    if (lines.length < 2 && !ses?.notes.length) return;
-    const mine = ++outlineGen;
-    outlineBusy = true;
-    try {
-      const result = await withDeadline(api.outline({
-        data: {
-          lines,
-          topics: next.coaches.map((c) => c.topic).filter(Boolean),
-          notes: (ses?.notes ?? next.jots).map((j) => j.zh || j.en),
-        },
-      }), OUTLINE_TIMEOUT_MS);
-      if (mine !== outlineGen) return;
-      if (!result.ok) return;
-      const outline = result.outline
-        .map((o) => ({
-          heading: o.heading.trim(),
-          bullets: [...new Set(o.bullets.map((b) => b.trim()).filter((b) => b.length > 8 && b.length < 90))].slice(0, 3),
-        }))
-        .filter((o) => o.heading && o.heading.split(/\s+/).length <= 8);
-      if (!outline.length && !result.title) return;
-      store.getState().setLiveDraft(sid, { title: result.title, outline, topics: result.topics, ms: result.ms });
-    } catch {
-      /* the next beat schedules another try */
-    } finally {
-      if (mine === outlineGen) outlineBusy = false;
-    }
-  }
 
   async function request(targetId?: string, hintTopics?: string[]) {
     const s0 = store.getState();
@@ -156,13 +110,17 @@ export function createRecapRuntime(ctx: EngineContext) {
       nav.classPage(sid);
       return;
     }
+    const segments: ClassSegment[] = session?.segments ?? [];
+    const segmentHeads = segments.map((g) => g.heading).filter(Boolean);
     const topics = hintTopics?.length
       ? hintTopics
       : isLive
-        ? live.coaches.map((c) => c.topic).filter(Boolean)
-        : [...(session?.coaches ?? []).map((c) => c.topic), ...(session?.recap?.topics ?? []).map((t) => t.en)].filter(
-            (t, i, a) => t && a.indexOf(t) === i,
-          );
+        ? [...segmentHeads, ...live.coaches.map((c) => c.topic)].filter((t, i, a) => t && a.indexOf(t) === i)
+        : [
+            ...segmentHeads,
+            ...(session?.coaches ?? []).map((c) => c.topic),
+            ...(session?.recap?.topics ?? []).map((t) => t.en),
+          ].filter((t, i, a) => t && a.indexOf(t) === i);
     const notes = (session?.notes ?? (isLive ? live.jots : [])).map((j) => j.zh || j.en);
     const coaches = isLive ? live.coaches : (session?.coaches ?? []);
     const essays = isLive ? live.essays : (session?.essays ?? {});
@@ -171,7 +129,7 @@ export function createRecapRuntime(ctx: EngineContext) {
     live.setRecapPending(true, sid);
     live.setSession(sid);
     nav.classPage(sid);
-    const skeleton = emptyRecap(session?.title || "整理中", topics);
+    const skeleton = emptyRecap(session?.title || segmentHeads[0] || "整理中", topics);
     if (session?.recap?.outline?.length) skeleton.outline = session.recap.outline;
     skeleton.coachPack = pack;
     live.setRecap(skeleton, sid);
@@ -179,6 +137,16 @@ export function createRecapRuntime(ctx: EngineContext) {
       lines,
       topics,
       notes,
+      segments: segments
+        .filter((g) => g.heading)
+        .map((g) => ({
+          heading: g.heading,
+          headingZh: g.headingZh,
+          from: g.startAt,
+          to: g.endAt ?? now(),
+          claims: g.claims.map((c) => c.en),
+          todo: g.todo.map((t) => t.en),
+        })),
       coach: pack.map((c) => ({
         topic: c.topic,
         brief: c.briefEn,
@@ -263,10 +231,6 @@ export function createRecapRuntime(ctx: EngineContext) {
   }
 
   return {
-    /** New material (a caption, a note): redraw the outline once things settle. */
-    touch() {
-      outlineTimer.schedule(LIVE_OUTLINE_DEBOUNCE_MS, () => void flushOutline());
-    },
     /** 整理本堂 / 再出一份. */
     request,
     async forkAndRecap(fromId: string) {
@@ -274,19 +238,10 @@ export function createRecapRuntime(ctx: EngineContext) {
       if (!nid) return;
       await request(nid);
     },
-    /** Pause / end: the outline draft stops, the handout in flight is dropped. */
+    /** End / 首页: the handout in flight is dropped. */
     abort() {
-      outlineGen += 1;
-      outlineBusy = false;
       recapGen += 1;
-      outlineTimer.cancel();
       store.getState().setRecapPending(false);
-    },
-    /** Pause only the outline draft (the class keeps going in the background). */
-    abortOutline() {
-      outlineGen += 1;
-      outlineBusy = false;
-      outlineTimer.cancel();
     },
   };
 }

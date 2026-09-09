@@ -20,5 +20,7 @@ export const RECAP_PAYLOAD_MAX_CHARS = 256_000;
 /**
  * Shape version stamped on every `ClassSession`. Bump when a field changes
  * meaning; `normalizeSessions` upgrades older rows on read.
+ *
+ * 2: `segments` (the class by topic) joined the body; older rows read as none.
  */
-export const SESSION_SCHEMA_VERSION = 1;
+export const SESSION_SCHEMA_VERSION = 2;

@@ -1,12 +1,13 @@
 import {
+  catchUp as catchUpFn,
   expandTopic,
   liveCoach,
-  liveOutline,
   liveTranslate,
   mintSttSecret,
   quickTranslate,
   recapClass,
   sayIt,
+  writeSegment,
 } from "@/lib/capcom-ai";
 import { appNav } from "@/lib/nav";
 import { useCapcom } from "@/lib/store";
@@ -27,7 +28,8 @@ export const engine = createEngine({
     coach: liveCoach,
     expand: expandTopic,
     recap: recapClass,
-    outline: liveOutline,
+    segment: writeSegment,
+    catchUp: catchUpFn,
     mintStt: mintSttSecret,
   },
 });
@@ -48,4 +50,5 @@ export const {
   sayLine,
   requestRecap,
   forkAndRecap,
+  catchUp,
 } = engine;

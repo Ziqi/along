@@ -123,6 +123,9 @@ export type RecapDeep = {
 };
 
 export type RecapCoach = {
+  /** The card this row was packed from, and when it came; missing on packs written before 脉络. */
+  cardId?: string;
+  at?: number;
   topic: string;
   topicZh: string;
   briefEn: string;
@@ -160,6 +163,29 @@ export type ClassRecap = {
   at: number;
 };
 
+/**
+ * One stretch of the class on one topic — the unit of the 课程脉络. Cut from
+ * the coach's per-beat topics (a topic change, or eight minutes) without a
+ * model; written up (heading, claims) by one Flash call when it closes.
+ */
+export type ClassSegment = {
+  id: string;
+  startAt: number;
+  /** Null while this is the stretch being heard now. */
+  endAt: number | null;
+  heading: string;
+  headingZh: string;
+  /** What the teacher argued in this stretch, 1–3 items; empty until written up. */
+  claims: RecapPair[];
+  /** Things the teacher told the class to do, when any were said. */
+  todo: RecapPair[];
+  /** Coach cards that fell inside this stretch, in order. */
+  cardIds: string[];
+  /** Caption `seq` range covered, inclusive; `seqTo` grows while open. */
+  seqFrom: number;
+  seqTo: number;
+};
+
 export type ClassSession = {
   id: string;
   /** Shape version; see `SESSION_SCHEMA_VERSION`. Missing on rows written before it existed. */
@@ -174,6 +200,8 @@ export type ClassSession = {
   transcript: { en: string; zh: string }[];
   coaches: CoachCard[];
   essays: Record<string, TopicEssay>;
+  /** The class by topic, in order. Rows written before schema 2 have none. */
+  segments: ClassSegment[];
   sourceId: string | null;
   sourceTitle: string | null;
   starred: boolean;

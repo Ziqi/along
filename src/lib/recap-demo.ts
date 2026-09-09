@@ -17,6 +17,7 @@ export function sampleSession(): ClassSession {
     starredAt: null,
     coaches: [],
     essays: {},
+    segments: [],
     notes: [
       {
         id: "jot-sample-1",

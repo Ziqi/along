@@ -83,6 +83,7 @@ function skeleton(row: SessionIndexRow): ClassSession {
     transcript: [],
     coaches: [],
     essays: {},
+    segments: [],
     sourceId: row.sourceId ?? null,
     sourceTitle: row.sourceTitle ?? null,
     starred: Boolean(row.starred),

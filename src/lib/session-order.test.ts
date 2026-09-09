@@ -18,6 +18,7 @@ function ses(
     transcript: [],
     coaches: [],
     essays: {},
+    segments: [],
     sourceId: null,
     sourceTitle: null,
     starred: false,

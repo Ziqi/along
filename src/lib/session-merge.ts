@@ -1,5 +1,6 @@
 import type {
   ClassRecap,
+  ClassSegment,
   ClassSession,
   CoachCard,
   Jot,
@@ -185,6 +186,27 @@ function pinEssaysToCoachIds(essays: Record<string, TopicEssay>, coaches: CoachC
   return next;
 }
 
+/** A segment row of any age → the current shape, or null when it is not one. */
+export function normSegment(row: unknown): ClassSegment | null {
+  if (!row || typeof row !== "object") return null;
+  const g = row as Partial<ClassSegment>;
+  if (typeof g.id !== "string" || !g.id || typeof g.startAt !== "number") return null;
+  const pairs = (v: unknown) =>
+    Array.isArray(v) ? (v.map(normPair).filter(Boolean) as { en: string; zh: string }[]) : [];
+  return {
+    id: g.id,
+    startAt: g.startAt,
+    endAt: typeof g.endAt === "number" ? g.endAt : null,
+    heading: String(g.heading ?? ""),
+    headingZh: String(g.headingZh ?? ""),
+    claims: pairs(g.claims),
+    todo: pairs(g.todo),
+    cardIds: Array.isArray(g.cardIds) ? g.cardIds.map(String).filter(Boolean) : [],
+    seqFrom: typeof g.seqFrom === "number" ? g.seqFrom : 0,
+    seqTo: typeof g.seqTo === "number" ? g.seqTo : 0,
+  };
+}
+
 /** One row of any age → the current `ClassSession` shape, or null when it is not a class. */
 export function normalizeSession(row: unknown): ClassSession | null {
   if (!row || typeof row !== "object") return null;
@@ -204,6 +226,7 @@ export function normalizeSession(row: unknown): ClassSession | null {
       transcript: Array.isArray(s.transcript)
         ? (s.transcript.map(normPair).filter(Boolean) as { en: string; zh: string }[])
         : [],
+      segments: Array.isArray(s.segments) ? s.segments.map(normSegment).filter((x): x is ClassSegment => x !== null) : [],
       classMode: parseClassMode((s as { classMode?: unknown }).classMode),
       sourceId: s.sourceId ?? null,
       sourceTitle: s.sourceTitle ?? null,
@@ -335,6 +358,26 @@ export function mergeTape(
   return [...head, ...overlap, ...live.slice(k)];
 }
 
+/**
+ * Segments by id in time order; for one id the copy that is written up (has a
+ * heading) or reaches further wins, so a device that closed the segment beats
+ * one that still holds it open.
+ */
+export function mergeSegments(a: ClassSegment[], b: ClassSegment[]): ClassSegment[] {
+  const byId = new Map<string, ClassSegment>();
+  for (const g of [...a, ...b]) {
+    const prev = byId.get(g.id);
+    if (!prev) {
+      byId.set(g.id, g);
+      continue;
+    }
+    const prevScore = (prev.heading ? 2 : 0) + (prev.endAt ? 1 : 0);
+    const nextScore = (g.heading ? 2 : 0) + (g.endAt ? 1 : 0);
+    if (nextScore > prevScore || (nextScore === prevScore && g.seqTo >= prev.seqTo)) byId.set(g.id, g);
+  }
+  return [...byId.values()].sort((x, y) => x.startAt - y.startAt);
+}
+
 /** Union by id, keeping the stored order and appending what is new. */
 export function unionById<T extends { id: string }>(stored: T[], live: T[]): T[] {
   const seen = new Set(stored.map((x) => x.id));
@@ -366,6 +409,7 @@ export function mergeOne(
     coaches:
       (a.coaches?.length ?? 0) >= (b.coaches?.length ?? 0) ? (a.coaches ?? []) : (b.coaches ?? []),
     essays: mergeEssays(older.essays ?? {}, newer.essays ?? {}),
+    segments: mergeSegments(older.segments ?? [], newer.segments ?? []),
     updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
     startedAt: Math.min(a.startedAt, b.startedAt),
     sourceId: newer.sourceId ?? older.sourceId,

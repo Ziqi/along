@@ -50,6 +50,7 @@ function session(id: string, patch: Partial<ClassSession> = {}): ClassSession {
     transcript: [],
     coaches: [],
     essays: {},
+    segments: [],
     sourceId: null,
     sourceTitle: null,
     starred: false,

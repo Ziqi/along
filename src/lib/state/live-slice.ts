@@ -10,12 +10,22 @@ import type { AppState } from "./app-state";
  * persisted directly — `stashLive` in the sessions slice copies it into the
  * open `ClassSession`.
  */
+export type CatchUpState = {
+  pending: boolean;
+  at?: number;
+  topic?: string;
+  topicZh?: string;
+  lines?: string[];
+};
+
 export type LiveSlice = {
   /** Where the class machine is; written by the engine only. */
   phase: ClassPhase;
   captions: Caption[];
   interim: string;
   mic: MicState;
+  /** 「刚才讲了什么」: the last few minutes in three lines, while shown; null when dismissed. */
+  catchUp: CatchUpState | null;
   /** Which recognizer is on the mic: xAI's, or the browser's own as a fallback. */
   sttBackend: "xai" | "browser" | null;
   /** Why the browser recognizer is on, for the student to read; null when xAI is. */
@@ -47,6 +57,7 @@ export type LiveSlice = {
   setInterim: (text: string) => void;
   setMic: (mic: MicState) => void;
   setSttBackend: (backend: "xai" | "browser" | null, note?: string | null) => void;
+  setCatchUp: (v: CatchUpState | null) => void;
   setListening: (on: boolean) => void;
   setAutoCoach: (on: boolean) => void;
   setIntent: (text: string) => void;
@@ -116,6 +127,7 @@ export const HUD_BLANK = {
   listening: false,
   sttBackend: null,
   sttNote: null,
+  catchUp: null,
 };
 
 export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, get) => ({
@@ -125,6 +137,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   mic: "idle",
   sttBackend: null,
   sttNote: null,
+  catchUp: null,
   listening: false,
   autoCoach: true,
   startedAt: null,
@@ -201,6 +214,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   setInterim: (text) => set({ interim: text }),
   setMic: (mic) => set({ mic }),
   setSttBackend: (backend, note = null) => set({ sttBackend: backend, sttNote: backend === "browser" ? note : null }),
+  setCatchUp: (v) => set({ catchUp: v }),
   setListening: (on) => set({ listening: on }),
   setAutoCoach: (on) => set({ autoCoach: on }),
   setIntent: (text) => set({ intent: text }),

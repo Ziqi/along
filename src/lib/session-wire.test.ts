@@ -44,6 +44,7 @@ const session: ClassSession = {
   transcript: [{ en: "One.", zh: "一。" }],
   coaches: [],
   essays: {},
+  segments: [],
   sourceId: null,
   sourceTitle: null,
   starred: true,

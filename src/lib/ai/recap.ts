@@ -37,10 +37,8 @@ export const TAPE_LINES_MAX = 120;
  * function off would lose every model call already paid for.
  */
 export const RECAP_BUDGET_MS = 75_000;
-import { parseOutline, parsePairs, pick } from "./parse";
 import {
   GLOSS_SYS,
-  OUTLINE_SYS,
   RECAP_STUDY_AGAIN_SYS,
   recapContentSystem,
   recapSlimSystem,
@@ -128,6 +126,15 @@ export const recapClass = createServerFn({ method: "POST" })
       lines: { en: string; zh: string }[];
       topics: string[];
       notes: string[];
+      /** The 课程脉络: the hour by topic, each stretch with what was argued in it. */
+      segments?: {
+        heading: string;
+        headingZh?: string;
+        from?: number;
+        to?: number;
+        claims?: string[];
+        todo?: string[];
+      }[];
       coach?: {
         topic: string;
         brief?: string;
@@ -189,6 +196,19 @@ export const recapClass = createServerFn({ method: "POST" })
               : null,
           }))
         : [],
+      segments: Array.isArray(input?.segments)
+        ? input.segments
+            .slice(0, 12)
+            .map((g) => ({
+              heading: String(g?.heading ?? "").slice(0, 80),
+              headingZh: String(g?.headingZh ?? "").slice(0, 40),
+              from: typeof g?.from === "number" ? g.from : 0,
+              to: typeof g?.to === "number" ? g.to : 0,
+              claims: Array.isArray(g?.claims) ? g.claims.map((c) => String(c).slice(0, 200)).slice(0, 3) : [],
+              todo: Array.isArray(g?.todo) ? g.todo.map((c) => String(c).slice(0, 160)).slice(0, 3) : [],
+            }))
+            .filter((g) => g.heading)
+        : [],
       phase: input?.phase === "essay" || input?.phase === "study" ? input.phase : "all",
       prior:
         input?.prior && typeof input.prior === "object"
@@ -239,14 +259,27 @@ export const recapClass = createServerFn({ method: "POST" })
     const remaining = () => RECAP_BUDGET_MS - (Date.now() - started);
     // The whole hour, thinned evenly, never just its first minutes.
     const tape = spread(compactTape(data.lines), TAPE_LINES_MAX);
+    const clock = (ms: number) => {
+      const d = new Date(ms);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    };
     const packet = {
       transcript: tape,
       student_notes: data.notes,
       coach_and_deep: data.coach,
-      topics: data.topics,
+      // The hour by topic, as the class ran: the section plan the writer starts from.
+      class_structure: data.segments.map((g, i) => ({
+        order: i + 1,
+        heading: g.heading,
+        headingZh: g.headingZh,
+        time: g.from && g.to ? `${clock(g.from)}–${clock(g.to)}` : "",
+        claims: g.claims,
+        todo: g.todo,
+      })),
+      topics: data.topics.length ? data.topics : data.segments.map((g) => g.heading),
       class_mode: data.mode,
     };
-    const base = emptyRecap(data.topics[0] || "Class notes", data.topics);
+    const base = emptyRecap(data.topics[0] || data.segments[0]?.heading || "Class notes", packet.topics);
     const heard = tape.map((l) => l.en);
     const sources = { notes: data.notes, coach: data.coach };
     const stamp = (ai: Record<string, unknown>) => assembleRecap(base, ai, { heard });
@@ -298,8 +331,9 @@ export const recapClass = createServerFn({ method: "POST" })
       recap = stamp(parsed);
       recap.latencyMs = Math.max(content.ok ? content.ms : 0, grok.ok ? grok.ms : 0);
       if (!essayReadyForClass(recap, sources) && remaining() > 30_000) {
+        const segmentHeads = data.segments.map((g) => g.heading).slice(0, 4);
         const outlineHeads = recap.outline.map((o) => o.heading).filter(Boolean).slice(0, 4);
-        const heads = outlineHeads.length ? outlineHeads : data.topics.slice(0, 4);
+        const heads = segmentHeads.length ? segmentHeads : outlineHeads.length ? outlineHeads : data.topics.slice(0, 4);
         const slim = await chatReasoning({
           system: recapSlimSystem(),
           user: JSON.stringify({ headings: heads, packet }),
@@ -410,66 +444,3 @@ export const recapClass = createServerFn({ method: "POST" })
     return recapToOk(recap);
   });
 
-/** Mid-class outline draft: title, 2–4 headings, topics. Cheap and frequent. */
-export const liveOutline = createServerFn({ method: "POST" })
-  .validator(
-    (input: { lines: { en: string; zh: string }[]; topics: string[]; notes: string[] }) => ({
-      lines: Array.isArray(input?.lines)
-        ? input.lines
-            .slice(-20)
-            .map((l) => ({
-              en: String(l?.en ?? "")
-                .trim()
-                .slice(0, 180),
-              zh: String(l?.zh ?? "")
-                .trim()
-                .slice(0, 120),
-            }))
-            .filter((l) => l.en)
-        : [],
-      topics: Array.isArray(input?.topics)
-        ? input.topics.map((s) => String(s).slice(0, 80)).slice(0, 6)
-        : [],
-      notes: Array.isArray(input?.notes)
-        ? input.notes.map((s) => String(s).slice(0, 160)).slice(0, 10)
-        : [],
-    }),
-  )
-  .middleware([aiGuard])
-  .handler(async ({ data, context }): Promise<
-    | {
-        ok: true;
-        title: string;
-        outline: { heading: string; bullets: string[] }[];
-        topics: { en: string; zh: string }[];
-        ms: number;
-      }
-    | AiFail
-  > => {
-    const gate = takeAiToken(context.caller, "outline");
-    if (!gate.ok) return aiFail("rate_limited");
-    if (data.lines.length < 2 && data.notes.length < 1) return aiFail("too_short");
-    const result = await chatFlash({
-      system: OUTLINE_SYS,
-      user: JSON.stringify({
-        transcript: data.lines,
-        coach_topics: data.topics,
-        student_notes: data.notes,
-      }),
-      maxTokens: 420,
-      temperature: 0.2,
-      json: true,
-      tag: "outline",
-    });
-    if (!result.ok) return result;
-    const parsed = extractJsonObject(result.text);
-    const outline = parseOutline(parsed?.outline);
-    if (!outline.length && !pick(parsed, "title")) return aiFail("empty");
-    return {
-      ok: true,
-      title: pick(parsed, "title"),
-      outline,
-      topics: parsePairs(parsed?.topics, 5),
-      ms: result.ms,
-    };
-  });

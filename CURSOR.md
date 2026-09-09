@@ -38,7 +38,7 @@
 - `package.json` → `"start": "node scripts/dev-up.mjs"`（检查 8080，down 才拉起）
 - `package.json` → `"stop": "node scripts/dev-up.mjs stop"`
 - 不要把端口改成 3000/5173。Grok 预览代理只认 8080。
-- `scripts/with-app-env.mjs` 注入 `XAI_API_KEY` 等。没有 key，听写/教练/纪要全挂。
+- `XAI_API_KEY` 由平台注入进程环境（Grok 沙箱与 grok.me 部署都有；`scripts/with-app-env.mjs` 只管 `VITE_*`）。没有 key 或钥匙没额度：听写退到浏览器识别并在听课栏写明原因，翻译一次即标「未译」，教练 / 纪要 / 脉络报「没接到模型」——不会静默。Cursor 的云端机器没有这把钥匙，在那里只能测错误路径。
 
 环境变量：
 
@@ -81,6 +81,8 @@ src/lib/session-limits.ts         40 堂 / body 512 KB / recap 256 KB / schemaVe
 src/lib/recap-cloud.ts            登录后的服务函数：按 updated_at 游标增量 pull（带重叠窗口）、更新者胜 push；class_sessions + class_recaps + class_session_tombstones；每人保留 40 行
 src/lib/session-order.ts          目录排序、置顶
 src/lib/drill.ts                  复习分流：Leitner 盒子，会了升一格按 1/3/7/14/30 天到期，再来回本轮末尾；只存本机 along.drill
+src/lib/segmenter.ts              纯函数：按教练卡话题（下一张卡确认才算变题）与 8 分钟上限把课切成段，太短的段并入
+src/lib/segment-view.ts           脉络条的 chips、附录按段分组（纯函数）
 src/lib/samples.ts                两份示例讲义（SpaceX / 记账 app）：只读页 /class/<id>，从不进目录
 migrations/                       0001 auth · 0002 class_sessions · 0003 tombstones · 0004 元数据列 + class_recaps 分表
 ```
@@ -98,7 +100,8 @@ src/lib/engine/coach-runtime.ts   教练：一次一张、永远写最新一拍�
 src/lib/engine/deep-runtime.ts    检索：每卡代次，最多 2 路，其余排队
 src/lib/engine/note-runtime.ts    记要点：先落纪要，另一半后台翻译
 src/lib/engine/say-runtime.ts     「我想说」：中文一句 → 课上能开口的英文一句，记成 src:"say" 的随手记
-src/lib/engine/recap-runtime.ts   课上提纲草稿（outlineBusy 锁）+ 结课整理 + 再出一份 + 门控
+src/lib/engine/structure-runtime.ts  课程脉络：心跳里用 segmenter 按教练话题切段，段收口调一次 Flash 写标题与要点，首段给课起标题；「刚才讲了什么」按需
+src/lib/engine/recap-runtime.ts   结课整理 + 再出一份 + 门控（脉络作 packet 的 class_structure）
 src/components/capcom/use-engine.ts  只剩 useCapcomEngine()：挂载时 engine.start()
 ```
 
@@ -114,7 +117,8 @@ src/lib/ai/stt.ts                 mintSttSecret
 src/lib/ai/translate.ts           liveTranslate · quickTranslate · sayIt
 src/lib/ai/coach.ts               liveCoach → coach-assemble
 src/lib/ai/deep.ts                expandTopic → essay-kit
-src/lib/ai/recap.ts               liveOutline · recapClass → recap-kit 两道门
+src/lib/ai/recap.ts               recapClass → recap-kit 两道门
+src/lib/ai/structure.ts           writeSegment（一段收口的标题 / 要点 / 作业）· catchUp（刚才讲了什么，三行简体）
 src/lib/recap-kit.ts              纪要装配器：assembleRecap / isEssayFilled / isStudyFilled / isFilled / packCoach
 src/lib/coach-assemble.ts         教练装配器：三种课型盖章三条名字，不编开口
 src/lib/essay-kit.ts              检索稿装配
@@ -168,13 +172,15 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 - **首页不碰讲义**：`goHome` 不清 `recapPending / recapStage / recapError`；整理按堂记 `recapTarget`，另一堂的页面不显示、也不能发起会顶掉它的第二次整理。
 - 每个 AI 调用在客户端都有 `withDeadline`；检索抛错要清占位草稿。
 - xAI 听写：两次尝试按连接计，接通即清零；只有当前 socket 能改状态；麦克风轨道 `ended` 与音频图挂起都要上报，不许送静音装作在听。
+- **课程脉络取代提纲**：不再有每 12 秒的模型调用。`segmenter` 在每次心跳里按教练卡话题切段（变题要下一张卡确认；太短并入；8 分钟必切；停写时只按时间），段收口才调一次 Flash 写 `heading / claims / todo`，第一段给课起标题（`canAutoTitle` 仍管）。段存在 `session.segments`，只写盘不推云，随下一次 stash 上云。「刚才讲了什么」只在学生点时调一次，结果只进 live slice，不持久化。
+- 附录按段分组（`groupPackBySegment`），讲义 packet 带 `class_structure` 作参考，模型仍按 2–4 节合并；`recap.outline` 字段只读旧讲义，不再写。
 
 模型（当前）：
 
 | 能力 | 模型 |
 |---|---|
 | 听写 | xAI Speech-to-Text Streaming。英文字幕不经过 4.6。 |
-| 字幕翻译、课上提纲、纪要补中文 | `grok-4.20-0309-non-reasoning`（仓库绰号 Flash = 最快聊天模型），再试 `grok-4.20-non-reasoning`，再 `grok-4.3` |
+| 字幕翻译、脉络段收口、刚才讲了什么、纪要补中文 | `grok-4.20-0309-non-reasoning`（仓库绰号 Flash = 最快聊天模型），再试 `grok-4.20-non-reasoning`，再 `grok-4.3` |
 | 教练 | `grok-4.6` `reasoning_effort: low`，超时退最快聊天模型 |
 | DeepSearch | 最快模型 + `web_search` 检索事实；互动 / 旁听写四十秒，只听写背景。没事实就失败，不许编。最多 2 路 |
 | 纪要正文 | 最快模型与 grok-4.6 **并行**写内容 → 不够再 slim 一次 → 过关才写语言点 |
@@ -200,7 +206,8 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 - 实录 `transcript`（英+中，已 `compactTape` 去重）
 - 学生笔记 `student_notes`
 - 教练卡 + DeepSearch `coach_and_deep`
-- 主题名 `topics`
+- 课程脉络 `class_structure`（每段的标题、时间、要点、作业；作节的划分参考，可合并）
+- 主题名 `topics`（缺时由段标题补）
 
 写出三块：
 
@@ -301,8 +308,8 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 1. **测试基建**：`src/lib/state/*` 改成相对 `.ts` 导入让 node 能跑，补 `pushFinal / stashLive / applyCatalog / clear` 的 slice 测试。
 2. **多标签页互通**（BroadcastChannel）；**手机触控** xs / sm 按钮加 `max-md:min-h-11`；**超限瘦身两端一致**（`slimToLimit` 进 `session-wire`）。
-3. **教练 / 提纲节流**改前沿带尾沿；**教练错误按码分支**；**暂停不丢最后半句**；迁移 0004 跳过坏行；SSR 主题闪。
-4. **借同类产品**：「刚才讲了什么」（最近 5–10 分钟三行中文）；字幕行一键标记进讲义；xAI STT `keyterm` 专有名词偏置；课后「问这堂课」只引用实录作答；话题时间线；老师布置的作业单列。
+3. **教练节流**改前沿带尾沿；**教练错误按码分支**；**暂停不丢最后半句**；迁移 0004 跳过坏行；SSR 主题闪。
+4. **借同类产品**：字幕行一键标记进讲义；xAI STT `keyterm` 专有名词偏置（段标题与卡的 keys 是现成词表）；课后「问这堂课」只引用实录作答。已做：「刚才讲了什么」、话题时间线（脉络条 + 附录分段）、老师布置的作业（段的 `todo`，进 takeaways）。
 5. **纪要总索引**：各堂词、搭配、句式做成总索引。复习入口已经拿到整理 / 导出同一排。
 6. **界面**：字幕点词看释义；教练卡等待时长可见；手机横屏两栏；讲义页固定目录与三步整理进度；词条「加到复习」开关；复习键盘 / 滑动；首次引导一屏。
 

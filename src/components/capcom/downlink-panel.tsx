@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, RotateCcw, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { catchUp } from "@/lib/engine";
+import { CATCH_UP_MIN_LINES } from "@/lib/engine/structure-runtime";
 import { formatClock } from "@/lib/utils";
 import { useCapcom } from "@/lib/store";
 
@@ -15,10 +18,20 @@ export function DownlinkPanel() {
   const sessions = useCapcom((s) => s.sessions);
   const sttBackend = useCapcom((s) => s.sttBackend);
   const sttNote = useCapcom((s) => s.sttNote);
+  const recap = useCapcom((s) => s.catchUp);
+  const setCatchUp = useCapcom((s) => s.setCatchUp);
+  const ping = useCapcom((s) => s.ping);
   const scroller = useRef<HTMLDivElement>(null);
   const live = mic === "live";
   const openClass = sessions.some((s) => s.id === liveId && !s.endedAt);
   const onBrowser = listening && sttBackend === "browser";
+  // 「刚才讲了什么」 wants a few minutes of class behind it and one request at a time.
+  const canCatchUp = openClass && captions.length >= CATCH_UP_MIN_LINES && !recap?.pending;
+
+  async function askCatchUp() {
+    const out = await catchUp();
+    if (!out.ok) ping(out.error);
+  }
   // Follow the live end until the student scrolls up to read back; then hold
   // still and count what arrived, so one tap brings them back.
   const [following, setFollowing] = useState(true);
@@ -67,7 +80,21 @@ export function DownlinkPanel() {
             浏览器听写
           </span>
         ) : null}
-        <div className="meter ml-auto" data-live={live} aria-hidden="true">
+        {openClass ? (
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            className="ml-auto"
+            disabled={!canCatchUp}
+            onClick={() => void askCatchUp()}
+            title={captions.length < CATCH_UP_MIN_LINES ? "刚才还没听进几句" : undefined}
+          >
+            <RotateCcw className="size-3.5" />
+            {recap?.pending ? "在写…" : "刚才讲了什么"}
+          </Button>
+        ) : null}
+        <div className={"meter " + (openClass ? "" : "ml-auto")} data-live={live} aria-hidden="true">
           <span />
           <span />
           <span />
@@ -83,6 +110,33 @@ export function DownlinkPanel() {
         >
           {sttNote}
         </p>
+      ) : null}
+
+      {recap && !recap.pending && recap.lines?.length ? (
+        // Pinned under the header, not inside the list: the list follows the live end.
+        <div className="shrink-0 border-b border-line bg-elevated px-4 py-3 md:px-5" role="status">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm text-muted">
+              刚才讲了什么
+              {recap.topic ? <span className="text-fg"> · {recap.topicZh || recap.topic}</span> : null}
+            </p>
+            <button
+              type="button"
+              aria-label="收起"
+              className="-mr-1 -mt-0.5 p-1 text-dim hover:text-fg"
+              onClick={() => setCatchUp(null)}
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <ol className="mt-2 flex flex-col gap-1">
+            {recap.lines.map((line, i) => (
+              <li key={i} className="text-base text-fg text-pretty">
+                {i + 1}. {line}
+              </li>
+            ))}
+          </ol>
+        </div>
       ) : null}
 
       <div className="relative min-h-0 flex-1">

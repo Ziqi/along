@@ -5,6 +5,7 @@ import { CoachPackCard } from "./coach-pack-card";
 import { ContrastTable, EditText, MarkText, PairList, PairOl, ProseBlocks } from "./handout-blocks";
 import { useHandoutMarks } from "./handout-marks";
 import { LiveTape } from "./live-tape";
+import { groupPackBySegment, segmentLabel, segmentSpan } from "@/lib/segment-view";
 import { NotesEditor } from "./notes-editor";
 import { RecapProgress } from "./recap-progress";
 import { StudyCards } from "./study-cards";
@@ -170,8 +171,30 @@ export function HandoutBody({
             <h2 className="mt-2 text-xl font-medium tracking-tight">{appendix.heading}</h2>
             <p className="mt-1 text-sm text-muted">{appendix.blurb}</p>
           </div>
-          {coachPack.map((card, i) => (
-            <CoachPackCard key={`${card.topic}-${i}`} card={card} terms={marks} />
+          {groupPackBySegment(coachPack, session.coaches, session.segments ?? []).map((group, gi) => (
+            <div key={group.segment?.id ?? `rest-${gi}`} className="flex flex-col gap-6">
+              {group.segment ? (
+                // The stretch this ran in: its heading, when, and what the teacher argued.
+                <div className="border-l-2 border-line pl-4">
+                  <p className="font-mono text-xs tabular-nums text-dim">{segmentSpan(group.segment)}</p>
+                  <h3 className="mt-1 text-lg font-medium tracking-tight">{segmentLabel(group.segment, session.coaches)}</h3>
+                  {group.segment.headingZh ? <p className="text-sm text-muted">{group.segment.headingZh}</p> : null}
+                  {group.segment.claims.length ? (
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {group.segment.claims.map((c, i) => (
+                        <li key={i} className="text-base text-fg text-pretty">
+                          {c.en}
+                          {c.zh ? <span className="block text-sm text-muted">{c.zh}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+              {group.cards.map((card, i) => (
+                <CoachPackCard key={card.cardId ?? `${card.topic}-${i}`} card={card} terms={marks} />
+              ))}
+            </div>
           ))}
         </section>
       ) : null}
