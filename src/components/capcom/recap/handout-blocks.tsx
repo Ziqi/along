@@ -165,8 +165,8 @@ export function PairList({ kicker, items }: { kicker: string; items: RecapPair[]
           </tr>
         </thead>
         <tbody>
-          {items.map((it) => (
-            <tr key={it.en} className="border-b border-line/70 align-top">
+          {items.map((it, i) => (
+            <tr key={`${i}-${it.en}`} className="border-b border-line/70 align-top">
               <td className="py-2.5 pr-3 text-sm font-medium leading-snug text-fg">{it.en}</td>
               <td className="py-2.5 text-sm leading-snug text-muted">{it.zh}</td>
             </tr>
@@ -181,8 +181,8 @@ export function PairList({ kicker, items }: { kicker: string; items: RecapPair[]
 export function PairOl({ items, terms }: { items: RecapPair[]; terms?: string[] }) {
   return (
     <ol className="list-decimal space-y-2 pl-5">
-      {items.map((t) => (
-        <li key={t.en} className="pl-1">
+      {items.map((t, i) => (
+        <li key={`${i}-${t.en}`} className="pl-1">
           <p className="text-base text-fg">
             <MarkText text={t.en} terms={terms} />
           </p>

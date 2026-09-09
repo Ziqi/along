@@ -126,7 +126,7 @@ export function createEngine(deps: EngineDeps) {
   async function endClass() {
     if (!dispatch("end")) return;
     const s = store.getState();
-    const topics = s.coaches.map((c) => c.topic).filter(Boolean);
+    const topics = s.coaches.map((c) => c.topic).filter((t, i, a) => t && a.indexOf(t) === i);
     let sid: string | null = null;
     try {
       abortLive();
