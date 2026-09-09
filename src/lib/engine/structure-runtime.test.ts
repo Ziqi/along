@@ -229,7 +229,7 @@ describe("structure runtime", () => {
     clock = T0 + 200_000;
     const ok = await rt.catchUp();
     assert.equal(ok.ok, true);
-    assert.deepEqual((store.state.catchUp as { lines: string[] }).lines, ["一", "二", "三"]);
+    assert.deepEqual((store.state.catchUp as unknown as { lines: string[] }).lines, ["一", "二", "三"]);
 
     const failing = createStructureRuntime({
       store,
