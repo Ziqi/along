@@ -1,4 +1,6 @@
 import {
+  MERGE_WINDOW_MS,
+  TRANS_BATCH,
   TRANS_CAP,
   TRANS_KEEP,
   TRANS_TIMEOUT_MS,
@@ -11,53 +13,78 @@ import {
 import { isTerminalAiFail } from "../ai/errors.ts";
 import { debounceSlot, type EngineContext } from "./context.ts";
 
-export const TRANSLATE_DEBOUNCE_MS = 600;
+/** After the last line settled, how long before the queue asks. */
+export const TRANSLATE_DEBOUNCE_MS = 300;
 export const UNTRANSLATED = "未译";
 /** How long the queue waits after the server says 太频繁 before asking again. */
 export const RATE_HOLD_MS = 8000;
 
+type Line = { id: string; en: string };
+
 /**
- * Final captions in, Chinese out. Chases the latest line: at most `TRANS_CAP`
- * translations in flight, the newest `TRANS_KEEP` lines kept, each line tried
- * `TRANS_TRIES` times before it is marked 未译. A refusal for being too
- * frequent is not a try: the line goes back to the queue and the whole queue
- * waits `RATE_HOLD_MS`, so a busy minute costs a delay, not a column of 未译.
- * All state lives on the instance.
+ * Final captions in, Chinese out.
+ *
+ * A line is translated only once it has **settled**: the recognizer closed
+ * the utterance (`done`), or `MERGE_WINDOW_MS` passed since the line began, so
+ * no later fragment can be joined onto it. Translating a line that is still
+ * growing throws the answer away and holds a slot for nothing — that was a
+ * third of all calls. Settled lines go to the model several at a time
+ * (`TRANS_BATCH`), newest first, at most `TRANS_CAP` calls in flight and the
+ * newest `TRANS_KEEP` lines in view; each line is tried `TRANS_TRIES` times
+ * before it is marked 未译. A refusal for being too frequent is not a try: the
+ * whole queue rests `RATE_HOLD_MS`. All state lives on the instance.
  */
 export function createCaptionPipeline(ctx: EngineContext, hooks: { onLine: () => void }) {
   const { store, api, now } = ctx;
-  const batch: { id: string; en: string }[] = [];
+  const batch: Line[] = [];
   const tries = new Map<string, number>();
   const inflight = new Set<string>();
   const timer = debounceSlot();
   let busy = 0;
   let holdUntil = 0;
 
-  function trim() {
+  /** When this caption stops being joinable: at once if closed, else the merge window after it began. */
+  function settleAt(c: { at: number; done?: boolean }) {
+    return c.done ? 0 : c.at + MERGE_WINDOW_MS;
+  }
+
+  /** Rebuild the queue from the store: settled, untranslated, not in flight, tries left. Returns the next settle time, if any line is still growing. */
+  function trim(): number | null {
     const s = store.getState();
-    const pending = s.captions
-      .filter((c) => needsTranslate(c) && !inflight.has(c.id) && (tries.get(c.id) ?? 0) < TRANS_TRIES)
-      .map((c) => ({ id: c.id, en: c.en }));
+    const t = now();
+    let nextSettle: number | null = null;
+    const pending: Line[] = [];
+    for (const c of s.captions) {
+      if (!needsTranslate(c) || inflight.has(c.id) || (tries.get(c.id) ?? 0) >= TRANS_TRIES) continue;
+      const at = settleAt(c);
+      if (at > t) {
+        nextSettle = nextSettle === null ? at : Math.min(nextSettle, at);
+        continue;
+      }
+      pending.push({ id: c.id, en: c.en });
+    }
+    const settledIds = new Set(pending.map((p) => p.id));
     const next = mergeTranslateQueue(
-      batch,
+      batch.filter((b) => settledIds.has(b.id)),
       pending,
       s.captions.map((c) => c.id),
       TRANS_KEEP,
     );
     batch.length = 0;
     batch.push(...next);
+    return nextSettle;
   }
 
-  function fail(line: { id: string; en: string }) {
+  function fail(line: Line) {
     const n = (tries.get(line.id) ?? 0) + 1;
     tries.set(line.id, n);
     if (n < TRANS_TRIES) batch.push(line);
     else store.getState().markError(line.id, UNTRANSLATED);
   }
 
-  /** Too frequent: keep the line, count no try, and let the queue rest a while. */
-  function hold(line: { id: string; en: string }) {
-    batch.push(line);
+  /** Too frequent: keep the lines, count no try, and let the queue rest a while. */
+  function hold(lines: Line[]) {
+    batch.push(...lines);
     holdUntil = now() + RATE_HOLD_MS;
     timer.schedule(RATE_HOLD_MS, () => void flush());
   }
@@ -69,54 +96,69 @@ export function createCaptionPipeline(ctx: EngineContext, hooks: { onLine: () =>
       if (!timer.pending) timer.schedule(wait, () => void flush());
       return;
     }
-    trim();
-    const line = batch.pop();
-    if (!line) return;
+    const nextSettle = trim();
+    // Newest settled lines first, several in one call.
+    const lines = batch.splice(Math.max(0, batch.length - TRANS_BATCH)).reverse();
+    if (!lines.length) {
+      if (nextSettle !== null && !timer.pending) timer.schedule(Math.max(1, nextSettle - now()), () => void flush());
+      return;
+    }
     busy += 1;
-    inflight.add(line.id);
+    for (const l of lines) inflight.add(l.id);
     let rested = false;
     try {
-      const result = await withDeadline(api.translate({ data: { lines: [line] } }), TRANS_TIMEOUT_MS);
-      const zh = result.ok ? (result.items[0]?.zh ?? "") : "";
-      if (hasZh(zh)) {
-        tries.delete(line.id);
-        store.getState().setZh(line.id, { zh, ms: result.ok ? result.ms : 0, en: line.en });
-      } else if (!result.ok && result.code === "rate_limited") {
+      const result = await withDeadline(api.translate({ data: { lines } }), TRANS_TIMEOUT_MS);
+      if (!result.ok && result.code === "rate_limited") {
         rested = true;
       } else if (!result.ok && isTerminalAiFail(result)) {
         // No key, a refused key, or nothing to translate: asking twice more changes nothing.
-        tries.set(line.id, TRANS_TRIES);
-        fail(line);
+        for (const l of lines) {
+          tries.set(l.id, TRANS_TRIES);
+          fail(l);
+        }
+      } else if (!result.ok) {
+        for (const l of lines) fail(l);
       } else {
-        fail(line);
+        const wanted = new Set(lines.map((l) => l.id));
+        const byId = new Map(result.items.filter((it) => wanted.has(it.id)).map((it) => [it.id, it.zh] as const));
+        lines.forEach((l, i) => {
+          // Matched by id; a model that dropped the ids answered in order.
+          const zh = byId.get(l.id) ?? (byId.size === 0 ? result.items[i]?.zh : undefined) ?? "";
+          if (hasZh(zh)) {
+            tries.delete(l.id);
+            store.getState().setZh(l.id, { zh, ms: result.ms, en: l.en });
+          } else {
+            fail(l);
+          }
+        });
       }
     } catch {
-      fail(line);
+      for (const l of lines) fail(l);
     } finally {
       busy = Math.max(0, busy - 1);
-      inflight.delete(line.id);
+      for (const l of lines) inflight.delete(l.id);
     }
     if (rested) {
-      hold(line);
+      hold(lines);
       return;
     }
-    if (batch.length) void flush();
+    // A slot just freed: look again at once, including lines that settled meanwhile.
+    void flush();
   }
 
   return {
-    /** A final line from the speech backend. Returns the caption id, or "" when dropped. */
-    ingest(en: string): string {
+    /** A final line from the speech backend. `done` = the utterance ended here. Returns the caption id, or "" when dropped. */
+    ingest(en: string, opts?: { done?: boolean }): string {
       const s = store.getState();
       if (!s.listening) return "";
-      const id = s.pushFinal(en);
+      const id = s.pushFinal(en, opts);
       if (!id) return "";
       s.armClock();
-      const text = store.getState().captions.find((c) => c.id === id)?.en ?? en;
-      const existing = batch.find((b) => b.id === id);
-      if (existing) existing.en = text;
-      else batch.push({ id, en: text });
-      timer.schedule(TRANSLATE_DEBOUNCE_MS, () => void flush());
       hooks.onLine();
+      // Ask once the newest line has settled (now, if the utterance is closed).
+      const c = store.getState().captions.find((x) => x.id === id);
+      const wait = c ? Math.max(0, settleAt(c) - now()) : 0;
+      timer.schedule(wait + TRANSLATE_DEBOUNCE_MS, () => void flush());
       return id;
     },
     /** Fill every free slot with lines still waiting for Chinese. */
@@ -138,11 +180,12 @@ export function createCaptionPipeline(ctx: EngineContext, hooks: { onLine: () =>
     get holding() {
       return Math.max(0, holdUntil - now());
     },
-    get queued() {
-      return batch.length;
-    },
+    /** Calls in flight. */
     get inflight() {
       return busy;
+    },
+    get queued() {
+      return batch.length;
     },
   };
 }

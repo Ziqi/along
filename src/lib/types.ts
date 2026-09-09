@@ -6,6 +6,8 @@ export type Caption = {
   zh: string;
   pending: boolean;
   error?: string;
+  /** The recognizer said the utterance ended here: nothing will be joined onto this line. */
+  done?: boolean;
 };
 
 export type CoachOption = {
