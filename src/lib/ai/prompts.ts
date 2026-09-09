@@ -98,7 +98,7 @@ export function recapContentSystem(mode: ClassMode) {
     contentToneNote(mode) +
     " " +
     SECTION_COUNT_RULE +
-    " Contrast hours need a two-column table on that section. Fold coach briefs, DeepSearch names/numbers, and student notes into the matching paragraph. If there is no search and no note, the coach brief still belongs in the essay. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
+    " Contrast hours need a two-column table on that section. Fold coach briefs, DeepSearch names/numbers, and student notes into the matching paragraph. If there is no search and no note, the coach brief still belongs in the essay. class_structure, when present, is the hour by topic in the order it ran, each stretch with what the teacher argued there: use it to decide how the sections divide and in what order, merging stretches into 2-4 sections rather than one section per stretch; its todo items go into takeaways, not into the essay. Keep the JSON complete — fewer finished sections beat a cut-off dump. " +
     CONTENT_JSON +
     DATA_RULE
   );
@@ -106,7 +106,7 @@ export function recapContentSystem(mode: ClassMode) {
 
 export function recapSlimSystem() {
   return (
-    "The outline is not a handout. WRITE the 讲义 for THIS class. Fold coach briefs, DeepSearch names/numbers, and student notes into the paragraphs. If there is no search and no note, use the coach brief. Do not paste the three coach openings. Title is 3–8 words, not a caption. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. " +
+    "The outline is not a handout. WRITE the 讲义 for THIS class. Fold coach briefs, DeepSearch names/numbers, and student notes into the paragraphs. If there is no search and no note, use the coach brief. headings are the stretches the class ran through, in order; class_structure gives what was argued in each — write from it. Do not paste the three coach openings. Title is 3–8 words, not a caption. ONLY complete JSON: title, lede, ledeZh, sections[{heading,headingZh,body,bodyZh,table?}], takeaways[{en,zh}]. " +
     SECTION_COUNT_RULE +
     " bodyZh = 简体. Table only for a real contrast. Star *handout words*. Finish the JSON." +
     DATA_RULE

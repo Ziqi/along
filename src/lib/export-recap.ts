@@ -1,6 +1,7 @@
 import type { ClassSession, RecapStudy, RecapTable } from "@/lib/types";
 import { isStudyAppendix, recapAppendixCopy } from "@/lib/class-mode";
 import { splitProse } from "@/lib/recap-kit";
+import { groupPackBySegment, segmentLabel, segmentSpan } from "@/lib/segment-view";
 import { formatDayTime } from "@/lib/utils";
 
 function mdStars(s: string) {
@@ -8,10 +9,7 @@ function mdStars(s: string) {
 }
 
 function tableMarkdown(table: RecapTable) {
-  const lines = [
-    `| ${table.leftHead} | ${table.rightHead} |`,
-    "| --- | --- |",
-  ];
+  const lines = [`| ${table.leftHead} | ${table.rightHead} |`, "| --- | --- |"];
   for (const row of table.rows) {
     lines.push(`| ${row.left} | ${row.right} |`);
     if (row.leftZh || row.rightZh) {
@@ -103,22 +101,38 @@ export function recapMarkdown(session: ClassSession, opts?: { tape?: boolean }) 
   if ((recap?.coachPack ?? []).length) {
     lines.push(appendix.md);
     lines.push("");
-    for (const c of recap!.coachPack) {
-      lines.push(`### ${c.topic}${c.topicZh ? ` · ${c.topicZh}` : ""}`);
-      if (c.briefEn) lines.push(c.briefEn);
-      if (c.briefZh) lines.push(c.briefZh);
-      c.options.forEach((o, i) => {
-        lines.push(`${i + 1}. ${o.en}${o.zh ? ` — ${o.zh}` : ""}`);
-      });
-      if (c.deep) {
+    for (const group of groupPackBySegment(
+      recap!.coachPack,
+      session.coaches,
+      session.segments ?? [],
+    )) {
+      if (group.segment) {
+        const g = group.segment;
+        lines.push(
+          `### ${segmentSpan(g)} ${segmentLabel(g, session.coaches)}${g.headingZh ? ` · ${g.headingZh}` : ""}`,
+        );
+        for (const c of g.claims) lines.push(`- ${c.en}${c.zh ? ` — ${c.zh}` : ""}`);
         lines.push("");
-        lines.push(`#### 检索 · ${c.deep.title}`);
-        if (c.deep.viewEn) lines.push(c.deep.viewEn);
-        if (c.deep.viewZh) lines.push(c.deep.viewZh);
-        for (const f of c.deep.facts) lines.push(`- ${f.en}${f.zh ? ` — ${f.zh}` : ""}`);
-        if (c.deep.aEn) lines.push(c.deep.aEn);
       }
-      lines.push("");
+      for (const c of group.cards) {
+        lines.push(
+          `${group.segment ? "####" : "###"} ${c.topic}${c.topicZh ? ` · ${c.topicZh}` : ""}`,
+        );
+        if (c.briefEn) lines.push(c.briefEn);
+        if (c.briefZh) lines.push(c.briefZh);
+        c.options.forEach((o, i) => {
+          lines.push(`${i + 1}. ${o.en}${o.zh ? ` — ${o.zh}` : ""}`);
+        });
+        if (c.deep) {
+          lines.push("");
+          lines.push(`${group.segment ? "#####" : "####"} 检索 · ${c.deep.title}`);
+          if (c.deep.viewEn) lines.push(c.deep.viewEn);
+          if (c.deep.viewZh) lines.push(c.deep.viewZh);
+          for (const f of c.deep.facts) lines.push(`- ${f.en}${f.zh ? ` — ${f.zh}` : ""}`);
+          if (c.deep.aEn) lines.push(c.deep.aEn);
+        }
+        lines.push("");
+      }
     }
   }
   if (session.notes.length) {
@@ -153,10 +167,7 @@ export function downloadText(filename: string, text: string, mime: string) {
 }
 
 function esc(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function stars(s: string) {
@@ -164,7 +175,7 @@ function stars(s: string) {
 }
 
 function proseHtml(text: string, muted = false) {
-  const cls = muted ? " class=\"zh\"" : "";
+  const cls = muted ? ' class="zh"' : "";
   return splitProse(text)
     .map((b) => {
       if (b.type === "ol") {
@@ -232,6 +243,8 @@ export function printRecap(session: ClassSession, opts?: { tape?: boolean }) {
   .zh{color:#5c5850;font-size:.92rem}
   .meta{color:#8a857a;font-size:.75rem;letter-spacing:.12em;text-transform:uppercase}
   .part{color:#8a857a;font-size:.85rem;margin:2rem 0 .2rem}
+  .stretch{border-left:2px solid #d8d0c3;padding-left:.8rem;margin-top:1.8rem}
+  .stretch .meta{display:block;letter-spacing:0;text-transform:none;font-family:"IBM Plex Mono",ui-monospace,monospace}
   .cards{display:block}
   .card{break-inside:avoid;border-top:1px solid #d8d0c3;padding:.7rem 0}
   table.contrast{width:100%;border-collapse:collapse;margin:0.8rem 0 1rem;font-size:0.92rem}
@@ -253,7 +266,11 @@ ${
 }
 ${sections}
 ${
-  (recap?.words.length || recap?.collos.length || recap?.patterns.length || recap?.grammar.length || recap?.lines.length)
+  recap?.words.length ||
+  recap?.collos.length ||
+  recap?.patterns.length ||
+  recap?.grammar.length ||
+  recap?.lines.length
     ? `<p class="part">语言点</p><h2>语言点</h2>${studyCards("单词", recap?.words ?? [])}${studyCards("搭配", recap?.collos ?? [])}${studyCards("句式", recap?.patterns ?? [])}${studyCards("语法", recap?.grammar ?? [])}${studyCards("好例句", recap?.lines ?? [])}`
     : ""
 }
@@ -264,19 +281,41 @@ ${
 }
 ${
   (recap?.coachPack ?? []).length
-    ? `<p class="part">${esc(appendix.htmlPart)}</p><h2>${esc(appendix.htmlHeading)}</h2>${recap!.coachPack
-        .map((c) => {
-          const opts = c.options
-            .map((o) => `<li><p>${esc(o.en)}</p>${o.zh ? `<p class="zh">${esc(o.zh)}</p>` : ""}</li>`)
-            .join("");
-          const deep = c.deep
-            ? `<h3>检索 · ${esc(c.deep.title)}</h3>${c.deep.viewEn ? `<p>${esc(c.deep.viewEn)}</p>` : ""}${c.deep.viewZh ? `<p class="zh">${esc(c.deep.viewZh)}</p>` : ""}${
-                c.deep.facts.length
-                  ? `<ol>${c.deep.facts.map((f) => `<li>${esc(f.en)}${f.zh ? ` — ${esc(f.zh)}` : ""}</li>`).join("")}</ol>`
+    ? `<p class="part">${esc(appendix.htmlPart)}</p><h2>${esc(appendix.htmlHeading)}</h2>${groupPackBySegment(
+        recap!.coachPack,
+        session.coaches,
+        session.segments ?? [],
+      )
+        .map((group) => {
+          const g = group.segment;
+          const head = g
+            ? `<h3 class="stretch"><span class="meta">${esc(segmentSpan(g))}</span> ${esc(segmentLabel(g, session.coaches))}</h3>${g.headingZh ? `<p class="zh">${esc(g.headingZh)}</p>` : ""}${
+                g.claims.length
+                  ? `<ul>${g.claims.map((c) => `<li>${esc(c.en)}${c.zh ? ` — ${esc(c.zh)}` : ""}</li>`).join("")}</ul>`
                   : ""
-              }${c.deep.aEn ? `<p>${esc(c.deep.aEn)}</p>` : ""}${c.deep.aZh ? `<p class="zh">${esc(c.deep.aZh)}</p>` : ""}`
+              }`
             : "";
-          return `<h3>${esc(c.topic)}</h3>${c.topicZh ? `<p class="zh">${esc(c.topicZh)}</p>` : ""}${c.briefEn ? `<p>${esc(c.briefEn)}</p>` : ""}${c.briefZh ? `<p class="zh">${esc(c.briefZh)}</p>` : ""}<ol>${opts}</ol>${deep}`;
+          return (
+            head +
+            group.cards
+              .map((c) => {
+                const opts = c.options
+                  .map(
+                    (o) =>
+                      `<li><p>${esc(o.en)}</p>${o.zh ? `<p class="zh">${esc(o.zh)}</p>` : ""}</li>`,
+                  )
+                  .join("");
+                const deep = c.deep
+                  ? `<h3>检索 · ${esc(c.deep.title)}</h3>${c.deep.viewEn ? `<p>${esc(c.deep.viewEn)}</p>` : ""}${c.deep.viewZh ? `<p class="zh">${esc(c.deep.viewZh)}</p>` : ""}${
+                      c.deep.facts.length
+                        ? `<ol>${c.deep.facts.map((f) => `<li>${esc(f.en)}${f.zh ? ` — ${esc(f.zh)}` : ""}</li>`).join("")}</ol>`
+                        : ""
+                    }${c.deep.aEn ? `<p>${esc(c.deep.aEn)}</p>` : ""}${c.deep.aZh ? `<p class="zh">${esc(c.deep.aZh)}</p>` : ""}`
+                  : "";
+                return `<h3>${esc(c.topic)}</h3>${c.topicZh ? `<p class="zh">${esc(c.topicZh)}</p>` : ""}${c.briefEn ? `<p>${esc(c.briefEn)}</p>` : ""}${c.briefZh ? `<p class="zh">${esc(c.briefZh)}</p>` : ""}<ol>${opts}</ol>${deep}`;
+              })
+              .join("")
+          );
         })
         .join("")}`
     : ""
