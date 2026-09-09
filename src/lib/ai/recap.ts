@@ -37,7 +37,6 @@ export const TAPE_LINES_MAX = 120;
  * function off would lose every model call already paid for.
  */
 export const RECAP_BUDGET_MS = 75_000;
-import { parsePairs, pick } from "./parse";
 import {
   GLOSS_SYS,
   RECAP_STUDY_AGAIN_SYS,
