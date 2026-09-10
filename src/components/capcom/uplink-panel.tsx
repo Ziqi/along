@@ -31,7 +31,7 @@ export function UplinkPanel() {
   const essays = useCapcom((s) => s.essays);
   const essayPending = useCapcom((s) => s.essayPending);
   const essayTarget = useCapcom((s) => s.essayTarget);
-  const essayError = useCapcom((s) => s.essayError);
+  const essayErrors = useCapcom((s) => s.essayErrors);
   const captions = useCapcom((s) => s.captions);
   const autoCoach = useCapcom((s) => s.autoCoach);
   const classMode = useCapcom((s) => s.classMode);
@@ -172,8 +172,9 @@ export function UplinkPanel() {
           <ol className="flex flex-col gap-5">
             {coaches.map((card) => {
               const essay = essayOf(card, essays);
+              // Per card: the placeholder draft is "asking", its own failure is "failed".
               const deepPending = Boolean(essay?.draft) || (essayPending && essayTarget === card.id);
-              const deepErr = essayError && (essayTarget === card.id || !essayTarget);
+              const deepErr = essayErrors[card.id] ?? null;
               const ready = Boolean(essay && !essay.draft);
               return (
                 <li id={`coach-${card.id}`} key={card.id} className="border border-line bg-elevated/40">
@@ -212,7 +213,7 @@ export function UplinkPanel() {
                           onJot={(text) => void captureNote(text, "deep", { en: text })}
                         />
                       ) : deepErr && !ready ? (
-                        <p className="mt-2 text-sm text-abort">{essayError}</p>
+                        <p className="mt-2 text-sm text-abort">{deepErr}</p>
                       ) : null}
                     </div>
                   ) : null}

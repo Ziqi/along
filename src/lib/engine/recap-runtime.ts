@@ -7,6 +7,22 @@ import type { EngineContext } from "./context.ts";
 /** Client-side ceiling so a hung request never pins 整理中 until a reload. */
 export const RECAP_TIMEOUT_MS = 100_000;
 
+/** What the paper says when a write failed — by code, never the server's raw line. */
+export function humanRecapError(fail: { code: string; error: string }, stage: "essay" | "study") {
+  switch (fail.code) {
+    case "timeout":
+      return stage === "essay" ? "这一次写正文超时了，再点一次整理。" : "这一次写语言点超时了，再点一次整理。";
+    case "rate_limited":
+      return "整理太勤了，过几秒再点。";
+    case "unavailable":
+      return "整理没接到模型，稍后再点。";
+    case "too_short":
+      return "实录太短，再听几句再整理。";
+    default:
+      return fail.error || "纪要没写出来，再点一次整理。";
+  }
+}
+
 type StudyLike = { en: string; zh?: string; use?: string; useZh?: string; example?: string; exampleZh?: string };
 
 type RecapResult = {
@@ -183,7 +199,7 @@ export function createRecapRuntime(ctx: EngineContext) {
             lastErr = "正文太薄，再点一次整理。";
           }
         } else {
-          lastErr = result.error;
+          lastErr = humanRecapError(result, "essay");
         }
       } catch {
         lastErr = "纪要没写出来，再点一次整理。";
@@ -217,7 +233,7 @@ export function createRecapRuntime(ctx: EngineContext) {
           if (!isFilled(next)) store.getState().setRecapError("语言点没写出来，再点一次整理。");
           return;
         }
-        lastErr = result.error;
+        lastErr = humanRecapError(result, "study");
       } catch {
         lastErr = "语言点没写完，再点一次整理。";
       }

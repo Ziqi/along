@@ -4,8 +4,12 @@ import { extractJsonObject } from "@/lib/json-object";
 import { takeAiToken } from "./bucket";
 import { aiFail, type AiFail } from "./errors";
 import { aiGuard } from "./guard";
-import { chatReasoning, chatSearch } from "./llm/transport";
+import { chatFlash, chatReasoning, chatSearch } from "./llm/transport";
 import { DEEP_SEARCH_SYS, deepTalkSystem } from "./prompts";
+
+/** Web search with the Responses API routinely takes 10–20 s; the talk on either writer, up to 20 s. */
+export const DEEP_SEARCH_MS = 20_000;
+export const DEEP_TALK_MS = 20_000;
 
 export type DeepOk = {
   ok: true;
@@ -82,43 +86,65 @@ export const expandTopic = createServerFn({ method: "POST" })
         live_options: data.options,
       }),
       maxTokens: 900,
-      timeoutMs: 15000,
+      timeoutMs: DEEP_SEARCH_MS,
       tag: "deep.search",
     });
+    // A refused key or a timeout on the search is its own failure, not "nothing found".
+    if (!web.ok && web.code !== "no_facts") return web;
     const found = web.ok ? extractJsonObject(web.text) : null;
     const facts = searchFacts(found);
     if (!facts.length) return aiFail("no_facts");
-    const talk = await chatReasoning({
-      system: deepTalkSystem(data.mode),
-      user: JSON.stringify({
-        topic: data.topic || null,
-        facts,
-        sources: found?.sources ?? [],
-        live_options: data.options,
-      }),
-      maxTokens: 900,
-      temperature: 0.3,
-      timeoutMs: 12000,
-      fallback: { timeoutMs: 10000 },
-      json: true,
-      tag: "deep.talk",
+    const talkSys = deepTalkSystem(data.mode);
+    const talkUser = JSON.stringify({
+      topic: data.topic || null,
+      facts,
+      sources: found?.sources ?? [],
+      live_options: data.options,
     });
-    // The talk failing is the talk's failure (timeout, refused key…), not
-    // "nothing found": the student should read the real reason.
-    if (!talk.ok) return talk;
-    const spoken = extractJsonObject(talk.text);
+    // Both writers at once: 4.6 at low effort needs 10–15 s for this much
+    // JSON, so run it beside the fast model instead of after it. The 4.6 draft
+    // is preferred when both pass the gate; either alone will do.
+    const [fast, deep] = await Promise.all([
+      chatFlash({
+        system: talkSys,
+        user: talkUser,
+        maxTokens: 900,
+        temperature: 0.3,
+        timeoutMs: DEEP_TALK_MS,
+        json: true,
+        tag: "deep.talk.flash",
+      }),
+      chatReasoning({
+        system: talkSys,
+        user: talkUser,
+        maxTokens: 900,
+        temperature: 0.3,
+        timeoutMs: DEEP_TALK_MS,
+        fallback: false,
+        json: true,
+        tag: "deep.talk",
+      }),
+    ]);
     // The search model was told not to write the talk; only the talk's prose
     // may fill viewEn / aEn, so a stray paragraph from the search step cannot
     // pass for a written essay.
     const { aEn: _a, viewEn: _v, aZh: _az, viewZh: _vz, ...foundRest } = (found ?? {}) as Record<string, unknown>;
-    const parsed: Record<string, unknown> = {
-      ...foundRest,
-      ...(spoken ?? {}),
-      facts: found?.facts ?? facts,
-      sources: found?.sources ?? [],
-      title: (found?.title as string) || data.topic,
+    const assemble = (text: string, ms: number) => {
+      const parsed: Record<string, unknown> = {
+        ...foundRest,
+        ...(extractJsonObject(text) ?? {}),
+        facts: found?.facts ?? facts,
+        sources: found?.sources ?? [],
+        title: (found?.title as string) || data.topic,
+      };
+      return assembleEssay(draft, parsed, (web.ok ? web.ms : 0) + ms);
     };
-    const body = assembleEssay(draft, parsed, (web.ok ? web.ms : 0) + talk.ms);
-    if (body.draft) return aiFail("no_facts");
-    return { ok: true as const, ...body, draft: false, ms: body.latencyMs };
+    for (const talk of [deep, fast]) {
+      if (!talk.ok) continue;
+      const body = assemble(talk.text, talk.ms);
+      if (!body.draft) return { ok: true as const, ...body, draft: false, ms: body.latencyMs };
+    }
+    // Neither writer produced a talk: report the writers' failure, not "nothing found".
+    if (!deep.ok && !fast.ok) return deep.code === "timeout" ? deep : fast;
+    return aiFail("no_facts");
   });

@@ -307,6 +307,9 @@ export async function chatSearch(params: {
   const tag = params.tag ?? "search";
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), params.timeoutMs ?? 15000);
+  // A refused key or a dead endpoint is not "nothing found": remember the
+  // last HTTP failure so the student reads the real reason.
+  let lastStatus: number | null = null;
   try {
     for (const model of FLASH_MODELS) {
       const res = await fetch(XAI_RESPONSES_URL, {
@@ -326,6 +329,7 @@ export async function chatSearch(params: {
       });
       if (!res.ok) {
         logAi({ tag, model, ms: Date.now() - started, ok: false, status: res.status });
+        lastStatus = res.status;
         continue;
       }
       const body = await res.json();
@@ -350,8 +354,12 @@ export async function chatSearch(params: {
     }
   } catch {
     logAi({ tag, model: "flash", ms: Date.now() - started, ok: false, reason: "timeout" });
+    return aiFail("timeout");
   } finally {
     clearTimeout(timer);
+  }
+  if (lastStatus !== null && (lastStatus === 401 || lastStatus === 402 || lastStatus === 403 || lastStatus >= 500)) {
+    return aiFail("upstream", lastStatus);
   }
   return aiFail("no_facts");
 }
