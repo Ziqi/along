@@ -42,7 +42,10 @@ export type LiveSlice = {
   essays: Record<string, TopicEssay>;
   essayPending: boolean;
   essayTarget: string | null;
+  /** A 检索 failure with no card to hang it on ("先写出三条"). Per-card failures live in `essayErrors`. */
   essayError: string | null;
+  /** Card id → why its 检索 failed; cleared when that card is asked again or answered. */
+  essayErrors: Record<string, string>;
   flash: string | null;
   jotOpen: boolean;
   /** Which face the pad opens on: a note to keep, or a line to say. */
@@ -67,7 +70,8 @@ export type LiveSlice = {
   setCoachError: (msg: string | null) => void;
   setEssay: (essay: TopicEssay | null, coachId?: string, keepPending?: boolean) => void;
   setEssayPending: (on: boolean, coachId?: string | null) => void;
-  setEssayError: (msg: string | null) => void;
+  /** With a card id the failure belongs to that card; without, it is the general line. */
+  setEssayError: (msg: string | null, coachId?: string) => void;
   ping: (msg: string) => void;
   setJotOpen: (on: boolean, mode?: "note" | "say") => void;
   setEngineError: (msg: string | null) => void;
@@ -119,6 +123,7 @@ export const HUD_BLANK = {
   // A 检索 that failed in the last class is not this class's business, and
   // 停写 does not carry over: every class opens with the coach following.
   essayError: null,
+  essayErrors: {},
   autoCoach: true,
   intent: "",
   seq: 0,
@@ -152,6 +157,7 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
   essayPending: false,
   essayTarget: null,
   essayError: null,
+  essayErrors: {},
   flash: null,
   jotOpen: false,
   jotMode: "note",
@@ -236,13 +242,17 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
     const card = (coachId ? get().coaches.find((c) => c.id === coachId) : null) ?? get().coach;
     const id = card?.id ?? coachId;
     const essays = { ...get().essays };
+    const essayErrors = { ...get().essayErrors };
     if (id) {
       if (essay) essays[id] = essay;
       else delete essays[id];
+      // This card is being asked or answered: its old failure is over. Other cards keep theirs.
+      delete essayErrors[id];
     }
     set({
       essay,
       essays,
+      essayErrors,
       essayPending: keepPending ? true : get().essayPending,
       essayTarget: keepPending ? (coachId ?? card?.id ?? get().essayTarget) : get().essayTarget,
       essayError: null,
@@ -254,7 +264,16 @@ export const createLiveSlice: StateCreator<AppState, [], [], LiveSlice> = (set, 
       essayTarget: on ? (coachId ?? get().coach?.id ?? null) : get().essayTarget,
       essayError: on ? null : get().essayError,
     }),
-  setEssayError: (msg) => set({ essayError: msg }),
+  setEssayError: (msg, coachId) => {
+    if (!coachId) {
+      set({ essayError: msg });
+      return;
+    }
+    const essayErrors = { ...get().essayErrors };
+    if (msg) essayErrors[coachId] = msg;
+    else delete essayErrors[coachId];
+    set({ essayErrors });
+  },
   ping: (msg) => {
     set({ flash: msg });
     window.setTimeout(() => {

@@ -97,7 +97,7 @@ src/lib/engine/context.ts         EngineContext：store、nav、api（服务函�
 src/lib/engine/listen-runtime.ts  麦与后端：xAI STT 先试两次，仍失败才换浏览器识别，并把 sttBackend / sttNote 写进 store 让学生看见；死掉的控制器不能再驱动 runtime；每个状态变化都过状态机
 src/lib/engine/caption-pipeline.ts 字幕进、中文出：只译**已定型**的行（识别器说这句完了，或开头后过了 2.4 秒合并窗），一次最多 4 行，追最新，3 路在途、保留 12 条，每条 3 次后标「未译」；rate_limited 不算一次、整队歇 8 秒；unavailable 一次即标；状态全在实例上
 src/lib/engine/coach-runtime.ts   教练：一次一张、永远写最新一拍，在途时只记「再来一张」，代次失效
-src/lib/engine/deep-runtime.ts    检索：每卡代次，最多 2 路，其余排队
+src/lib/engine/deep-runtime.ts    检索：每卡代次，最多 2 路，其余排队；等待与失败都按卡记（占位草稿 = 检索中，essayErrors[卡] = 失败），一张卡的结果不碰另一张
 src/lib/engine/note-runtime.ts    记要点：先落纪要，另一半后台翻译
 src/lib/engine/say-runtime.ts     「我想说」：中文一句 → 课上能开口的英文一句，记成 src:"say" 的随手记
 src/lib/engine/structure-runtime.ts  课程脉络：心跳里用 segmenter 按教练话题切段，段收口调一次 Flash 写标题与要点，首段给课起标题；「刚才讲了什么」按需
@@ -189,7 +189,7 @@ idle → arming → listening ⇄ paused → ending → ended → (arm) arming
 
 - 每句字幕都要过一次翻译，量最大、最赶时间 → 最快的非推理模型（首字约 0.5 s、约 200 tok/s，$1.25/$2.50 每百万），80 token、8 s 超时。
 - 教练要判对话题、写对三条 → `grok-4.6`（官方称最聪明也最快的模型）`reasoning_effort: low`，10 s 不到再退最快模型 10 s。代价是慢的一拍最多等 20 s；`COACH_PRIMARY_MS` 要按实测 p95 调，别拍脑袋。
-- 检索先用最快模型 + `web_search`（Responses API，15 s）拿事实，再让 4.6 只根据事实写四十秒（12 s）。不用 4.6 直接联网：慢一倍、贵一倍，且容易把议论当事实。
+- 检索先用最快模型 + `web_search`（Responses API，20 s）拿事实，再让 Flash 与 4.6 **并行**只根据事实写四十秒（各 20 s，4.6 过门优先）。不用 4.6 直接联网：慢一倍、贵一倍，且容易把议论当事实；也不再让 4.6 先写 12 s 再退 Flash——它写这么多字段常要 10–15 s，串着几乎次次先超时。
 - 纪要正文让最快模型和 4.6 **同时**写一稿，装配器取过门的；多花一份 token 换一次点击就出讲义。
 - `FLASH_MODELS` 末位的 `grok-4.3` 是推理模型，只在前两个 4.20 别名都 400/404 时才会到；真到了会明显变慢，日志里 `translate · grok-4.3` 一出现就该换掉。
 
@@ -268,9 +268,15 @@ UI：没有正文时不要渲染 Contents/Map 当 PART 1。标题不要拼 `· �
 
 未登录 = 本机缓存。登录后 `recap-cloud` 按 user 存 40 堂，服务端每次推送后只保留最新 40 行。删除 = 本机 removed id + 服务端 `class_session_tombstones` 行；upsert 遇到墓碑直接跳过，另一台设备 hydrate 时会拉到墓碑并删掉本机副本，课不会复活。
 
+### P1（9 月 10 日）— 「模型没在时限内答完」反复出现；两张卡同时检索有一张不显示
+
+**原因一（时限）**：写稿那步是 4.6 低推理 12 s，不够再退 Flash 10 s——4.6 写这么多字段的 JSON 常要 10–15 s，几乎每次都先超时再退，Flash 再慢一点两边都超时，客户端就直接把服务端的 `timeout` 文案贴出来。检索那步 15 s 也短，Responses API 联网常要 10–20 s，超了被当成「没检索到」。**现状**：搜索 20 s；写稿 Flash 与 4.6 **并行**各 20 s，4.6 过门优先，谁过门用谁；搜索和写稿的真实错误码传到客户端，客户端按码写人话（`humanDeepError`）。
+
+**原因二（互相覆盖）**：检索的等待和失败是三个全局字段（`essayPending / essayTarget / essayError`）。A 失败、B 还在跑时，A 的错误只在 `essayTarget === A` 时显示，而 target 是 B，A 就什么都不显示；B 成功时 `setEssay` 又把 `essayError` 清空，A 的失败彻底消失。**现状**：失败按卡记（`essayErrors[cardId]`），等待用占位草稿按卡记（排队的卡也立刻有占位），`setEssay` 只清本卡的失败；暂停 / 结课清掉所有在途和排队的占位，不再永远「检索中」。回归核对 `deep-runtime.test.ts`。
+
 ### P2 — DeepSearch
 
-曾 2 分钟 + 全局锁卡死。现最快模型 + `web_search` 检索，有事实后 4.6 写四十秒（不联网）。每卡 gen，最多 2 路。不要用 4.6 当搜索引擎，也不要用没检索到的议论充完稿。深要深在事实、数字、能讲四十秒的段落，不要重复教练 1.2.3。
+曾 2 分钟 + 全局锁卡死。现最快模型 + `web_search` 检索（20 s），有事实后 Flash 与 4.6 并行写四十秒（各 20 s，不联网，4.6 过门优先）。每卡 gen，最多 2 路。不要用 4.6 当搜索引擎，也不要用没检索到的议论充完稿。深要深在事实、数字、能讲四十秒的段落，不要重复教练 1.2.3。
 
 ### P1（9 月 8 日）— 听写变差、一直重复、暂停后翻译全失败
 
